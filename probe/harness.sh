@@ -260,28 +260,38 @@ capsule_boot() {
   (cd "$dir" && in_ns_as_human "$ns" "$runner/bin/microvm-run" >"$log" 2>&1 &)
 }
 
-# Poweroff over ssh, *then* terminate. The volume holds real work so the unmount
-# has to be clean, and firecracker does not exit when the guest halts (CLAUDE.md)
-# — which is also why this waits on the VMM rather than on the guest: the VMM
-# holds the tap until it exits, and the next boot dies with EBUSY on TUNSETIFF
-# if it has not. Nonzero if the VMM is still there at the end of the wait.
+# Poweroff over ssh, *then* terminate. The volume holds real work, so the
+# unmount has to be clean before anything is killed.
+#
+# It waits on the **guest**, not on the VMM, and that distinction is the whole
+# of it: firecracker does not exit when the guest powers off (CLAUDE.md) — it
+# halts the vCPU and keeps the tap. An earlier version polled `vm_running` for
+# twenty seconds first, i.e. waited for the one event this hypervisor is
+# documented never to produce, and then reported the timeout as the teardown
+# cost: 22.68 s, of which 22 was the poll. A figure that measures its own
+# patience is worse than no figure.
+#
+# The guest stops answering when it halts, which is the thing that actually has
+# to finish before terminating is safe. Nonzero if the VMM outlives SIGKILL.
 halt_guest() {
   local ns=$1 addr=$2 vm=$3
   vm_running "$vm" || return 0
   guest_ssh "$ns" "$addr" root 'systemctl --no-block poweroff' >/dev/null 2>&1 \
     || echo "   ssh poweroff failed; terminating the VMM instead" >&2
-  for _ in $(seq 20); do
-    vm_running "$vm" || break
-    sleep 1
+  for _ in $(seq 100); do
+    nsping "$ns" "$addr" >/dev/null 2>&1 || break
+    sleep 0.2
   done
-  if vm_running "$vm"; then
-    pkill -f -- "microvm@$vm"
-    sleep 2
-    vm_running "$vm" && pkill -9 -f -- "microvm@$vm"
-  fi
-  for _ in $(seq 20); do
+  vm_running "$vm" || return 0
+  pkill -f -- "microvm@$vm"
+  for _ in $(seq 50); do
     vm_running "$vm" || return 0
-    sleep 1
+    sleep 0.1
+  done
+  pkill -9 -f -- "microvm@$vm"
+  for _ in $(seq 50); do
+    vm_running "$vm" || return 0
+    sleep 0.1
   done
   return 1
 }

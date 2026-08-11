@@ -185,12 +185,24 @@ check "repository: the guest has no remote" deny \
 check "repository: no alternates to a shared object store" deny \
   g test -e "$GUEST_PATH/.git/objects/info/alternates"
 
-# Runtime. One boot in the journal — and the interesting half is *why*: the
-# guest's root is tmpfs, so the journal is in guest RAM and cannot carry a
-# previous capsule's boots whatever the volume holds. Satisfied by the
+# Runtime. No previous boot survives in the journal — and the interesting half
+# is *why*: the guest's root is tmpfs, so the journal is in guest RAM and cannot
+# carry a previous capsule's boots whatever the volume holds. Satisfied by the
 # mechanism, not by the freshness discipline.
-check "runtime: exactly one boot in the journal" ok \
-  g_root "test \"\$(journalctl --list-boots | wc -l)\" -eq 1"
+#
+# Asked as a pair against `-b -1`, not as a line count. Run 1 counted the lines
+# of `journalctl --list-boots` and expected 1; it reported a red on a property
+# that almost certainly held, because that listing prints a header. Parsing a
+# human-readable table to establish a security-adjacent property is the defect,
+# not the off-by-one — and a bare "no previous boot" would pass just as well
+# against a journalctl that cannot run at all, hence the `ok` half. The raw
+# count rides along as a figure so the next run explains the last one.
+check "runtime: the current boot has a journal" ok \
+  g_root "journalctl -b 0 -n 1 --no-pager"
+check "runtime: no previous boot survives in it" deny \
+  g_root "journalctl -b -1 -n 1 --no-pager"
+measure "runtime: journalctl --list-boots lines (header included)" \
+  "$(g_root 'journalctl --list-boots --no-pager | wc -l' 2>/dev/null || echo '?')"
 
 # Temporary state, and the caches are the load-bearing part: they live on the
 # volume deliberately, so a fresh volume discards the build cache. That is
@@ -262,7 +274,11 @@ echo "== stage 4: does it actually go away, and what did freshness cost =="
 # guest powers off — it halts the vCPU and keeps the tap, and the next boot dies
 # with EBUSY on TUNSETIFF. A freshness claim that does not tear down is measuring
 # the wrong thing.
-timed "teardown (poweroff over ssh, then the VMM)" \
+#
+# Run 1's 22.68 s here was the harness waiting out a VMM exit that this
+# hypervisor never produces, not a teardown cost. `halt_guest` now waits on the
+# guest going quiet; discard the earlier figure rather than comparing to it.
+timed "teardown (guest halts, then the VMM is terminated)" \
   halt_guest "$NS" "$GUEST_ADDR" "$VM"
 check "no VMM process remains" deny vm_running "$VM"
 check "the tap survives its VMM" ok ip netns exec "$NS" ip link show "$TAP"
