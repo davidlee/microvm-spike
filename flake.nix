@@ -337,6 +337,11 @@
         pkgs.firecracker
         pkgs.just
         microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
+        # stdenv's PATH carries plain `pkgs.bash`, which is built without readline
+        # or progcomp: running `bash` in here gave `complete: command not found`
+        # and a prompt full of literal \[ \]. `packages` comes first, so this puts
+        # the real one back. Not repo-specific — every nix devshell does it.
+        pkgs.bashInteractive
       ];
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"

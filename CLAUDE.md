@@ -5,6 +5,8 @@ Firecracker microVM used to confine a coding agent working on one target repo
 [README.md](./README.md) is usage; [NOTES.md](./NOTES.md) is rationale, gaps and
 things deliberately not built. Read NOTES before proposing changes — several
 obvious-looking ideas are already recorded there as considered-and-rejected.
+[PLAN_B.md](./PLAN_B.md) is the non-firecracker shapes; [PLAN_C.md](./PLAN_C.md)
+is what N capsules on one host would cost, and is scoping, not a commitment.
 
 ## Working here
 
@@ -111,7 +113,7 @@ which shape nearly every decision here:
   change state, and a child that exited *before* the call has already been
   reaped and forgotten — so `capsule-host` sat blocked on its watch loop, with
   both services dead at bind time, looking healthy and serving nothing.
-  `wait -n "''${children[@]}"`: with explicit pids bash keeps each status until
+  `wait -n "${children[@]}"`: with explicit pids bash keeps each status until
   waited on.
 - **The two paths cannot see each other by probing.** `capsule-host`'s port
   check is a connect from the host, and both units deny that address

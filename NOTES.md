@@ -22,6 +22,8 @@ work — no more.
 | `vm/capsule.nix`             | the agent jail                                      |
 | `.vm/<name>/`                | per-VM state: volume images, API socket (gitignored)|
 | `.vm/host/`                  | the bare mirror, proxy config + logs (gitignored)   |
+| `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
+| `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
 
 The split is load-bearing, not tidiness: the perimeter is where nearly all the
 policy lives and it is the only part that ports to a non-firecracker jail
@@ -622,7 +624,10 @@ second-order to it. The confinement's job is to bound what the agent can reach
       build input rather than a control. Keep that asymmetry explicit or the
       whole perimeter argument leaks.
     - **One target chosen ≠ several at once.** The parameterised single-target
-      version is what got built, and it is an afternoon. *Concurrent* capsules is
+      version is what got built, and it is an afternoon. What the other one costs
+      is now written down — [PLAN_C.md](./PLAN_C.md), which starts from the
+      observation that the guest's address lives in its *closure*, so N capsules
+      naively means N store images. *Concurrent* capsules is
       a different job: `net.nix` becomes per-instance (tap name, /30, MAC, two
       ports each), the units become templates (`capsule-proxy@<target>`) with a
       uid pair each, and the host's own config grows a per-tap nftables drop and
@@ -640,3 +645,31 @@ second-order to it. The confinement's job is to bound what the agent can reach
     Untested: a second target. The parameterisation is only *claimed* until one
     exists, and the likely friction is in the guest — `extraTools`, the cache
     set, and the sizes are all this target's toolchain wearing a general name.
+
+17. **More than one capsule at a time — scoped, not started.**
+    [PLAN_C.md](./PLAN_C.md) is the list of what a plan has to settle, with the
+    costs attached. The three things worth knowing without reading it:
+
+    - **The deciding cost is the guest image, not the plumbing.** Tap, MAC and
+      /30 reach the guest through its config today, and its store image is
+      generated per config, so the obvious design pays N images and rebuilds all
+      of them on every `dev-tools` bump. Getting the per-instance values out of
+      the closure (DHCP on the tap, or a boot-time step) buys one image and N
+      small runners — and the guest's proxy URL and git remote currently name the
+      host address at eval time, which is what makes that harder than it sounds.
+      Measure `nix path-info -Sh .#capsule` before choosing.
+    - **No daemon, and the premise that suggests one is wrong.** Nix runs nothing
+      at run time here: `vm` is build-then-exec. Everything a dispatcher would do
+      is systemd's, and microvm.nix's host module already models it — which is
+      why the VMM half of item 11 should be done *with* this work rather than
+      before or after it. Per-instance ceilings stop being optional at N anyway
+      (item 12).
+    - **Something must enumerate instances** — `nix run .#<attr>` and NixOS users
+      are eval-time — but the host's *firewall* need not: one wildcard
+      `iifname "vm-cap*"` drop plus one `extraInputRules` accept covers every
+      future capsule, so adding one never touches `~/flakes`. That moves the
+      fail-closed check to a wildcard rule match, which has to be tested rather
+      than assumed.
+
+    Mixed targets stays deferred, with the instance record carrying its own
+    target so it remains a relaxation rather than a rewrite (item 16).
