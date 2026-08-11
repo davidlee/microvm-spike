@@ -46,6 +46,10 @@
 
   proxyState = "/var/lib/capsule-proxy";
 
+  # Same derivation `perimeter/` uses — basename of the repo, not `target.name`,
+  # so a host that points `repo` somewhere else still names the mirror sync made.
+  mirror = "${cfg.stateDir}/${baseNameOf cfg.repo}.git";
+
   # `repo` is baked into the programs above, so it is deliberately not here:
   # one value, one place. These are the paths that differ from the foreground
   # path's defaults, which are relative to a repo root no unit has.
@@ -261,7 +265,25 @@ in {
         # The bind address exists only while the tap does. Skipped rather than
         # failed when it doesn't.
         unitConfig.ConditionPathExists = "/sys/class/net/${net.tap}";
-        environment = env;
+        # The daemon's uid does not own the mirror — `capsule-sync` creates it as
+        # the human — and git 2.35+ refuses to operate in a repository owned by
+        # someone else (`detected dubious ownership`), which stops `upload-pack`
+        # dead and leaves the guest unable to clone or fetch. The exception has
+        # to be in *protected* configuration to be honoured at all, and
+        # `GIT_CONFIG_*` is the `command` scope, which qualifies; a config file
+        # inside the mirror would not.
+        #
+        # This is the safe direction of the exception: it tells the serving uid
+        # to trust a repo the human owns. The reverse — the human's git trusting
+        # a repo the serving uid can write — is the escalation in NOTES item 18,
+        # and no exception is added for it.
+        environment =
+          env
+          // {
+            GIT_CONFIG_COUNT = "1";
+            GIT_CONFIG_KEY_0 = "safe.directory";
+            GIT_CONFIG_VALUE_0 = mirror;
+          };
         serviceConfig =
           confined
           // {
