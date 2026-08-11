@@ -809,6 +809,31 @@ second-order to it. The confinement's job is to bound what the agent can reach
     retraction was an artefact of reproducing in a different environment, which is
     the same `n = 1` trap in the other direction.
 
+    **Both programs then ran against a real fresh capsule**, which is what the two
+    hand commands only modelled. Provision: 32 MiB in, worktree populated at the
+    named commit on `edge`, clean. Collect: 32.10 MiB out at 118 MiB/s,
+    `transfer.fsckObjects` passed, `ulimit -f` untouched, and exactly one ref
+    landed — `refs/capsule/capsule/edge`, no `refs/tags/*`, which is the
+    `--no-tags` claim holding in practice rather than in argument.
+
+    **The first collect per capsule always pays a full transfer**, and that is the
+    price of quarantining rather than a defect: a host-authored repo cannot share
+    objects with `~/dev/doctrine`, so 32 MiB crosses the link and a second copy
+    lands on disk even though the host already had every object. Later collects
+    are incremental, which is most of why the quarantine is kept. `--depth` would
+    cut the first one and breaks the second step into the real repo;
+    `objects/info/alternates` pointing at the target repo would remove the copy
+    and make the exhibit non-self-contained, which defeats the point of keeping
+    it. So the cost stands: N capsules is N full first-fetches and N × repo on
+    disk. Trivial at 3-4 on a dev machine, not at ranch scale — and it is the
+    per-instance disk figure that was asked for.
+
+    The doubled segment in `refs/capsule/capsule/edge` is the default instance
+    name meeting the namespace, not redundancy: the quarantine is per capsule
+    *and* the refs are namespaced, because `just fetch` merges several capsules'
+    refs into one real repo and that is where the name has to survive. It reads
+    correctly the moment a capsule is called anything else.
+
     Not measured: git over the netns unix-socket `ProxyCommand` (item 17 crossed
     it with socat and raw bytes only), and whether `transfer.fsckObjects` rejects
     anything the old push path accepted.
