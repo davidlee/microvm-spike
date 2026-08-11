@@ -107,6 +107,18 @@ which shape nearly every decision here:
   time the other can keep its port. It now preflights both ports and uses
   `wait -n` with an INT/TERM trap; if a bind fails anyway, look for strays with
   `ss -lntp`.
+- **`wait -n` must name its pids.** Bare `wait -n` waits for the next job to
+  change state, and a child that exited *before* the call has already been
+  reaped and forgotten — so `capsule-host` sat blocked on its watch loop, with
+  both services dead at bind time, looking healthy and serving nothing.
+  `wait -n "''${children[@]}"`: with explicit pids bash keeps each status until
+  waited on.
+- **The two paths cannot see each other by probing.** `capsule-host`'s port
+  check is a connect from the host, and both units deny that address
+  (`capsule-gitd` allows only the guest; `capsule-proxy` denies RFC1918), so
+  systemd drops the probe and every port reads as free. Hence the explicit
+  `systemctl is-active` refusal in the injected `preflight` — systemd-shaped, so
+  it lives at the call site in `flake.nix`, not in `perimeter/`.
 - **`git+file:` inputs read committed HEAD.** Changes to the target's flake need
   a commit there before `nix flake update target` sees them. Uncommitted work
   in that repo is invisible to the capsule.

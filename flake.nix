@@ -187,6 +187,23 @@
           exit 1
         fi
 
+        # The other path, if this host runs it. Its own port check cannot see
+        # the units: both deny the host's address (git-daemon allows only the
+        # guest, the proxy denies RFC1918), so systemd drops the connect probe
+        # and every port looks free — after which the real bind fails and this
+        # composition serves nothing while appearing to run. systemd-shaped, so
+        # it is injected here rather than living in perimeter/.
+        if command -v systemctl >/dev/null 2>&1; then
+          for unit in capsule-proxy capsule-gitd; do
+            if systemctl is-active --quiet "$unit"; then
+              echo "capsule-host: $unit is active — the unit path owns the ports" >&2
+              echo "  and the mirror. Use one path or the other:" >&2
+              echo "  systemctl stop capsule-proxy capsule-gitd" >&2
+              exit 1
+            fi
+          done
+        fi
+
         # The two services are the guest's only reachable surface, so refuse to
         # offer them at all when the host-side half of the perimeter is gone.
         case "$(perimeter_state)" in

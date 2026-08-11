@@ -280,8 +280,14 @@
       # INT/TERM as well as EXIT, and `wait -n` so that any child dying tears
       # the others down instead of leaving one holding a port — or, for the
       # watch, serving egress past a perimeter that has gone.
+      #
+      # The pids are named explicitly, and that is load-bearing: bare `wait -n`
+      # waits for the next job to *change state*, and a child that exited before
+      # the call was already reaped and forgotten. Both services failing at bind
+      # time therefore left this shell blocked on the watch loop, looking healthy
+      # and serving nothing. With pids, bash keeps each status until waited on.
       trap 'kill "''${children[@]}" 2>/dev/null' EXIT INT TERM
-      wait -n || true
+      wait -n "''${children[@]}" || true
       echo "capsule-host: a service exited — shutting down" >&2
       exit 1
     '';
