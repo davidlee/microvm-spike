@@ -652,24 +652,59 @@ second-order to it. The confinement's job is to bound what the agent can reach
 
     - **The deciding cost is the guest image, not the plumbing.** Tap, MAC and
       /30 reach the guest through its config today, and its store image is
-      generated per config, so the obvious design pays N images and rebuilds all
-      of them on every `dev-tools` bump. Getting the per-instance values out of
-      the closure (DHCP on the tap, or a boot-time step) buys one image and N
-      small runners — and the guest's proxy URL and git remote currently name the
-      host address at eval time, which is what makes that harder than it sounds.
-      Measure `nix path-info -Sh .#capsule` before choosing.
+      generated per config, so the obvious design pays N image blobs — N × disk,
+      and N × *pack* time on every `dev-tools` bump. Not N × build: the closure
+      is almost entirely shared. Getting the per-instance values out of the
+      closure buys one image and N small runners, and there are two of them, not
+      one: the guest's address, and the **base commit**, which a capsule is
+      usually pinned to and which `capsule-clone` would bake in the same way the
+      remote already is. A kernel param does *not* work for either — it lands in
+      `toplevel` and so in the closure. Measure `nix path-info -Sh .#capsule`
+      before choosing, and see the netns option below, which makes the guest
+      bit-identical without any of it.
     - **No daemon, and the premise that suggests one is wrong.** Nix runs nothing
       at run time here: `vm` is build-then-exec. Everything a dispatcher would do
       is systemd's, and microvm.nix's host module already models it — which is
       why the VMM half of item 11 should be done *with* this work rather than
       before or after it. Per-instance ceilings stop being optional at N anyway
       (item 12).
-    - **Something must enumerate instances** — `nix run .#<attr>` and NixOS users
-      are eval-time — but the host's *firewall* need not: one wildcard
-      `iifname "vm-cap*"` drop plus one `extraInputRules` accept covers every
-      future capsule, so adding one never touches `~/flakes`. That moves the
-      fail-closed check to a wildcard rule match, which has to be tested rather
-      than assumed.
+    - **A capsule can reach another capsule's tap, and the forward drop is not
+      what stops it.** B's tap address is a *host* address, so a packet from A
+      to it is INPUT, not forward, and Linux accepts an address on any interface
+      from any interface. The drop never sees it. Precondition is guest root —
+      the same precondition the drop itself exists for — and what actually holds
+      the line today is the units' `IPAddressAllow`/`Deny`, which the foreground
+      path has no equivalent of. So the tempting host-config simplification (one
+      wildcard `iifname "vm-cap*"` accept, written once and never touched again)
+      is exactly wrong: it *grants* the reach. The accept has to pair iifname
+      with destination address. The drop can still be a wildcard.
+    - **A netns per capsule dissolves most of the above, and has been spiked:
+      it holds.** Identical /30 and MAC in every capsule (so one image, with no
+      DHCP and no boot-time step), no path from A to B, and — because
+      `net.ipv4.ip_forward` is per-netns — a forward control that is *ours*
+      rather than one shared with docker and tailscale. `spike/netns.sh` models
+      two capsules and a guest that already has root: it cannot reach the
+      upstream, cannot reach the other capsule, and cannot be reached from
+      outside even by something holding a route to it, while a process in the
+      namespace reaches the internet normally. Flipping the namespace's
+      `ip_forward` to 1 lets the guest straight out, which is what proves the
+      switch is the thing doing the work.
+
+      Three costs it found: a guest can reach its own capsule's *egress*
+      address (weak host model again, one scope down — bind explicitly, drop on
+      the veth); whatever aggregates the capsules' egress forwards, so
+      proxy-to-proxy needs an interface-pair drop; and DNS needs
+      `DNSStubListenerExtra=` plus `/etc/netns/<ns>/resolv.conf`, since loopback
+      is per-namespace and `127.0.0.53` is not in it.
+
+      The consequence worth reading this item for: it largely retires the
+      "part of the perimeter is not in this repo" problem in item 7. The control
+      becomes a sysctl inside a namespace this repo creates, the host's input
+      chain leaves the guest path, and the runtime nftables verification plus
+      its sudoers rule go with them. The host still has to forward and
+      masquerade — but for the *proxy's* egress, with nothing about the guest's
+      confinement resting on it. Cost is that namespace creation is root-side,
+      so the host module stops being optional.
 
     Mixed targets stays deferred, with the instance record carrying its own
     target so it remains a relaxation rather than a rewrite (item 16).

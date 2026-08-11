@@ -261,6 +261,28 @@
       '';
     };
 
+    # Throwaway, and deliberately in the tree rather than in a scratch file so
+    # shellcheck runs on it and its tools are pinned: does a network namespace
+    # per capsule hold up (PLAN_C.md, "Netns per capsule")? Needs root, models
+    # two capsules with identical addressing and no VM. Delete this and
+    # ./spike/ once that question is settled either way.
+    spike-netns = pkgs.writeShellApplication {
+      name = "spike-netns";
+      # The script's whole job is running commands that must fail.
+      bashOptions = ["nounset" "pipefail"];
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.iputils
+        pkgs.nftables
+        pkgs.procps
+        pkgs.gawk
+        pkgs.coreutils
+        pkgs.bash # /dev/tcp, via `timeout 5 bash -c`
+        pkgs.bind.dnsutils
+      ];
+      text = builtins.readFile ./spike/netns.sh;
+    };
+
     # Clean shutdown without a console. The runner's own microvm-shutdown is
     # SendCtrlAltDel over the API socket, which systemd maps to
     # ctrl-alt-del.target (a *reboot*) and which the guest may ignore outright
@@ -323,7 +345,7 @@
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
-        inherit vm vm-stop capsule-net capsule-host capsule-sync;
+        inherit vm vm-stop capsule-net capsule-host capsule-sync spike-netns;
         default = self.packages.${system}.capsule;
       };
 
@@ -334,6 +356,7 @@
         capsule-net
         capsule-host
         capsule-sync
+        spike-netns
         pkgs.firecracker
         pkgs.just
         microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
