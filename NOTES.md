@@ -104,7 +104,14 @@ chroot/seccomp/cgroup setup.
 ## Guest user model
 
 The agent runs as `agent` (uid 1000, matching the host user for the day the
-volume gets loop-mounted). `su -` gets root with no password.
+volume gets loop-mounted), with **no sudo and no su**. Root is reachable only
+by key over ssh from the host (`PermitRootLogin = "prohibit-password"`), so
+administration happens from outside the jail and the agent has no escalation
+path. The trade: if sshd or the tap breaks, there is no root at all — fix it
+declaratively and reboot the VM.
+
+(`initialHashedPassword = ""` was tried first and doesn't work: it only applies
+at account creation, and PAM rejects empty passwords for `su` without `nullok`.)
 
 This is **not** the perimeter. Egress filtering and the `refs/heads/capsule/*`
 restriction are both enforced on the host, where the guest — root or not —

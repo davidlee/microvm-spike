@@ -11,6 +11,10 @@
   # survive reboots.
   home = "${work}/home";
   remote = "git://${net.host}:${toString net.gitPort}/doctrine.git";
+
+  adminKeys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
+  ];
   proxy = "http://${net.host}:${toString net.proxyPort}";
 
   # Fetch the real history from the host's mirror. Split out from the seed
@@ -128,9 +132,7 @@ in {
     group = "users";
     home = home;
     createHome = false; # on the volume, made by capsule-seed
-    openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
-    ];
+    openssh.authorizedKeys.keys = adminKeys;
   };
 
   # A host->guest door, so the console isn't the only session. It widens
@@ -140,7 +142,7 @@ in {
     enable = true;
     settings = {
       PasswordAuthentication = false;
-      PermitRootLogin = "no";
+      PermitRootLogin = "prohibit-password";
     };
     # /etc is tmpfs here, so keys kept there would be regenerated every boot
     # and your known_hosts would fight it. Park them on the volume.
@@ -152,9 +154,10 @@ in {
     ];
   };
   services.getty.autologinUser = lib.mkForce "agent";
-  # Console admin: `su -`, no password. Meaningless as a barrier inside a VM
-  # whose console is already a root shell by construction.
-  users.users.root.initialHashedPassword = "";
+
+  # Root is reachable by key from the host only — no password, no sudo, no su
+  # for the agent. Admin is a thing you do from outside the jail.
+  users.users.root.openssh.authorizedKeys.keys = adminKeys;
 
   # First boot: prepare the volume and pull the checkout. Non-fatal if the
   # host side isn't running yet — `capsule-clone` retries.
@@ -194,8 +197,8 @@ in {
       capsule-push <name>   push HEAD to capsule/<name> on the mirror
       just test / just web-build
 
-    running as `agent` (uid 1000). `su -` for root, no password.
-    ssh from the host: ssh agent@${net.guest}
+    running as `agent` (uid 1000) — no sudo, no su.
+    from the host: ssh agent@${net.guest}   admin: ssh root@${net.guest}
     $HOME is ${home} — on the volume, so ~/.claude survives reboots.
 
     egress: allowlist proxy at ${proxy} only — no default route.

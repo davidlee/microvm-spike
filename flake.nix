@@ -70,7 +70,7 @@
     # privilege at all.
     capsule-net = pkgs.writeShellApplication {
       name = "capsule-net";
-      runtimeInputs = [pkgs.iproute2];
+      runtimeInputs = [pkgs.iproute2 pkgs.procps];
       text = ''
         tap=${net.tap}
         case "''${1:-}" in
@@ -78,6 +78,10 @@
             if ip link show "$tap" >/dev/null 2>&1; then
               echo "$tap already up"
               exit 0
+            fi
+            if pgrep -f "microvm@" >/dev/null; then
+              echo "warning: a microvm is already running and is attached to the" >&2
+              echo "         *old* tap — recreating one will not reattach it." >&2
             fi
             sudo ip tuntap add dev "$tap" mode tap user "$USER"
             sudo ip addr add ${net.host}/${toString net.prefix} dev "$tap"
@@ -87,6 +91,14 @@
             echo "durable fix: networking.firewall.trustedInterfaces = [ \"$tap\" ];"
             ;;
           down)
+            # Deleting a tap out from under a running VM silently kills its
+            # NIC: the fd survives, the netdev doesn't, and recreating the tap
+            # attaches to nothing. Only a VM restart recovers it.
+            if pgrep -f "microvm@" >/dev/null && [ "''${2:-}" != "--force" ]; then
+              echo "capsule-net: a microvm is running — stop it first (vm-stop)," >&2
+              echo "             or pass --force to sever its network." >&2
+              exit 1
+            fi
             sudo ip link del "$tap"
             ;;
           *)
@@ -118,7 +130,7 @@
       ConnectPort 443
       Filter "@ALLOW@"
       FilterDefaultDeny Yes
-      FilterExtended On
+      FilterType extended
       FilterCaseSensitive No
       LogLevel Info
       LogFile "@STATE@/tinyproxy.log"
@@ -128,7 +140,7 @@
     # The two host-side services the guest talks to over the p2p link.
     capsule-host = pkgs.writeShellApplication {
       name = "capsule-host";
-      runtimeInputs = [pkgs.git pkgs.tinyproxy pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.iproute2];
+      runtimeInputs = [pkgs.git pkgs.tinyproxy pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.iproute2 pkgs.procps];
       text = ''
         # Both services bind ${net.host}, which only exists while the tap does.
         if ! ip -brief addr show ${net.tap} 2>/dev/null | grep -q ${net.host}; then
@@ -142,17 +154,32 @@
           exit 1
         fi
 
+        root="''${MICROVM_SPIKE_ROOT:-$PWD}"
+        src="''${CAPSULE_REPO:-$HOME/dev/doctrine}"
+        state="$root/.vm/host"
+
+        # git daemon outlives the SIGINT that kills tinyproxy, so a Ctrl-C and
+        # restart would otherwise hit a port it still holds. Match on this
+        # state dir: strays from *this* capsule and nothing else.
+        # Patterns must not start with a dash: pkill would read them as options.
+        for pattern in "tinyproxy -d -c $state/tinyproxy.conf" "base-path=$state"; do
+          if pkill -f -- "$pattern"; then
+            echo "capsule-host: reaped a stray ($pattern)"
+          fi
+        done
+
         for port in ${toString net.proxyPort} ${toString net.gitPort}; do
+          for _ in 1 2 3 4 5; do
+            ss -lnt "sport = :$port" | grep -q ${net.host} || break
+            sleep 0.2
+          done
           if ss -lnt "sport = :$port" | grep -q ${net.host}; then
-            echo "capsule-host: ${net.host}:$port is already bound:" >&2
+            echo "capsule-host: ${net.host}:$port is bound by something else:" >&2
             ss -lntp "sport = :$port" >&2
             exit 1
           fi
         done
 
-        root="''${MICROVM_SPIKE_ROOT:-$PWD}"
-        src="''${CAPSULE_REPO:-$HOME/dev/doctrine}"
-        state="$root/.vm/host"
         mirror="$state/$(basename "$src").git"
         allow="$root/net/egress-allow.txt"
         mkdir -p "$state"
@@ -201,19 +228,71 @@
         exec nix run "$root#$name"
       '';
     };
+
+    # Clean shutdown without a console. The runner's own microvm-shutdown is
+    # SendCtrlAltDel over the API socket, which systemd maps to
+    # ctrl-alt-del.target (a *reboot*) and which the guest may ignore outright
+    # — observed doing nothing here. Ask the guest to power off over ssh
+    # instead, and keep the API route as the fallback.
+    vm-stop = pkgs.writeShellApplication {
+      name = "vm-stop";
+      runtimeInputs = [pkgs.nix pkgs.openssh pkgs.procps pkgs.coreutils];
+      text = ''
+        name="''${1:-capsule}"
+        root="''${MICROVM_SPIKE_ROOT:-$PWD}"
+
+        stopped=0
+        if [ "$name" = capsule ]; then
+          if ssh -o BatchMode=yes -o ConnectTimeout=4 \
+               root@${net.guest} 'systemctl --no-block poweroff' 2>/dev/null; then
+            echo "vm-stop: poweroff requested over ssh"
+            stopped=1
+          fi
+        fi
+
+        if [ "$stopped" = 0 ]; then
+          echo "vm-stop: ssh unavailable, falling back to the API socket"
+          runner=$(nix build --no-link --print-out-paths "$root#$name")
+          (cd "$root/.vm/$name" && "$runner/bin/microvm-shutdown") || true
+        fi
+
+        # Firecracker does NOT exit when the guest powers off: a guest halt
+        # stops the vCPU and leaves the VMM sitting there holding the tap, so
+        # the next `vm capsule` dies with EBUSY. Once the guest is down the
+        # disks are flushed and terminating the VMM is safe.
+        for _ in $(seq 20); do
+          pgrep -f "microvm@$name" >/dev/null || { echo "vm-stop: $name is down"; exit 0; }
+          sleep 1
+        done
+
+        echo "vm-stop: guest halted but the VMM is still up — terminating it"
+        pkill -f -- "microvm@$name" || true
+        sleep 2
+        if pgrep -f "microvm@$name" >/dev/null; then
+          pkill -9 -f -- "microvm@$name" || true
+          sleep 1
+        fi
+        pgrep -f "microvm@$name" >/dev/null && {
+          echo "vm-stop: $name will not die" >&2
+          exit 1
+        }
+        echo "vm-stop: $name is down"
+      '';
+    };
   in {
     nixosConfigurations = vms;
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
-        inherit vm capsule-net capsule-host;
+        inherit vm vm-stop capsule-net capsule-host;
         default = self.packages.${system}.capsule;
       };
 
     devShells.${system}.default = pkgs.mkShellNoCC {
       packages = [
         vm
+        vm-stop
         capsule-net
         capsule-host
         pkgs.firecracker
