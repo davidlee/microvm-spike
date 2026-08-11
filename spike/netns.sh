@@ -16,10 +16,12 @@
 #   root ns                  spk-rt      10.101.0.1/30    <- stage 2 only
 #
 # Stage 1 lives entirely in its own namespaces — the root namespace has no
-# interface, no route and no sysctl in it — and answers the whole question.
-# Stage 2 (--internet) hangs the upstream namespace off the host with forwarding
-# and a masquerade rule, both restored on exit, to prove real egress works and
-# to find what it costs.
+# interface, no route and no sysctl in it — and answers the confinement
+# question. Stage 1b covers the plumbing the shape needs: a tap moved into a
+# namespace, and a way for the human to ssh in without sudo. Stage 2
+# (--internet) hangs the upstream namespace off the host with forwarding and a
+# masquerade rule, both restored on exit, to prove real egress works and to find
+# what it costs.
 #
 # Two deliberate choices, both learned the hard way:
 #
@@ -49,6 +51,8 @@ NFT_TABLE=capspk-nat
 GUEST_NET=10.98.0.0/30
 FORWARD_SAVED=""
 UPLINK=""
+SOCKDIR=""
+HELPERS=()
 
 [ "$(id -u)" = 0 ] || {
   echo "spike-netns: needs root (ip netns)" >&2
@@ -68,13 +72,18 @@ for net in "$GUEST_NET" 10.100.0.0/16 10.101.0.0/30; do
 done
 
 cleanup() {
-  local ns
+  local ns pid
+  for pid in "${HELPERS[@]}"; do
+    kill "$pid" 2>/dev/null
+  done
   for ns in "${NSCAP[@]}" "${NSGST[@]}" "$NSWAN"; do
     ip netns del "$ns" 2>/dev/null
   done
   ip link del spk-rt 2>/dev/null
+  ip link del spk-tapx 2>/dev/null
   nft delete table ip "$NFT_TABLE" 2>/dev/null
   [ -n "$FORWARD_SAVED" ] && sysctl -q -w "net.ipv4.ip_forward=$FORWARD_SAVED"
+  [ -n "$SOCKDIR" ] && rm -rf "$SOCKDIR"
   echo
   echo "cleaned up."
 }
@@ -113,6 +122,29 @@ observe() {
 
 nsping() { ip netns exec "$1" ping -c1 -W2 -n "$2"; }
 nstcp() { ip netns exec "$1" timeout 5 bash -c "exec 3<>/dev/tcp/$2/$3"; }
+
+# A background helper in a namespace, remembered so cleanup can kill it.
+helper() {
+  local ns=$1
+  shift
+  # Quiet: these get SIGTERMed at cleanup and socat announces it, which reads
+  # like a failure at the end of an all-green run. wait_listen is what actually
+  # proves a listener came up.
+  ip netns exec "$ns" "$@" >/dev/null 2>&1 &
+  HELPERS+=("$!")
+}
+
+# Listeners take a moment; poll rather than sleep and hope.
+wait_listen() {
+  local ns=$1 addr=$2 port=$3 i
+  for i in $(seq 20); do
+    if ip netns exec "$ns" ss -lnt 2>/dev/null | grep -qF "$addr:$port"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
 
 # --------------------------------------------------------------------- set-up
 
@@ -207,6 +239,59 @@ check "control: back to 0, blocked again" deny \
 
 # (DNS is a stage 2 question: with nothing routing in stage 1, a resolver
 # failure would prove nothing.)
+
+# -------------------------------------------------------------- stage 1b tests
+#
+# The plumbing the shape needs from iproute2 and a socket relay, tested here so
+# the expensive experiment — microvm.nix's host module with a
+# NetworkNamespacePath drop-in and one real capsule booting — only happens once
+# these are known to work.
+
+echo "== stage 1b: taps, and the way in =="
+
+# microvm.nix creates the tap in a root-side unit (microvm-tap-interfaces@%i),
+# so either that unit takes the same namespace drop-in or the tap is made in the
+# root ns and moved before the VMM starts. Moving is safe *before* a VM attaches
+# — the gotcha in CLAUDE.md is swapping one under a VM that is already running.
+ip tuntap add dev spk-tapx mode tap
+check "a tap created in the root ns can be moved into a capsule ns" ok \
+  ip link set spk-tapx netns capspk-cap0
+check "and is then gone from the root ns" deny \
+  ip link show spk-tapx
+check "a tap can also be created directly inside a capsule ns" ok \
+  ip netns exec capspk-cap1 ip tuntap add dev spk-tapy mode tap
+
+# What the proxy and the git daemon actually need of it: an address on it they
+# can bind. A tap with no VM attached has no carrier, so this is a bind test and
+# not a connectivity test.
+ip -n capspk-cap0 addr add 10.98.1.1/30 dev spk-tapx
+ip -n capspk-cap0 link set spk-tapx up
+helper capspk-cap0 socat TCP-LISTEN:3128,bind=10.98.1.1,reuseaddr,fork /dev/null
+check "a process in the ns can bind the moved tap's address" ok \
+  wait_listen capspk-cap0 10.98.1.1 3128
+
+# Getting in. ssh is the documented way to work in a capsule, and a guest inside
+# a namespace is not reachable from the human's shell — `ip netns exec` needs
+# CAP_SYS_ADMIN, so making every `just ssh` a sudo is not acceptable. The
+# filesystem, unlike the network, is not namespaced: a relay inside the capsule
+# ns listening on a unix socket gives an ssh ProxyCommand with no host-side port
+# allocation and no cross-namespace fd passing to get subtly wrong.
+SOCKDIR=$(mktemp -d)
+helper capspk-g0 socat TCP-LISTEN:22,bind=10.98.0.2,reuseaddr,fork EXEC:"echo CAPSULE-OK"
+wait_listen capspk-g0 10.98.0.2 22
+helper capspk-cap0 socat "UNIX-LISTEN:$SOCKDIR/ssh.sock,fork" TCP:10.98.0.2:22
+sleep 0.5
+
+unix_bridge_works() {
+  local got
+  got=$(timeout 5 socat -u "UNIX-CONNECT:$SOCKDIR/ssh.sock" - 2>/dev/null)
+  [ "$got" = CAPSULE-OK ]
+}
+
+check "the root ns cannot reach the guest's ssh port directly" deny \
+  timeout 3 bash -c 'exec 3<>/dev/tcp/10.98.0.2/22'
+check "a unix socket carries the root ns into the guest's ssh port" ok \
+  unix_bridge_works
 
 # --------------------------------------------------------------- stage 2 tests
 

@@ -690,6 +690,21 @@ second-order to it. The confinement's job is to bound what the agent can reach
       `ip_forward` to 1 lets the guest straight out, which is what proves the
       switch is the thing doing the work.
 
+      The plumbing went with it: a tap created in the root namespace moves into
+      a capsule namespace, is then gone from root entirely, and a process inside
+      can bind an address on it — so `microvm-tap-interfaces@%i` needs no change,
+      it just has to run before the VMM. And ssh gets in over a unix socket
+      (`/run/capsule/<name>/ssh.sock`, an `ssh` `ProxyCommand`), since the
+      filesystem is not namespaced — no privilege, no port allocation, and no
+      socket-activation fd passing. The only unknown left is whether
+      microvm.nix's host module takes a `NetworkNamespacePath=` drop-in on
+      `microvm@%i`.
+
+      Netns applies to the **host-module path only**. The devshell path keeps
+      working with no rebuild and no root, which a namespace cannot do, so the
+      foreground path stays the current tap shape at N=1 — the same split
+      `capsule-host` and `host/services.nix` already have.
+
       Three costs it found: a guest can reach its own capsule's *egress*
       address (weak host model again, one scope down — bind explicitly, drop on
       the veth); whatever aggregates the capsules' egress forwards, so

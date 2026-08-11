@@ -279,6 +279,7 @@
         pkgs.coreutils
         pkgs.bash # /dev/tcp, via `timeout 5 bash -c`
         pkgs.bind.dnsutils
+        pkgs.socat # listeners, and the unix-socket way into a namespace
       ];
       text = builtins.readFile ./spike/netns.sh;
     };

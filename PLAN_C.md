@@ -125,6 +125,8 @@ passing, both stages. What it establishes:
   inside address.
 - **Real egress works**: a process in the namespace reaches the internet over
   the veth, while the guest still cannot with every upstream hop forwarding.
+- **A tap moves into a namespace and stays bindable**, and **a unix socket gets
+  ssh in without privilege** — see [plumbing](#plumbing--settled-by-the-same-spike).
 
 Three costs it also found, none fatal, all needing to be designed in rather than
 discovered later:
@@ -184,26 +186,54 @@ state disappears with the sudoers rule.
 Cost of collecting that: namespace creation is root-side, so the host module
 (item 11) stops being optional for this shape.
 
-Then price the rest:
+### Plumbing — settled by the same spike
 
-- **Getting in.** ssh to the guest is the documented way to work, and a guest
-  reachable only inside a namespace is not reachable from the human's shell.
-  `ip netns exec` needs CAP_SYS_ADMIN, so making every `just ssh` a sudo is not
-  acceptable. The shape that works is a per-capsule socket-activated proxy —
-  `systemd-socket-proxyd` in the capsule's namespace, listening on a host-side
-  port — giving `ssh -p 22NN agent@localhost`. Host→guest only, adds no guest
-  egress. Note the identical guest addresses mean known_hosts keys off the port.
-- Whether microvm.nix's host module tolerates a namespace (a drop-in setting
-  `NetworkNamespacePath=` on `microvm@%i`), or whether the standalone `nix run`
-  path needs `ip netns exec` and therefore stops being usable without root.
-- `capsule-net`, `vm-stop` and `just status` all have to enter the namespace to
-  see anything, including `pgrep`-style liveness checks that currently do not
-  care where they run.
-- Namespace creation is root-side, which is an argument for doing the VMM half
-  of item 11 first rather than alongside.
-- `ConditionPathExists=/sys/class/net/<tap>` in the units is evaluated in the
-  unit's namespace, so it keeps working — but it stops being visible from the
-  host's own netns, which changes how `just status` answers "is the tap there".
+- **The tap does not need microvm.nix to cooperate.** A tap created in the root
+  namespace moves into a capsule namespace cleanly, is then gone from the root
+  namespace entirely (a move, not a clone — nothing in root can delete it out
+  from under the guest), and a process inside can bind an address on it. So
+  `microvm-tap-interfaces@%i` can stay exactly as it is: create, move, then start
+  the VMM. Moving is only unsafe under a VM that is already running, which is the
+  existing CLAUDE.md gotcha and unchanged. Creating the tap directly inside the
+  namespace also works, if ordering turns out to be easier that way.
+- **ssh gets in over a unix socket, and needs no privilege.** `ip netns exec`
+  wants CAP_SYS_ADMIN, so a sudo per `just ssh` was never acceptable. The
+  filesystem is not namespaced: a relay inside the capsule namespace listening on
+  `/run/capsule/<name>/ssh.sock` and connecting to the guest's port 22 is
+  reachable from the human's shell, and verified end-to-end here. So
+  `just ssh <name>` becomes an `ssh` with a `ProxyCommand` against that socket —
+  host→guest only, no host-side port allocation, no guest egress added, and none
+  of the cross-namespace fd-passing subtlety that socket activation would have
+  needed. It also sidesteps identical guest addresses making a mess of
+  known_hosts: the socket path is the identity.
+
+### Plumbing — still unknown
+
+- Whether microvm.nix's host module tolerates a namespace: a drop-in setting
+  `NetworkNamespacePath=` on `microvm@%i`. This is now the *only* open question
+  in the shape, and it is a drop-in experiment rather than a design question.
+- `vm-stop` and `just status` currently read things that do not care which
+  namespace they run in. `pgrep` still works (the PID namespace is untouched),
+  but the ssh poweroff moves to the socket, and "is the tap there" stops being
+  answerable from the root namespace at all —
+  `ConditionPathExists=/sys/class/net/<tap>` in a unit is evaluated in the unit's
+  own namespace, so the units keep working while `just status` needs rewriting.
+- Namespace creation is root-side, so the VMM half of item 11 comes first.
+
+### Where netns applies, and where it does not
+
+A convention this repo holds: *the devshell path keeps working with no rebuild
+and no root*. Namespaces need root, so netns cannot be on that path.
+
+That is not a conflict, it is the split that already exists between
+`capsule-host` and `host/services.nix`. **The foreground path stays the current
+tap shape at N=1** — one capsule, no namespace, no privilege beyond the existing
+single sudo, which is what makes it usable for development. **Netns exists only
+on the host-module path**, which is the real posture and is where N capsules live
+anyway. The convention survives verbatim.
+
+Worth being explicit about, because the other reading — netns everywhere, and
+`sudo` in the dev loop — silently kills a convention that is there for a reason.
 
 Netns is Linux-shaped, so it belongs at the call site and never in `perimeter/`
 — same rule as the nftables check.
@@ -454,12 +484,10 @@ case, not before the dev-machine case.
 
 ## Order of work
 
-1. ~~Spike the netns.~~ **Done — it holds** ([results](#spiked-it-holds)). The
-   remaining unknown is not the namespace but the plumbing around it:
-   whether microvm.nix's host module takes a `NetworkNamespacePath`, and what
-   `just status` and ssh cost once nothing is visible from the root namespace.
-   That is the next thing to try, and it is a `microvm@` drop-in, not a design
-   question.
+1. ~~Spike the netns.~~ **Done — it holds**, along with the tap move and the
+   unix-socket way in ([results](#spiked-it-holds)). One unknown left, and it is a
+   `microvm@` drop-in rather than a design question: does the host module take a
+   `NetworkNamespacePath=`. Try that next, which means step 5 in practice.
 2. **Make the base commit a runtime value** — `capsule-clone <ref>`, persisted on
    the volume. Independent of everything else, needed either way, worth doing
    now.
@@ -711,11 +739,11 @@ Say no to these in the plan, so they don't arrive as scope:
 
 ## Open questions to answer before coding
 
-1. **Does the netns survive contact with microvm.nix?** The namespace itself is
-   [settled](#spiked-it-holds). What is not: whether the host module tolerates a
-   `NetworkNamespacePath=` drop-in on `microvm@%i`, whether the standalone
-   `nix run` path can still work without root, and what ssh and `just status`
-   cost when nothing is visible from the root namespace.
+1. **Does the netns survive contact with microvm.nix?** Narrowed to one thing:
+   whether the host module tolerates a `NetworkNamespacePath=` drop-in on
+   `microvm@%i`. The namespace, the tap move and the way in are all
+   [settled](#spiked-it-holds); the `nix run` path keeps the tap shape at N=1, so
+   it never needs to answer this.
 2. How big is the guest image? (`nix path-info -Sh .#capsule`) — prices how much
    the netns machinery is worth versus simply paying for N closures. At 3-4
    capsules on a dev machine, N closures may still be the better trade.
