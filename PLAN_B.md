@@ -1,10 +1,21 @@
 # Plan B — the same perimeter, a different jail
 
+**Partly superseded, and the change is in this document's favour.** Everything
+below about a served git mirror, `git daemon`, `refs/heads/capsule/*` and a
+second port describes a perimeter that no longer exists: the host initiates git
+in both directions now, so the portable half is *only* the proxy, and the git
+channel is two ordinary programs that take a URL (NOTES item 18). That makes both
+shapes below cheaper — Shape B in particular, where the "guest" is a sandbox on
+the same host and the URL is a local path rather than a daemon on loopback. The
+egress and jail reasoning is unaffected. Read the git parts as history until this
+is rewritten.
+
 The capsule is two things bolted together, and only one of them is portable:
 
 | part | what | portable? |
 | --- | --- | --- |
-| **perimeter** | allowlist proxy, git mirror + `refs/heads/capsule/*` update hook | yes — plain shell + tinyproxy + git |
+| **perimeter** | allowlist proxy (was: proxy + a served git mirror) | yes — plain shell + tinyproxy |
+| **git channel** | host-initiated push and fetch over any git URL | yes — plain shell + git |
 | **egress enforcement** | no default route in the guest | no — mechanism is per-platform |
 | **jail** | firecracker microVM | no — needs KVM |
 | **tool set** | doctrine's `packages.dev-tools` | yes — anywhere nix runs |

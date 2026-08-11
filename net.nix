@@ -4,6 +4,10 @@
 #
 # Imported by flake.nix (which threads it to the guest via specialArgs) and by
 # the host-side NixOS module, so an address is never spelled twice.
+#
+# One port, not two. Git used to be the second: the host served a mirror and the
+# guest pushed to it. The host now initiates git in both directions over ssh, so
+# there is no git service to reach and nothing to allow (NOTES item 18).
 {
   tap = "vm-capsule";
   host = "10.99.0.1";
@@ -11,5 +15,4 @@
   prefix = 30;
   mac = "02:00:00:00:99:02";
   proxyPort = 3128;
-  gitPort = 9418;
 }

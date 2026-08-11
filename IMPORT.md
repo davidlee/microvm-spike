@@ -31,6 +31,16 @@ breaks"* — not a working implementation and not a conformance row.
 
 ### P0. How does a result leave? (`QUE-212`)
 
+> **SETTLED 2026-08-11 — read the records, not this section.** Both legs probed
+> and both work (`EVD-016`); `DEC-192` is `accepted` on the owner's ruling —
+> host-initiated in both directions, git-daemon deleted. `QUE-212` is `answered`.
+> `EVD-017` carries the escalation finding that made deletion the stronger case.
+> **Two claims below are wrong and must not travel:** *"the guest never initiates
+> a connection to the host at all"* — the proxy remains and is guest-initiated;
+> and the host's refspec does not fully decide the destination namespace without
+> `--no-tags`. New residual: `QUE-213` (the fetch ceiling), which blocks P1d.
+> The rest of this section is kept only as the reasoning that got there.
+
 Nothing downstream can be shaped until this is settled. `REQ-451` and `REQ-452`
 are written about a **bounded file snapshot**, and the hazard model that shaped
 them — a file appearing in a shared location — is absent here. So their subject

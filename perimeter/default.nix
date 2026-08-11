@@ -1,26 +1,28 @@
-# The perimeter: an allowlist egress proxy and a git mirror whose update hook
-# confines pushes to refs/heads/capsule/*. This is where nearly all of the
-# policy value lives, and none of it knows what kind of jail is on the other
-# end of the link — see PLAN_B.md.
+# The perimeter: an allowlist egress proxy. This is where the policy value
+# lives, and none of it knows what kind of jail is on the other end of the link
+# — see PLAN_B.md.
+#
+# It used to be two services. The other was a git mirror served to the guest,
+# with an update hook confining pushes to `refs/heads/capsule/*` — all of it
+# there to confine a `receive-pack` the host had to run because the guest was
+# the party that initiated. The host now initiates git in both directions over
+# ssh (host/git-channel.nix), so there is no git service, no hook, no mirror and
+# no second port. NOTES item 18 has the measurement and what it cost.
 #
 # INVARIANT: nothing hypervisor-, tap- or platform-specific belongs in here.
 # A caller may inject exactly two shell fragments — `preflight`, for whatever
-# has to exist before the two services can bind (on firecracker: the tap
-# address), and `watch`, for perimeter state this process does not own and so
-# must keep checking (on Linux: the FORWARD drop on the tap). If you find
-# yourself reaching for `ip`, `nft`, a hypervisor name or a Linux-only tool
-# below, it belongs at the call site instead.
+# has to exist before the proxy can bind (on firecracker: the tap address), and
+# `watch`, for perimeter state this process does not own and so must keep
+# checking (on Linux: the FORWARD drop on the tap). If you find yourself
+# reaching for `ip`, `nft`, a hypervisor name or a Linux-only tool below, it
+# belongs at the call site instead.
 #
-# Four programs rather than one, because the two services want separate uids
-# and separate systemd units (host/services.nix) while the foreground
-# `capsule-host` composition stays the portable path for a host with no
-# systemd at all:
+# Two programs rather than one, because the service wants its own uid and its
+# own systemd unit (host/services.nix) while the foreground `capsule-host`
+# composition stays the portable path for a host with no systemd at all:
 #
-#   sync   create/refresh the mirror, install the ref guard. Runs as the human:
-#          it is the only part that reads the real repo.
 #   proxy  render the tinyproxy config and exec it.
-#   gitd   exec git daemon over the mirror.
-#   host   preflight, then all three plus the injected watch, in the
+#   host   preflight, then the proxy plus the injected watch, in the
 #          foreground, unprivileged.
 #
 # Runtime configuration is environment, not nix, so the allowlist stays an
@@ -28,54 +30,47 @@
 # below are relative to CAPSULE_ROOT unless absolute:
 #
 #   CAPSULE_ROOT         $PWD             repo root
-#   CAPSULE_STATE        .vm/host         mirror
+#   CAPSULE_STATE        .vm/host         host-side state
 #   CAPSULE_PROXY_STATE  $CAPSULE_STATE   proxy conf, log, pid
 #   CAPSULE_ALLOWLIST    $allowlistFile   proxy hostname allowlist
-#   CAPSULE_REPO         $repo            repo to mirror
 #
-# The last two come from the caller (target.nix, via flake.nix or the module's
+# The allowlist comes from the caller (target.nix, via flake.nix or the module's
 # options): which repo is confined is no more this file's business than which
-# hypervisor is. Nothing here reads the target — the mirror's name is a
-# basename, the ref restriction is a namespace, and both hold for any repo.
+# hypervisor is. Nothing here reads the target, and nothing here touches a git
+# repository at all.
 {
   pkgs,
-  # Address the two services listen on, and the single client permitted to use
-  # the proxy. On firecracker these are the two ends of the p2p link; under
-  # seatbelt both are loopback.
+  # Address the proxy listens on, and the single client permitted to use it. On
+  # firecracker these are the two ends of the p2p link; under seatbelt both are
+  # loopback.
   bind,
   client,
   proxyPort,
-  gitPort,
-  # The repo to mirror, absolute, and the allowlist file relative to
-  # CAPSULE_ROOT. Values, like the addresses above — the caller knows the
-  # target, this does not. Both stay overridable by environment.
-  repo,
+  # The allowlist file, relative to CAPSULE_ROOT. A value, like the addresses
+  # above — the caller knows the target, this does not. Stays overridable by
+  # environment.
   allowlistFile,
   # Shell fragment run before anything binds. Fail-closed: `exit 1`.
   preflight ? "",
-  # Shell fragment supervised alongside the two services, for perimeter state
-  # this process does not own and cannot hold: it must exit nonzero once the
-  # platform's perimeter is no longer intact, which tears the services down
-  # with it. Guest egress stops rather than continuing past a control that
-  # has gone missing. Same rule as `preflight`: nothing platform-shaped in
-  # here, it is injected. Forked after `preflight` has run in this shell, so
-  # it inherits whatever that defined — the two are expected to share their
-  # checks rather than restate them.
+  # Shell fragment supervised alongside the proxy, for perimeter state this
+  # process does not own and cannot hold: it must exit nonzero once the
+  # platform's perimeter is no longer intact, which tears the proxy down with
+  # it. Guest egress stops rather than continuing past a control that has gone.
+  # Same rule as `preflight`: nothing platform-shaped in here, it is injected.
+  # Forked after `preflight` has run in this shell, so it inherits whatever that
+  # defined — the two are expected to share their checks rather than restate
+  # them.
   watch ? "",
   # Tools the injected `preflight` / `watch` need.
   extraRuntimeInputs ? [],
 }: let
   inherit (pkgs) lib;
 
-  # One definition of where everything is, since four programs have to agree —
+  # One definition of where everything is, since both programs have to agree —
   # but each asks for only the variables it uses, because shellcheck runs at
   # build time and an unused one fails it. Emitted in dependency order, so a
-  # program that asks for `mirror` must also ask for `state` and `src`;
+  # program that asks for `proxyState` must also ask for `state` and `root`;
   # forgetting one is a build error (SC2154), not a runtime surprise.
-  #
-  # `repo` is baked in absolute rather than derived from `$HOME`, which a
-  # systemd unit does not have; the mirror's name comes off it by basename, so
-  # every program agrees without being told.
   pathDefs = [
     {
       name = "root";
@@ -93,30 +88,11 @@
       name = "allow";
       text = ''allow="''${CAPSULE_ALLOWLIST:-$root/${allowlistFile}}"'';
     }
-    {
-      name = "src";
-      text = ''src="''${CAPSULE_REPO:-${repo}}"'';
-    }
-    {
-      name = "mirror";
-      text = ''mirror="$state/$(basename "$src").git"'';
-    }
   ];
 
   paths = wanted:
     lib.concatMapStringsSep "\n" (d: d.text)
     (lib.filter (d: lib.elem d.name wanted) pathDefs);
-
-  # Guests may only push to refs/heads/capsule/* — the mirror's own history is
-  # not theirs to rewrite. Server-side, so it holds regardless of what the
-  # client is or what it believes about itself.
-  pushGuard = pkgs.writeShellScript "capsule-push-guard" ''
-    case "$1" in
-      refs/heads/capsule/*) exit 0 ;;
-    esac
-    echo "capsule: pushes are restricted to refs/heads/capsule/*" >&2
-    exit 1
-  '';
 
   # @ALLOW@ / @STATE@ are filled in at run time, so the allowlist stays an
   # ordinary editable file rather than a store path behind a rebuild.
@@ -138,43 +114,6 @@
     PidFile "@STATE@/tinyproxy.pid"
   '';
 
-  # The only program that touches the real repo, and the only one that has to
-  # run as the human who owns it — which is the point: the daemon uid serving
-  # the mirror never gets read access to the tree the mirror came from.
-  sync = pkgs.writeShellApplication {
-    name = "capsule-sync";
-    runtimeInputs = [pkgs.git pkgs.coreutils];
-    text = ''
-      ${paths ["root" "state" "src" "mirror"]}
-
-      # The mirror is group-owned by the daemon's uid under systemd, so it can
-      # accept the guest's pushes while staying readable to whoever fetches
-      # them out. Harmless on the foreground path, where both are you.
-      umask 002
-      mkdir -p "$state"
-
-      if [ ! -d "$mirror" ]; then
-        echo "capsule-sync: mirroring $src"
-        # sharedRepository=group so git itself keeps the mirror
-        # group-writable, rather than leaving it to umask on every path that
-        # creates a file. Under systemd that group is the daemon's; on the
-        # foreground path it is yours, where it changes nothing.
-        git clone --mirror --config core.sharedRepository=group "$src" "$mirror"
-      fi
-
-      # Explicit refspec, never `git remote update`: a mirror's default fetch
-      # is force+prune and would delete whatever the guest has pushed.
-      git -C "$mirror" fetch origin \
-        '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
-      install -m755 ${pushGuard} "$mirror/hooks/update"
-      # Two independent guards on what the daemon will serve, since it is
-      # unauthenticated and `receive-pack` is enabled: the per-repo marker
-      # (which replaces --export-all) and the explicit whitelist in gitd.
-      touch "$mirror/git-daemon-export-ok"
-      echo "capsule-sync: $mirror"
-    '';
-  };
-
   proxy = pkgs.writeShellApplication {
     name = "capsule-proxy";
     runtimeInputs = [pkgs.tinyproxy pkgs.gnused pkgs.coreutils];
@@ -192,38 +131,16 @@
     '';
   };
 
-  gitd = pkgs.writeShellApplication {
-    name = "capsule-gitd";
-    runtimeInputs = [pkgs.git];
-    text = ''
-      ${paths ["root" "state" "src" "mirror"]}
-
-      if [ ! -d "$mirror" ]; then
-        echo "capsule-gitd: no mirror at $mirror — run capsule-sync first" >&2
-        exit 1
-      fi
-
-      echo "capsule-gitd: ${bind}:${toString gitPort} serving $mirror"
-      # --strict-paths + an explicit repo whitelist: the client may reach
-      # exactly this one path, spelled exactly, and no sibling under $state
-      # that happens to look like a repo.
-      exec git daemon \
-        --base-path="$state" --strict-paths --enable=receive-pack \
-        --listen=${bind} --port=${toString gitPort} \
-        --reuseaddr --verbose "$mirror"
-    '';
-  };
-
   host = pkgs.writeShellApplication {
     name = "capsule-host";
     runtimeInputs =
-      [sync proxy gitd pkgs.coreutils pkgs.gnugrep pkgs.procps]
+      [proxy pkgs.coreutils pkgs.gnugrep pkgs.procps]
       ++ extraRuntimeInputs;
     text = ''
       ${preflight}
 
       # Nothing here wants privilege, and running it as root would leave the
-      # mirror root-owned.
+      # proxy's state root-owned.
       if [ "$(id -u)" = 0 ]; then
         echo "capsule-host: do not run as root" >&2
         exit 1
@@ -239,59 +156,51 @@
         (exec 3<>"/dev/tcp/$1/$2") 2>/dev/null
       }
 
-      # git daemon outlives the SIGINT that kills tinyproxy, so a Ctrl-C and
-      # restart would otherwise hit a port it still holds. Match on this
-      # capsule's own paths: strays from *this* capsule and nothing else.
-      # Patterns must not start with a dash: pkill would read them as options.
-      for pattern in "tinyproxy -d -c $proxyState/tinyproxy.conf" "base-path=$state"; do
-        if pkill -f -- "$pattern"; then
-          echo "capsule-host: reaped a stray ($pattern)"
-        fi
-      done
+      # A Ctrl-C that leaves tinyproxy holding the port would make the next
+      # start fail its bind. Match on this capsule's own config path: a stray
+      # from *this* capsule and nothing else. Patterns must not start with a
+      # dash: pkill would read them as options.
+      if pkill -f -- "tinyproxy -d -c $proxyState/tinyproxy.conf"; then
+        echo "capsule-host: reaped a stray tinyproxy"
+      fi
 
-      for port in ${toString proxyPort} ${toString gitPort}; do
-        for _ in 1 2 3 4 5; do
-          port_in_use "${bind}" "$port" || break
-          sleep 0.2
-        done
-        if port_in_use "${bind}" "$port"; then
-          echo "capsule-host: ${bind}:$port is bound by something else" >&2
-          if command -v ss >/dev/null 2>&1; then
-            ss -lntp "sport = :$port" >&2 || true
-          elif command -v lsof >/dev/null 2>&1; then
-            lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
-          fi
-          exit 1
-        fi
+      for _ in 1 2 3 4 5; do
+        port_in_use "${bind}" "${toString proxyPort}" || break
+        sleep 0.2
       done
-
-      capsule-sync
+      if port_in_use "${bind}" "${toString proxyPort}"; then
+        echo "capsule-host: ${bind}:${toString proxyPort} is bound by something else" >&2
+        if command -v ss >/dev/null 2>&1; then
+          ss -lntp "sport = :${toString proxyPort}" >&2 || true
+        elif command -v lsof >/dev/null 2>&1; then
+          lsof -nP -iTCP:"${toString proxyPort}" -sTCP:LISTEN >&2 || true
+        fi
+        exit 1
+      fi
 
       capsule-proxy &
       children=("$!")
-      capsule-gitd &
-      children+=("$!")
       ${lib.optionalString (watch != "") ''
         (
           ${watch}
         ) &
         children+=("$!")
       ''}
-      # INT/TERM as well as EXIT, and `wait -n` so that any child dying tears
-      # the others down instead of leaving one holding a port — or, for the
-      # watch, serving egress past a perimeter that has gone.
+      # INT/TERM as well as EXIT, and `wait -n` so that either child dying tears
+      # the other down instead of leaving the proxy serving egress past a
+      # perimeter that has gone.
       #
       # The pids are named explicitly, and that is load-bearing: bare `wait -n`
       # waits for the next job to *change state*, and a child that exited before
-      # the call was already reaped and forgotten. Both services failing at bind
+      # the call was already reaped and forgotten. A proxy that failed at bind
       # time therefore left this shell blocked on the watch loop, looking healthy
       # and serving nothing. With pids, bash keeps each status until waited on.
       trap 'kill "''${children[@]}" 2>/dev/null' EXIT INT TERM
       wait -n "''${children[@]}" || true
-      echo "capsule-host: a service exited — shutting down" >&2
+      echo "capsule-host: a child exited — shutting down" >&2
       exit 1
     '';
   };
 in {
-  inherit host sync proxy gitd pushGuard proxyConf;
+  inherit host proxy proxyConf;
 }

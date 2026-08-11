@@ -1,7 +1,8 @@
 # capsule — firecracker agent jail. README.md is usage, NOTES.md is rationale.
 #
-# The lifecycle commands (capsule-net, capsule-host, vm, vm-stop, capsule-sync)
-# come from the devshell and are not wrapped here. What is here is the stuff
+# The lifecycle commands (capsule-net, capsule-host, vm, vm-stop, and the git
+# channel's capsule-provision / capsule-collect) come from the devshell and are
+# not wrapped here. What is here is the stuff
 # that has no home otherwise: the pre-commit gate, and the questions that need
 # more than one command to answer.
 
@@ -17,16 +18,16 @@ _net key:
 _target key:
   @nix eval --json --file target.nix {{key}} | tr -d '"'
 
-# the mirror, wherever this host keeps it: /var/lib/capsule (units) or .vm/host
-_mirror:
+# a capsule's quarantine, wherever this host keeps it: /var/lib/capsule (module
+# path) or .vm/host. Same search order as the programs' own defaults.
+_quarantine name="capsule":
   #!/usr/bin/env bash
   set -euo pipefail
-  src="${CAPSULE_REPO:-$(just _target path)}"
-  name="$(basename "$src").git"
   for state in "${CAPSULE_STATE:-}" /var/lib/capsule "${CAPSULE_ROOT:-$PWD}/.vm/host"; do
-    [ -n "$state" ] && [ -d "$state/$name" ] && { echo "$state/$name"; exit 0; }
+    [ -n "$state" ] && [ -d "$state/collect/{{name}}.git" ] \
+      && { echo "$state/collect/{{name}}.git"; exit 0; }
   done
-  echo "no mirror yet — run capsule-sync" >&2
+  echo "nothing collected yet — run capsule-collect {{name}}" >&2
   exit 1
 
 # same question for the proxy's log
@@ -63,7 +64,8 @@ fmt-check:
 
 # the host-side scripts — shellcheck runs at build, so this is the real lint
 build:
-  nix build --no-link '.#capsule-host' '.#capsule-sync' '.#capsule-net' '.#vm-stop' '.#probe-netns'
+  nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#probe-netns' \
+    '.#capsule-provision' '.#capsule-collect'
 
 # the guest closure and its runner — the slow one
 build-vm:
@@ -73,40 +75,39 @@ build-vm:
 verify:
   capsule-net verify
 
-# VM, tap, listeners, perimeter, mirror, units — one screen
-status:
+# VM, tap, listener, perimeter, quarantine, units — one screen
+status name="capsule":
   #!/usr/bin/env bash
   set -uo pipefail
   echo "== vm"
   pgrep -af 'microvm@' || echo "  no VM running"
   echo "== tap"
   ip -brief addr show "$(just _net tap)" 2>/dev/null || echo "  no tap — capsule-net up"
-  echo "== listeners (only your own processes are named)"
-  ss -lntp "sport = :$(just _net proxyPort)" "sport = :$(just _net gitPort)" 2>/dev/null | tail -n +2 \
-    || echo "  none"
+  echo "== listener (only your own processes are named)"
+  ss -lntp "sport = :$(just _net proxyPort)" 2>/dev/null | tail -n +2 || echo "  none"
   echo "== perimeter"
   just verify 2>&1 | sed 's/^/  /'
   echo "== units (unit path only)"
-  for u in capsule-perimeter-guard capsule-proxy capsule-gitd; do
+  for u in capsule-perimeter-guard capsule-proxy; do
     state=$(systemctl is-active "$u" 2>/dev/null || true)
     [ -n "$state" ] && [ "$state" != inactive ] && echo "  $u: $state"
   done
-  echo "== mirror"
-  mirror=$(just _mirror 2>/dev/null) \
-    && echo "  $mirror ($(git --git-dir="$mirror" for-each-ref 'refs/heads/capsule/*' | wc -l) capsule/* refs)" \
-    || echo "  none — capsule-sync"
+  echo "== collected"
+  q=$(just _quarantine {{name}} 2>/dev/null) \
+    && echo "  $q ($(git --git-dir="$q" for-each-ref "refs/capsule/{{name}}/" | wc -l) refs)" \
+    || echo "  nothing — capsule-collect {{name}}"
 
-# what the guest has pushed
-branches:
-  @git --git-dir="$(just _mirror)" for-each-ref \
+# what a capsule has produced, as collected
+branches name="capsule":
+  @git --git-dir="$(just _quarantine {{name}})" for-each-ref \
     --sort=-committerdate \
-    --format='%(refname:short)  %(committerdate:relative)  %(subject)' \
-    'refs/heads/capsule/*'
+    --format='%(objectname:short)  %(refname:short)  %(committerdate:relative)  %(subject)' \
+    'refs/capsule/{{name}}/'
 
-# collect the guest's work into the target repo
-fetch:
-  git -C "${CAPSULE_REPO:-$(just _target path)}" fetch "$(just _mirror)" \
-    'refs/heads/capsule/*:refs/heads/capsule/*'
+# the second step: quarantine -> the repo you work in, once you have looked
+fetch name="capsule":
+  git -C "${CAPSULE_REPO:-$(just _target path)}" fetch "$(just _quarantine {{name}})" \
+    'refs/capsule/*:refs/capsule/*'
 
 # every egress attempt, live — unlisted hostnames show up here as denials
 proxy-log:

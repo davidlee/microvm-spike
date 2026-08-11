@@ -168,15 +168,14 @@
       '';
     };
 
-    # Proxy + mirror + ref guard. Jail-agnostic by construction (see
+    # The allowlist egress proxy. Jail-agnostic by construction (see
     # perimeter/default.nix); the tap check is the one firecracker-specific
     # bit and is injected rather than assumed.
     perimeter = import ./perimeter {
       inherit pkgs;
       bind = net.host;
       client = net.guest;
-      inherit (net) proxyPort gitPort;
-      repo = target.path;
+      inherit (net) proxyPort;
       allowlistFile = target.allowlist;
       extraRuntimeInputs = [pkgs.iproute2];
       preflight = ''
@@ -187,25 +186,21 @@
           exit 1
         fi
 
-        # The other path, if this host runs it. Its own port check cannot see
-        # the units: both deny the host's address (git-daemon allows only the
-        # guest, the proxy denies RFC1918), so systemd drops the connect probe
-        # and every port looks free — after which the real bind fails and this
-        # composition serves nothing while appearing to run. systemd-shaped, so
-        # it is injected here rather than living in perimeter/.
-        if command -v systemctl >/dev/null 2>&1; then
-          for unit in capsule-proxy capsule-gitd; do
-            if systemctl is-active --quiet "$unit"; then
-              echo "capsule-host: $unit is active — the unit path owns the ports" >&2
-              echo "  and the mirror. Use one path or the other:" >&2
-              echo "  systemctl stop capsule-proxy capsule-gitd" >&2
-              exit 1
-            fi
-          done
+        # The other path, if this host runs it. The port check below cannot see
+        # the unit: it denies the host's address (the proxy denies RFC1918), so
+        # systemd drops the connect probe and the port looks free — after which
+        # the real bind fails and this composition serves nothing while appearing
+        # to run. systemd-shaped, so it is injected here rather than living in
+        # perimeter/.
+        if command -v systemctl >/dev/null 2>&1 \
+          && systemctl is-active --quiet capsule-proxy; then
+          echo "capsule-host: capsule-proxy is active — the unit path owns the" >&2
+          echo "  port. Use one path or the other: systemctl stop capsule-proxy" >&2
+          exit 1
         fi
 
-        # The two services are the guest's only reachable surface, so refuse to
-        # offer them at all when the host-side half of the perimeter is gone.
+        # The proxy is the guest's only reachable surface, so refuse to offer it
+        # at all when the host-side half of the perimeter is gone.
         case "$(perimeter_state)" in
           dropped) echo "capsule-host: FORWARD drop on ${net.tap} verified" ;;
           latent)
@@ -245,7 +240,17 @@
       '';
     };
     capsule-host = perimeter.host;
-    capsule-sync = perimeter.sync;
+
+    # Git in both directions, host-initiated. The one jail-shaped fact it takes
+    # is how to reach the guest's checkout: here, ssh over the p2p tap as the
+    # unprivileged guest user. Under netns the URL is the same and `sshCommand`
+    # grows a `ProxyCommand` against the capsule's unix socket (NOTES item 17).
+    gitChannel = import ./host/git-channel.nix {
+      inherit pkgs target;
+      guestRepo = "ssh://agent@${net.guest}${target.guestPath}";
+    };
+    capsule-provision = gitChannel.provision;
+    capsule-collect = gitChannel.collect;
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -348,7 +353,7 @@
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
-        inherit vm vm-stop capsule-net capsule-host capsule-sync probe-netns;
+        inherit vm vm-stop capsule-net capsule-host capsule-provision capsule-collect probe-netns;
         default = self.packages.${system}.capsule;
       };
 
@@ -358,7 +363,8 @@
         vm-stop
         capsule-net
         capsule-host
-        capsule-sync
+        capsule-provision
+        capsule-collect
         probe-netns
         pkgs.firecracker
         pkgs.just
@@ -372,6 +378,7 @@
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"
         echo "                       guest side: vm capsule   (or: vm hello)"
+        echo "                       then:       capsule-provision  /  capsule-collect"
       '';
     };
   };

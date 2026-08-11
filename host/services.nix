@@ -1,23 +1,26 @@
-# The host half of the perimeter, under its own uids and its own resource
+# The host half of the perimeter, under its own uid and its own resource
 # ceilings. NixOS-only by nature, hence here and not in `perimeter/` — it takes
-# the same four programs that `capsule-host` composes and gives each a unit.
+# the proxy `capsule-host` composes and gives it a unit, plus the guard that is
+# this path's version of `preflight` and `watch`.
+#
+# It used to run two services. The other was a git daemon serving a mirror the
+# guest pushed to, and it needed a system uid, a shared group, a setgid state
+# directory and a `safe.directory` exception to work at all — all of which
+# existed to confine a `receive-pack` the host had to run. The host now
+# initiates git in both directions instead (`host/git-channel.nix`), so the
+# service, the uid, the group, the mirror and the exception are gone rather than
+# hardened. NOTES item 18.
 #
 # What this buys over `capsule-host` (which is kept: it needs no root, no
 # rebuild, and is the portable path):
 #
-#   - tinyproxy is C parsing guest-authored HTTP and git-daemon runs
-#     `receive-pack`; as `capsule-host` both run as you, with ambient access to
-#     ~/.ssh, ~/.claude and every repo. Here each gets a system uid holding
-#     nothing, plus ProtectHome and a namespace.
-#   - git-daemon gets `IPAddressDeny=any` with only the guest allowed, so a
-#     compromise cannot dial out at all. The proxy must reach the internet, so
-#     it instead loses the LAN and loopback.
-#   - the mirror is *never* refreshed by the daemon's uid: `capsule-sync` runs
-#     as you, and is the only thing that reads the target repo. The serving uid
-#     has no path to the tree the mirror came from.
+#   - tinyproxy is C parsing guest-authored HTTP; as `capsule-host` it runs as
+#     you, with ambient access to ~/.ssh, ~/.claude and every repo. Here it gets
+#     a system uid holding nothing, plus ProtectHome and a namespace.
+#   - it loses the LAN and loopback, keeping only the guest and the resolver.
 #   - cgroup ceilings, which nothing had before (NOTES open item 12).
 #
-# Not here: the nftables drop and the interface-scoped ports. Those are the
+# Not here: the nftables drop and the interface-scoped port. Those are the
 # host's own config (README "Host requirements") and this module deliberately
 # does not restate them — it verifies them, in the guard unit below.
 {
@@ -33,66 +36,41 @@
 
   # Same perimeter, built with the host's pkgs. No preflight/watch: those are
   # for the foreground composition, and the guard unit is this path's version
-  # of them. Target paths come from the options rather than from `target.nix`,
-  # so a host that sets them differently gets what it asked for.
+  # of them. The allowlist comes from the options rather than from `target.nix`,
+  # so a host that sets it differently gets what it asked for.
   perimeter = import ../perimeter {
     inherit pkgs;
     bind = net.host;
     client = net.guest;
-    inherit (net) proxyPort gitPort;
-    repo = cfg.repo;
+    inherit (net) proxyPort;
     allowlistFile = target.allowlist;
+  };
+
+  # The same two programs the devshell has. Installed system-wide because they
+  # are the human's, not any unit's — nothing here runs them, and nothing
+  # listens.
+  gitChannel = import ./git-channel.nix {
+    inherit pkgs target;
+    guestRepo = "ssh://agent@${net.guest}${target.guestPath}";
   };
 
   proxyState = "/var/lib/capsule-proxy";
 
-  # Same derivation `perimeter/` uses — basename of the repo, not `target.name`,
-  # so a host that points `repo` somewhere else still names the mirror sync made.
-  mirror = "${cfg.stateDir}/${baseNameOf cfg.repo}.git";
-
-  # `repo` is baked into the programs above, so it is deliberately not here:
-  # one value, one place. These are the paths that differ from the foreground
-  # path's defaults, which are relative to a repo root no unit has.
-  env = {
-    CAPSULE_STATE = cfg.stateDir;
-    CAPSULE_PROXY_STATE = proxyState;
-    CAPSULE_ALLOWLIST = cfg.allowlist;
-  };
-
-  # Hardening common to both services. Neither needs privilege, a device, a
-  # namespace or a second architecture's syscalls.
-  confined = {
-    NoNewPrivileges = true;
-    CapabilityBoundingSet = [""];
-    AmbientCapabilities = [""];
-    PrivateTmp = true;
-    PrivateDevices = true;
-    ProtectSystem = "strict";
-    ProtectProc = "invisible";
-    ProcSubset = "pid";
-    ProtectClock = true;
-    ProtectControlGroups = true;
-    ProtectKernelLogs = true;
-    ProtectKernelModules = true;
-    ProtectKernelTunables = true;
-    ProtectHostname = true;
-    LockPersonality = true;
-    RestrictNamespaces = true;
-    RestrictRealtime = true;
-    RestrictSUIDSGID = true;
-    SystemCallArchitectures = "native";
-    # Not `~@resources` as well: git's helpers do touch rlimits, and a filter
-    # that breaks receive-pack would get turned off wholesale.
-    SystemCallFilter = ["@system-service" "~@privileged"];
-    # Ceilings, not working limits: the point is that neither service can take
-    # the host down. MemoryMax is per-service — `pack-objects` on a real clone
-    # is not small.
-    TasksMax = 64;
-    CPUQuota = "100%";
-    IOWeight = 50;
-    Restart = "on-failure";
-    RestartSec = "3s";
-  };
+  # Wrapped, not bare: their defaults are relative to `CAPSULE_ROOT`, which is
+  # right for the foreground path and wrong for a program on `$PATH` — run from
+  # anywhere, `capsule-collect` would quarantine into `$PWD/.vm/host` instead of
+  # this host's state directory. The devshell's copies come first on PATH inside
+  # the repo, so that path is unaffected and each keeps its own state. (The same
+  # trap `capsule-sync` fell into; NOTES item 11.)
+  wrap = name: program:
+    pkgs.writeShellApplication {
+      inherit name;
+      text = ''
+        export CAPSULE_STATE=${cfg.stateDir}
+        export CAPSULE_REPO=${cfg.repo}
+        exec ${lib.getExe program} "$@"
+      '';
+    };
 
   guard = pkgs.writeShellApplication {
     name = "capsule-perimeter-guard";
@@ -119,10 +97,10 @@
       esac
 
       tap_up || echo "capsule-perimeter-guard: ${net.tap} has no address yet — the" \
-        "services will not bind until 'capsule-net up' (or the VM) creates it"
+        "proxy will not bind until 'capsule-net up' (or the VM) creates it"
 
-      # BindsTo on both services, so exiting takes their egress with it. A
-      # preflight alone would only prove the perimeter held at start.
+      # BindsTo on the proxy, so exiting takes its egress with it. A preflight
+      # alone would only prove the perimeter held at start.
       while sleep 10; do
         forwarding_off && continue
         if ! forward_dropped; then
@@ -136,14 +114,14 @@
   };
 in {
   options.services.capsule-perimeter = {
-    enable = lib.mkEnableOption "the capsule's host-side proxy and git mirror, under dedicated uids";
+    enable = lib.mkEnableOption "the capsule's host-side egress proxy, under a dedicated uid";
 
     owner = lib.mkOption {
       type = lib.types.str;
       description = ''
-        The human who owns the source repo. Runs `capsule-sync`, and is added
-        to the `capsule-git` group so `capsule/*` branches can be fetched back
-        out of the mirror. Never runs either service.
+        The human who owns the source repo and runs the git channel. Added to
+        the `capsule-proxy` group so the egress log is readable. Never runs the
+        service.
       '';
     };
 
@@ -152,7 +130,7 @@ in {
       default = "/home/${cfg.owner}/dev/${target.name}";
       defaultText = "/home/\${owner}/dev/\${target.name}";
       description = ''
-        Repo to mirror. Read by `capsule-sync` only, as `owner`. Defaults under
+        Repo `capsule-provision` pushes from, as `owner`. Defaults under
         `owner`'s home rather than to `target.path`, so the module stays right
         on a host whose human is not this one.
       '';
@@ -172,24 +150,19 @@ in {
     stateDir = lib.mkOption {
       type = lib.types.path;
       default = "/var/lib/capsule";
-      description = "Holds the bare mirror. Group-owned by `capsule-git`, setgid.";
+      description = ''
+        Holds the quarantine repositories `capsule-collect` fetches into. Owned
+        by `owner`: no service touches it, and nothing else has a reason to.
+      '';
     };
   };
 
   config = lib.mkIf cfg.enable {
-    users.users.capsule-git = {
-      isSystemUser = true;
-      group = "capsule-git";
-      description = "capsule git mirror daemon";
-    };
     users.users.capsule-proxy = {
       isSystemUser = true;
       group = "capsule-proxy";
       description = "capsule egress proxy";
     };
-    # `owner` is a member so it can sync the mirror and fetch the guest's
-    # branches back out. Read and write of the mirror; nothing else.
-    users.groups.capsule-git.members = [cfg.owner];
     # Read-only by ownership: the state directory is 0750 and everything in it
     # 0644, so this buys `owner` the egress log — the record of every attempt,
     # and the first thing you read when the guest cannot reach something — and
@@ -197,26 +170,16 @@ in {
     # part of the perimeter you could not casually look at.
     users.groups.capsule-proxy.members = [cfg.owner];
 
-    # Setgid, so objects the guest pushes stay group-owned and `owner` can
-    # fetch them out. Created here rather than by StateDirectory= because
-    # `capsule-sync` runs before either service and needs it to exist.
+    # Plain and owner-owned. It was setgid and group-shared when a daemon uid
+    # had to write into the same repositories the human read; nothing shares a
+    # repository any more, which is the point of item 18.
     systemd.tmpfiles.rules = [
-      "d ${cfg.stateDir} 2775 capsule-git capsule-git -"
+      "d ${cfg.stateDir} 0750 ${cfg.owner} users -"
     ];
 
-    # Wrapped, not `perimeter.sync` bare: unwrapped it defaults the mirror to
-    # `$PWD/.vm/host` — the foreground path's — so running it to feed the units
-    # would quietly build a second mirror wherever you happened to be standing.
-    # The devshell's copy comes first on PATH inside the repo, so `capsule-host`
-    # is unaffected; both print the mirror they used.
     environment.systemPackages = [
-      (pkgs.writeShellApplication {
-        name = "capsule-sync";
-        text = ''
-          export CAPSULE_STATE=${cfg.stateDir}
-          exec ${lib.getExe perimeter.sync} "$@"
-        '';
-      })
+      (wrap "capsule-provision" gitChannel.provision)
+      (wrap "capsule-collect" gitChannel.collect)
     ];
 
     # Rotated rather than truncated: it is the record of every egress attempt
@@ -258,87 +221,72 @@ in {
         };
       };
 
-      capsule-gitd = {
-        description = "capsule git mirror daemon";
-        bindsTo = ["capsule-perimeter-guard.service"];
-        after = ["capsule-perimeter-guard.service" "network.target"];
-        # The bind address exists only while the tap does. Skipped rather than
-        # failed when it doesn't.
-        unitConfig.ConditionPathExists = "/sys/class/net/${net.tap}";
-        # The daemon's uid does not own the mirror — `capsule-sync` creates it as
-        # the human — and git 2.35+ refuses to operate in a repository owned by
-        # someone else (`detected dubious ownership`), which stops `upload-pack`
-        # dead and leaves the guest unable to clone or fetch. The exception has
-        # to be in *protected* configuration to be honoured at all, and
-        # `GIT_CONFIG_*` is the `command` scope, which qualifies; a config file
-        # inside the mirror would not.
-        #
-        # This is the safe direction of the exception: it tells the serving uid
-        # to trust a repo the human owns. The reverse — the human's git trusting
-        # a repo the serving uid can write — is the escalation in NOTES item 18,
-        # and no exception is added for it.
-        environment =
-          env
-          // {
-            GIT_CONFIG_COUNT = "1";
-            GIT_CONFIG_KEY_0 = "safe.directory";
-            GIT_CONFIG_VALUE_0 = mirror;
-          };
-        serviceConfig =
-          confined
-          // {
-            ExecStart = lib.getExe perimeter.gitd;
-            User = "capsule-git";
-            Group = "capsule-git";
-            ProtectHome = true; # the source tree is not this uid's business
-            ReadWritePaths = [cfg.stateDir];
-            # A clone of real history repacks; 512M would OOM it.
-            MemoryMax = "2G";
-            # Group-writable, so `owner` can sync into what the guest pushed.
-            UMask = "0002";
-            RestrictAddressFamilies = ["AF_INET" "AF_UNIX"];
-            # The guest is the only peer it may ever speak to. `receive-pack`
-            # running with no way out is most of the value here.
-            IPAddressAllow = ["${net.guest}/32"];
-            IPAddressDeny = "any";
-          };
-      };
-
       capsule-proxy = {
         description = "capsule egress proxy (allowlist)";
         bindsTo = ["capsule-perimeter-guard.service"];
         after = ["capsule-perimeter-guard.service" "network.target" "nss-lookup.target"];
+        # The bind address exists only while the tap does. Skipped rather than
+        # failed when it doesn't.
         unitConfig.ConditionPathExists = "/sys/class/net/${net.tap}";
-        environment = env;
-        serviceConfig =
-          confined
-          // {
-            ExecStart = lib.getExe perimeter.proxy;
-            User = "capsule-proxy";
-            Group = "capsule-proxy";
-            StateDirectory = "capsule-proxy";
-            StateDirectoryMode = "0750";
-            # tmpfs rather than `true`, so the one file it does need can be
-            # bound back in and nothing else in $HOME is visible at all.
-            ProtectHome = "tmpfs";
-            BindReadOnlyPaths = [cfg.allowlist];
-            MemoryDenyWriteExecute = true;
-            MemoryMax = "256M";
-            RestrictAddressFamilies = ["AF_INET" "AF_INET6" "AF_UNIX"];
-            # It is the egress point, so it cannot be denied by default — but
-            # it has no business anywhere private. Most specific match wins, so
-            # the guest (and the resolver) survive the denials.
-            IPAddressAllow = ["${net.guest}/32" "127.0.0.53/32"];
-            IPAddressDeny = [
-              "localhost"
-              "link-local"
-              "multicast"
-              "10.0.0.0/8"
-              "172.16.0.0/12"
-              "192.168.0.0/16"
-              "fc00::/7"
-            ];
-          };
+        environment = {
+          CAPSULE_PROXY_STATE = proxyState;
+          CAPSULE_ALLOWLIST = cfg.allowlist;
+        };
+        # Neither privilege, a device, a namespace nor a second architecture's
+        # syscalls. Ceilings rather than working limits: the point is that it
+        # cannot take the host down.
+        serviceConfig = {
+          ExecStart = lib.getExe perimeter.proxy;
+          User = "capsule-proxy";
+          Group = "capsule-proxy";
+          StateDirectory = "capsule-proxy";
+          StateDirectoryMode = "0750";
+          # tmpfs rather than `true`, so the one file it does need can be
+          # bound back in and nothing else in $HOME is visible at all.
+          ProtectHome = "tmpfs";
+          BindReadOnlyPaths = [cfg.allowlist];
+          NoNewPrivileges = true;
+          CapabilityBoundingSet = [""];
+          AmbientCapabilities = [""];
+          PrivateTmp = true;
+          PrivateDevices = true;
+          ProtectSystem = "strict";
+          ProtectProc = "invisible";
+          ProcSubset = "pid";
+          ProtectClock = true;
+          ProtectControlGroups = true;
+          ProtectKernelLogs = true;
+          ProtectKernelModules = true;
+          ProtectKernelTunables = true;
+          ProtectHostname = true;
+          LockPersonality = true;
+          MemoryDenyWriteExecute = true;
+          RestrictNamespaces = true;
+          RestrictRealtime = true;
+          RestrictSUIDSGID = true;
+          SystemCallArchitectures = "native";
+          SystemCallFilter = ["@system-service" "~@privileged"];
+          MemoryMax = "256M";
+          TasksMax = 64;
+          CPUQuota = "100%";
+          IOWeight = 50;
+          Restart = "on-failure";
+          RestartSec = "3s";
+          RestrictAddressFamilies = ["AF_INET" "AF_INET6" "AF_UNIX"];
+          # It is the egress point, so it cannot be denied by default — but
+          # it has no business anywhere private. Most specific match wins, so
+          # the guest (and the resolver) survive the denials.
+          IPAddressAllow = ["${net.guest}/32" "127.0.0.53/32"];
+          IPAddressDeny = [
+            "localhost"
+            "link-local"
+            "multicast"
+            "10.0.0.0/8"
+            "172.16.0.0/12"
+            "192.168.0.0/16"
+            "fc00::/7"
+          ];
+        };
       };
     };
   };

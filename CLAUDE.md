@@ -37,23 +37,30 @@ Formatting is alejandra, 2-space indent, matching doctrine's flake.
 
 Break these and the confinement stops meaning anything:
 
-- **The perimeter is host-side.** Egress filtering (tinyproxy allowlist) and the
-  git ref restriction (`update` hook, `refs/heads/capsule/*` only) both run on
-  the host, where the guest cannot reach them. Guest-side settings — proxy env
-  vars, the unprivileged `agent` user — are convenience and clumsiness-guards,
-  not security. Never move a control from the host into the guest.
-- **`perimeter/` knows nothing about the jail.** It builds `capsule-host` from
-  addresses, ports, and two injected shell fragments — `preflight` (once,
-  before anything binds) and `watch` (supervised child; exits nonzero when the
-  perimeter is gone, which tears the services down). No tap name, no
-  hypervisor, no Linux-only tool goes in there — that is what lets a
-  seatbelt or VM-based shape reuse it (PLAN_B.md). Anything platform-shaped
-  belongs at the call site in `flake.nix` (`perimeterChecks`).
-- **Part of the perimeter is not in this repo.** The firewall ports, the
+- **The perimeter is host-side.** Egress filtering (tinyproxy allowlist) runs on
+  the host, where the guest cannot reach it. Git is not a control at all any
+  more: the host initiates both directions and the guest has no remote, so what
+  used to be a ref restriction enforced by a hook is now the absence of a
+  channel (NOTES item 18). Guest-side settings — proxy env vars, the
+  unprivileged `agent` user, `receive.denyCurrentBranch` — are convenience and
+  clumsiness-guards, not security. Never move a control from the host into the
+  guest.
+- **`perimeter/` knows nothing about the jail.** It builds the proxy and
+  `capsule-host` from addresses, a port, and two injected shell fragments —
+  `preflight` (once, before anything binds) and `watch` (supervised child; exits
+  nonzero when the perimeter is gone, which tears the proxy down). No tap name,
+  no hypervisor, no Linux-only tool goes in there — that is what lets a seatbelt
+  or VM-based shape reuse it (PLAN_B.md). Anything platform-shaped belongs at
+  the call site in `flake.nix` (`perimeterChecks`). `host/git-channel.nix` has
+  the same seam for the same reason: it knows a git URL and optionally an ssh
+  command, both injected, and nothing about taps or namespaces.
+- **Part of the perimeter is not in this repo.** The firewall port, the
   forward-chain drop on the tap, and the sudoers rule that makes the drop
   readable all live in the host's NixOS config (`~/flakes`) — README "Host
-  requirements". Anything proposed here that assumes the host is unconfigured,
-  or that tries to compensate for it guest-side, is wrong twice. The drop is
+  requirements". It is one port now, not two: dropping 9418 there is an
+  outstanding host-config edit (NOTES item 18). Anything proposed here that
+  assumes the host is unconfigured, or that tries to compensate for it
+  guest-side, is wrong twice. The drop is
   *verified at run time*, not assumed: unverifiable-and-forwarding is a refusal
   to start, and forwarding coming up mid-session kills egress. Don't soften
   that to a warning — a warning is what it had while the drop was in fact
@@ -66,15 +73,17 @@ Break these and the confinement stops meaning anything:
 - **Root is reachable only by ssh key from the host.** The agent has no sudo and
   no su, by design.
 - **`net` in `flake.nix` is the single source of truth** for tap name, both
-  addresses, MAC and ports. It is threaded to the guest via `specialArgs`.
-  Don't hardcode an address anywhere else.
+  addresses, MAC and the proxy port. It is threaded to the guest via
+  `specialArgs`. Don't hardcode an address anywhere else.
 - **`target.nix` is the same deal for the repo under confinement** — name, path,
   tools package, allowlist file, caches, default branch, sizes. Threaded the same
   way. `doctrine` may appear in exactly two places: `target.nix`, and
   `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
   `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a value.
   And nothing target-shaped is ever read *out of the target repo* — the agent can
-  edit that (NOTES item 16).
+  edit that (NOTES item 16). `target.guestPath` is the one path both sides share,
+  which is why it is derived there rather than spelled in the guest and again in
+  the host's git channel.
 
 ## Firecracker constraints (verified in microvm.nix source)
 
@@ -113,27 +122,30 @@ which shape nearly every decision here:
   console is for boot and admin.
 - **A dead guest does not mean a dead VM.** Check `pgrep -af 'microvm@'`, not
   whether the console returned or the guest answers ping.
-- **`capsule-host` children orphan easily.** If either service dies at bind
-  time the other can keep its port. It now preflights both ports and uses
-  `wait -n` with an INT/TERM trap; if a bind fails anyway, look for strays with
-  `ss -lntp`.
+- **`capsule-host` children orphan easily.** A Ctrl-C could leave tinyproxy
+  holding the port. It preflights the port, reaps a stray matching its own
+  config path, and uses `wait -n` with an INT/TERM trap; if a bind fails anyway,
+  look for strays with `ss -lntp`.
 - **`wait -n` must name its pids.** Bare `wait -n` waits for the next job to
   change state, and a child that exited *before* the call has already been
   reaped and forgotten — so `capsule-host` sat blocked on its watch loop, with
-  both services dead at bind time, looking healthy and serving nothing.
+  its services dead at bind time, looking healthy and serving nothing.
   `wait -n "${children[@]}"`: with explicit pids bash keeps each status until
   waited on.
 - **The two paths cannot see each other by probing.** `capsule-host`'s port
-  check is a connect from the host, and both units deny that address
-  (`capsule-gitd` allows only the guest; `capsule-proxy` denies RFC1918), so
-  systemd drops the probe and every port reads as free. Hence the explicit
+  check is a connect from the host, and `capsule-proxy` denies RFC1918, so
+  systemd drops the probe and the port reads as free. Hence the explicit
   `systemctl is-active` refusal in the injected `preflight` — systemd-shaped, so
   it lives at the call site in `flake.nix`, not in `perimeter/`.
+- **`denyCurrentBranch` only governs the branch HEAD names.** Push any other
+  branch and the ref lands while the worktree is untouched, silently. The seed
+  sets `--initial-branch` and `capsule-provision` verifies the advertised symref
+  for exactly this reason; don't remove either. An empty repo advertises no
+  symref at all, so the check cannot cover the first provision — the seed is
+  what does.
 - **`git+file:` inputs read committed HEAD.** Changes to the target's flake need
   a commit there before `nix flake update target` sees them. Uncommitted work
   in that repo is invisible to the capsule.
-- **Never `git remote update` the mirror** — a mirror's fetch is force+prune and
-  deletes what the guest pushed. Explicit refspecs only.
 - **`environment.variables` is login-shell scope.** Proxy vars do not reach
   systemd units in the guest; anything daemon-side needs its own
   `serviceConfig.Environment`.
@@ -151,12 +163,12 @@ which shape nearly every decision here:
   function each program calls with only what it uses).
   `perimeter/egress-allow.txt` is deliberately a plain file, not a store path,
   so the allowlist can change without a rebuild.
-- **Two paths run the same code.** `capsule-host` composes `sync`/`proxy`/`gitd`
-  in the foreground as you; `host/services.nix` runs the same three as units
-  under `capsule-proxy`/`capsule-git`. Don't grow a second implementation for
-  either — if a unit needs something, it comes from the same program.
-  `capsule-sync` is the only thing that may read the real repo, and it always
-  runs as the human: that is what keeps the serving uid away from the tree.
+- **Two paths run the same code.** `capsule-host` composes the proxy plus the
+  watch in the foreground as you; `host/services.nix` runs the same proxy as a
+  unit under `capsule-proxy`, and installs the same two git-channel programs
+  wrapped with its own paths. Don't grow a second implementation for either — if
+  a unit needs something, it comes from the same program. `capsule-provision` is
+  the only thing that reads the real repo, and it always runs as the human.
 - The guest's tool set comes from the target's flake — `target.nix`'s
   `toolsPackage`, for doctrine `packages.dev-tools`. Add tools
   there, not here, so the VM and that devshell cannot drift. The jailed

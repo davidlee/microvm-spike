@@ -23,9 +23,11 @@ flake, because it has to hold across a reboot and be unreachable from anything
 this repo runs. Nothing here is optional.
 
 ```nix
-# The only two ports the guest may reach: the proxy and the git daemon.
+# The only port the guest may reach: the proxy. It was two until the git
+# channel inverted (NOTES item 18) — the host initiates git now, so there is
+# no service on 9418 and nothing to allow.
 networking.nftables.enable = true;
-networking.firewall.interfaces."vm-capsule".allowedTCPPorts = [3128 9418];
+networking.firewall.interfaces."vm-capsule".allowedTCPPorts = [3128];
 
 # The tap is an endpoint, never a transit path.
 networking.nftables.tables.capsule-forward = {
@@ -63,8 +65,7 @@ call the same check and report one of three states:
 
 `capsule-host` keeps checking for the life of the session, because forwarding is
 global state it doesn't own — start docker or tailscale mid-session and the
-watch tears the proxy and the git daemon down with it. Same if the tap's address
-disappears. The guest loses egress rather than keeping it past a control that
+watch tears the proxy down with it. Same if the tap's address disappears. The guest loses egress rather than keeping it past a control that
 has gone.
 
 `latent` is the honest verdict for a host with no sudo rule: unverifiable is
@@ -97,18 +98,18 @@ The *allow* half of the firewall config is not verified, and doesn't need to be:
 omit it and the guest reaches nothing, loudly. Only the silent-failure half
 (the forward drop) is checked.
 
-### The two services under dedicated uids
+### The proxy under a dedicated uid
 
-`capsule-host` runs tinyproxy and git-daemon as **you** — a bug in tinyproxy's
-HTTP parser, or in `receive-pack`, lands on an account holding `~/.ssh`,
-`~/.claude` and every repo on the machine. The flake exports a NixOS module that
-gives each its own system uid, namespace and cgroup ceiling instead:
+`capsule-host` runs tinyproxy as **you** — a bug in its HTTP parser lands on an
+account holding `~/.ssh`, `~/.claude` and every repo on the machine. The flake
+exports a NixOS module that gives it its own system uid, namespace and cgroup
+ceiling instead:
 
 ```nix
 imports = [inputs.microvm-spike.nixosModules.capsule-perimeter];
 services.capsule-perimeter = {
   enable = true;
-  owner = "david"; # syncs the mirror and fetches capsule/* back out
+  owner = "david"; # runs the git channel; reads the egress log by group
 };
 ```
 
@@ -121,40 +122,28 @@ NOTES item 11.
 
 Opt-in, and `capsule-host` stays exactly as it was — it needs no root and no
 rebuild, which is what makes it the development path. **Run one or the other,
-never both:** they bind the same two ports and serve *different* mirrors, so
-together you get a port fight plus guest pushes landing in `.vm/host`, where the
-units never look. What the module changes:
+never both:** they bind the same port, so together you get a port fight. What
+the module changes:
 
-| | `capsule-host` | the units |
+| | `capsule-host` | the unit |
 | --- | --- | --- |
-| runs as | you | `capsule-proxy`, `capsule-git` |
-| mirror | `.vm/host/doctrine.git` | `/var/lib/capsule/doctrine.git` |
+| runs as | you | `capsule-proxy` |
 | proxy log | `.vm/host/tinyproxy.log` | `/var/lib/capsule-proxy/tinyproxy.log`, rotated weekly |
+| quarantine | `.vm/host/collect/` | `/var/lib/capsule/collect/` |
 | perimeter check | sudo read + supervised watch | `capsule-perimeter-guard.service`, root, no sudo rule needed |
 | ceilings | none | `MemoryMax`, `CPUQuota`, `TasksMax`, `IOWeight` |
 
 ```
-capsule-net up                                  # or `vm capsule`; the tap first
-capsule-sync                                    # refresh the mirror, as you
-systemctl start capsule-proxy capsule-gitd      # pulls in the guard first
-git fetch /var/lib/capsule/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
+capsule-net up                     # or `vm capsule`; the tap first
+systemctl start capsule-proxy      # pulls in the guard first
 ```
 
-**Log out and back in after the first switch.** `owner` joins the `capsule-git`
-group, and supplementary groups are set at login: an existing session keeps its
-old set, and every group-dependent step then fails as `Permission denied` on a
-directory whose mode is in fact correct. `id -nG | grep capsule-git` says which
-you have; `newgrp capsule-git` patches one shell.
-
-- **`capsule-sync` is the only thing that reads `~/dev/doctrine`,** and it runs
-  as you. The uid serving the mirror has no path to the tree the mirror came
-  from — the module's main gain beyond the uid split itself.
-- The module installs `capsule-sync` **wrapped** with the units' `CAPSULE_STATE`
-  and `CAPSULE_REPO`, because unwrapped it defaults the mirror to
-  `$PWD/.vm/host` — the foreground path's — and would quietly build a second
-  mirror wherever you were standing. The devshell's copy still shadows it inside
-  this repo, which is what keeps `capsule-host` working; both print the mirror
-  they used, so check that line rather than assuming.
+- The module installs `capsule-provision` and `capsule-collect` **wrapped** with
+  the units' `CAPSULE_STATE` and `CAPSULE_REPO`, because unwrapped they default
+  to `$PWD/.vm/host` — the foreground path's — and would quarantine wherever you
+  happened to be standing. The devshell's copies still shadow them inside this
+  repo, so each path keeps its own state; both print the path they used, so read
+  that line rather than assuming.
 - **The guard is a start dependency (`BindsTo`)**, so the services cannot come
   up while the perimeter is unverifiable-and-forwarding, and stop when it goes.
   It does not restart itself: a refusal stays a refusal until you fix the cause
@@ -163,11 +152,8 @@ you have; `newgrp capsule-git` patches one shell.
   10s poll and took the guest's egress with them. To repeat it, restore with
   `sudo systemctl restart nftables`, put `ip_forward` back, then start the two
   services again; the guard is left `failed` and needs the explicit start.
-- Both units are conditional on the tap existing, so start them after
-  `capsule-net up`. Neither is enabled at boot.
-- git-daemon gets `IPAddressDeny=any` with only the guest allowed, so
-  `git://10.99.0.1:9418/` **stops working from the host** — fetch the mirror
-  path directly, as above. `receive-pack` with no way out is most of the point.
+- The proxy unit is conditional on the tap existing, so start it after
+  `capsule-net up`. It is not enabled at boot.
 - Adding this repo as an input to the host config means host rebuilds read its
   committed HEAD, same as the `git+file:` gotcha for doctrine.
 
@@ -180,26 +166,34 @@ Three terminals, or three tmux windows:
 
 ```
 capsule-net up      # once per boot; sudo. creates the tap, owned by you
-capsule-host        # foreground: git daemon + egress proxy
+capsule-host        # foreground: the egress proxy
 vm capsule          # foreground: the VM, with its serial console on your tty
 ```
 
-Then from a fourth: `ssh agent@10.99.0.2`.
+The guest boots with an **empty** `/work/doctrine`. Give it history from the
+host, naming the base commit — any branch, tag or sha in the target repo:
 
-Inside the guest you are `agent`, in `/work/<target>` (here `/work/doctrine`):
+```
+capsule-provision edge
+```
+
+Then from a fourth terminal: `ssh agent@10.99.0.2`. Inside the guest you are
+`agent`, in `/work/<target>`:
 
 ```
 just test
 just web-build
-capsule-push my-branch     # -> refs/heads/capsule/my-branch on the host mirror
+git commit -am 'work'      # locally; there is nothing to push to
 ```
 
-Back on the host, collect the work — `just fetch` finds the mirror wherever this
-host keeps it (`.vm/host` or `/var/lib/capsule`) and pulls `capsule/*` into the
-target repo:
+Back on the host, collect it. That fetches the guest's branches into a
+quarantine repo — `--no-tags`, fsck'd, under a packfile ceiling — and prints what
+landed with its sha:
 
 ```
-just fetch
+capsule-collect            # -> .vm/host/collect/capsule.git
+just branches              # what is in there
+just fetch                 # second step: quarantine -> the repo you work in
 ```
 
 ## Commands
@@ -209,19 +203,21 @@ just fetch
 | `capsule-net up`    | create the tap + assign `10.99.0.1/30`. Needs sudo.         |
 | `capsule-net down`  | remove it. Refuses while a VM runs; `--force` overrides.    |
 | `capsule-net verify`| report the perimeter's state without touching the link.      |
-| `capsule-host`      | git daemon + tinyproxy. Foreground, unprivileged.           |
-| `capsule-sync`      | create/refresh the mirror + ref guard. The only reader of the target repo. |
+| `capsule-host`      | tinyproxy + the perimeter watch. Foreground, unprivileged.   |
+| `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
+| `capsule-collect [NAME]` | fetch the guest's refs into a quarantine repo.          |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
-| `capsule-clone`     | *(guest)* clone/fetch from the host mirror.                 |
-| `capsule-push NAME` | *(guest)* push HEAD to `capsule/NAME` on the mirror.        |
+
+Nothing in the guest: it initiates neither direction, and has no remote.
 
 Those are the lifecycle; `just` has everything that needs more than one command
 to answer, and does not wrap them. `just check` is the gate (every nix file
 parses and is alejandra-clean — no eval, so it can't trigger a VM build).
-`just status` puts the VM, the tap, the listeners, the perimeter's verdict, the
-units and the mirror on one screen. Then `just verify`, `just fetch`,
-`just branches`, `just proxy-log`, `just allowed`, `just ssh`, `just admin`.
+`just status` puts the VM, the tap, the listener, the perimeter's verdict, the
+units and what has been collected on one screen. Then `just verify`,
+`just fetch`, `just branches`, `just proxy-log`, `just allowed`, `just ssh`,
+`just admin`.
 `just --list` for the rest. Addresses come from `net.nix` and target paths from
 `target.nix`, never a literal.
 
@@ -275,9 +271,9 @@ Tools the target's list omits because it assumes a host that has them go in
 ## Pointing it at a different repo
 
 `target.nix` holds everything target-shaped: name, path, tools package, egress
-allowlist file, cache directories, default branch, and the guest's sizes. Change
-it and the mirror name, the guest's checkout path, the motd and the two host
-services all follow.
+allowlist file, cache directories, working branch, collect ceiling and the
+guest's sizes. Change it and the guest's checkout path, the branch the git
+channel provisions onto, the motd and the host side all follow.
 
 One duplication is unavoidable: an input's url must be a literal, so
 `inputs.target.url` in `flake.nix` has to name the same repo as `path` in
@@ -305,10 +301,11 @@ different one.
 | a TUI (claude, etc.) renders but ignores Enter | serial console input quirk — run TUIs over ssh              |
 | `modprobe` fails in the guest                  | `security.lockKernelModules` — deliberate; NOTES has the trade |
 
-State lives in `.vm/` (volume images, sockets, the mirror, proxy logs) and is
-gitignored. Deleting `.vm/capsule/capsule-work.img` resets the guest's
-workspace; deleting `.vm/host/` re-mirrors from scratch and **loses any
-`capsule/*` branches not yet fetched**.
+State lives in `.vm/` (volume images, sockets, proxy logs, quarantine repos) and
+is gitignored. Deleting `.vm/capsule/capsule-work.img` resets the guest's
+workspace — **including any commits not yet collected**. Deleting
+`.vm/host/collect/` discards the collected exhibits, so fetch anything worth
+keeping into the real repo first.
 
 **Never loop-mount `capsule-work.img`.** It is guest-written ext4, and `mount`
 feeds its metadata to the host kernel. Read it with `fuse2fs`/`debugfs`, or

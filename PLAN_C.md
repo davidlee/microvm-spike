@@ -27,18 +27,20 @@ behind the addressing and isolation decisions below, it re-runs in seconds, and
 it is what to point at when this shape is proposed somewhere else. Re-run it
 after any change to the netns machinery.
 
-**Decided.** Per-capsule proxy *and* git daemon. Netns on the host-module path
-only, with the foreground path staying at N=1. The base commit becomes a runtime
-value. Units generated per instance rather than templated. Reasons are with each
-decision, not here.
+**Decided.** Per-capsule proxy. Netns on the host-module path only, with the
+foreground path staying at N=1. Units generated per instance rather than
+templated. Reasons are with each decision, not here.
 
-**Reopened by measurement — read before costing any of the git-daemon work
-below.** NOTES item 18 has both directions of a host-initiated git channel
-running, which would remove the git daemon from the perimeter rather than
-replicate it N times. Everything in this document about per-capsule gitd uids,
-per-capsule mirrors and whether one daemon can serve N is downstream of a
-decision that is no longer made. Do not spend effort there until item 18 is
-resolved either way; the netns, addressing and image work is unaffected.
+**Two of this document's problems no longer exist — NOTES item 18 deleted them.**
+The git channel is host-initiated in both directions now, so there is no git
+daemon to replicate N times: everything below about per-capsule gitd uids,
+per-capsule mirrors, whether one daemon can serve N safely, and the second port
+in the host's accept rule is describing a service that is gone. Read those
+sections as history. And the **base commit is already a runtime value** — the
+guest boots with an empty repository and `capsule-provision <ref>` fills it — so
+the only per-instance value still in the guest's closure is the address, which
+netns handles. What survives here unchanged is the netns work, the addressing,
+the image measurement and `capsules.nix`.
 
 **Open, in order.** One real boot with a namespace — the last unverified thing
 in the shape — then the guest image measurement, then `capsules.nix`. Full list
@@ -73,13 +75,13 @@ N small runners**. MAC and tap name already live only in the runner's
 firecracker JSON. Two things are in the closure and have to come out:
 
 - **the guest's address**, and
-- **the base commit.** A capsule is usually pinned to one, not to "whatever
-  happens to be on the branch". Today `capsule-clone` bakes the remote into the
-  guest's closure and would bake the ref the same way — so if instances differ
-  here, identicality is gone whatever the addressing does. The fix is
-  independent of everything else and cheap: make the ref a **runtime** argument
-  to `capsule-clone`, persisted on the volume, never an eval-time value. Do it
-  regardless of which mechanism below wins.
+- ~~**the base commit.**~~ **Out already.** A capsule is usually pinned to one,
+  not to "whatever happens to be on the branch", and `capsule-clone` baked the
+  remote into the closure and would have baked the ref the same way. Both went
+  with the git channel inverting (NOTES item 18): the guest boots with an empty
+  repository and the ref is an argument to `capsule-provision`, so nothing about
+  it is an eval-time value and nothing has to be persisted on the volume. Only
+  the address is left, which makes (4) below cheaper than it looked.
 
 **Measure first:** `nix path-info -Sh .#capsule`. If the image is small this
 section is moot and N closures is the right answer for its simplicity.
@@ -118,16 +120,20 @@ does — which is what step 3 of the work order measures.
 
 ## Netns per capsule
 
-Put each tap in its own network namespace, with that capsule's proxy and gitd
-joined to it (`NetworkNamespacePath=`), and firecracker launched inside it too.
+Put each tap in its own network namespace, with that capsule's proxy joined to
+it (`NetworkNamespacePath=`), and firecracker launched inside it too. It was the
+proxy *and* a git daemon when this was written; there is no daemon now (NOTES
+item 18), so the namespace has one service in it and the human's
+`capsule-provision`/`capsule-collect` reach the guest the same way `just ssh`
+does — over the unix socket, from outside.
 
 It dissolves three of the hardest problems here at once:
 
 - **Addressing.** Every capsule uses the identical /30 and the identical MAC.
   The guest config becomes bit-identical — one image, no DHCP, no boot-time
-  address arithmetic, no hostname regression, and the guest's proxy URL and git
-  remote can go on naming `net.host` at eval time. Most of the section above
-  evaporates.
+  address arithmetic, no hostname regression, and the guest's proxy URL can go on
+  naming `net.host` at eval time. There is no git remote in the guest to worry
+  about. Most of the section above evaporates.
 - **Cross-capsule reach.** A cannot address B's tap, because B's tap is not in
   A's namespace. Structural rather than firewall-dependent — and it is the only
   clean answer to the [weak host model
@@ -568,9 +574,10 @@ case, not before the dev-machine case.
    ([from source](#the-host-module-question-answered-from-source)). What is left
    is one boot with a real guest, which means step 5 in practice — there is no
    cheaper way to answer it.
-2. **Make the base commit a runtime value** — `capsule-clone <ref>`, persisted on
-   the volume. Independent of everything else, needed either way, worth doing
-   now.
+2. ~~Make the base commit a runtime value.~~ **Done, as a side effect of NOTES
+   item 18.** The guest boots with an empty repository and
+   `capsule-provision <ref>` puts history in it, so the ref never reaches the
+   closure and nothing has to be persisted on the volume for it.
 3. Measure the guest image. It prices how much (1) is worth.
 4. `capsules.nix` + the instance record. Under netns that is a name list and
    little else; without it, the index function, the wildcard drop and the
@@ -578,7 +585,9 @@ case, not before the dev-machine case.
 5. The VMM half of item 11, with per-instance ceilings — and namespace creation
    if (1) held, since that wants root anyway. Adding capsules after this is a
    unit start, not a design change.
-6. Per-instance perimeter units: proxy *and* gitd, generated per capsule.
+6. Per-instance perimeter units: the proxy, generated per capsule. There is no
+   gitd to generate — the git channel is host-initiated and per-capsule only in
+   which URL it is pointed at (NOTES item 18).
 7. The `capsule` CLI, per-capsule secret injection at start, and the aggregate
    `just` recipes.
 8. Only then: a second target, if it is still wanted.

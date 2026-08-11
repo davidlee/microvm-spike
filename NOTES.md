@@ -13,15 +13,16 @@ work — no more.
 | `net.nix`                    | tap name, both addresses, MAC, ports — single source |
 | `target.nix`                 | which repo is confined, and everything target-shaped |
 | `justfile`                   | the gate (`just check`) + the multi-command questions |
-| `perimeter/default.nix`      | `sync`/`proxy`/`gitd` + `capsule-host`. Jail-agnostic |
+| `perimeter/default.nix`      | `proxy` + `capsule-host`. Jail-agnostic            |
 | `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild. Per target |
+| `host/git-channel.nix`       | `capsule-provision` / `capsule-collect`. Host-initiated git |
 | `host/perimeter-check.nix`   | is the host's nftables drop loaded? Linux-shaped, injected |
-| `host/services.nix`          | the same services as units under dedicated uids. Opt-in |
+| `host/services.nix`          | the same proxy as a unit under its own uid. Opt-in  |
 | `vm/common.nix`              | shared guest config (firecracker, serial console)   |
 | `vm/hello.nix`               | smoke test VM, no network                           |
 | `vm/capsule.nix`             | the agent jail                                      |
 | `.vm/<name>/`                | per-VM state: volume images, API socket (gitignored)|
-| `.vm/host/`                  | the bare mirror, proxy config + logs (gitignored)   |
+| `.vm/host/`                  | proxy config + logs, `collect/` quarantines (gitignored) |
 | `probe/netns.sh`             | is a netns per capsule sound? kept as evidence — `sudo probe-netns` |
 | `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
 | `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
@@ -41,8 +42,9 @@ the call site, from `target.nix` (item 16).
 ```
 direnv allow
 capsule-net up      # one sudo: creates the tap, owned by you
-capsule-host        # foreground: git daemon + egress proxy
+capsule-host        # foreground: the egress proxy
 vm capsule          # another terminal
+capsule-provision edge   # the guest boots empty; this gives it history
 ```
 
 `vm capsule` *is* the console — firecracker attaches its serial line to your
@@ -86,31 +88,28 @@ every attempt. Going further would mean MITM (own CA in the guest,
 mitmproxy-style), which trades a small gain for a large amount of machinery
 and a guest that trusts a host-held signing key. Not worth it.
 
-**Git.** `git clone --mirror ~/dev/doctrine` into `.vm/host/`, served by
-`git daemon` on the p2p address with `receive-pack` enabled. The guest clones
-real history with real ancestry and pushes back.
+**Git.** Host-initiated, both directions, over the ssh channel — no service,
+no mirror, nothing for the guest to reach. `capsule-provision <ref>` pushes any
+commit-ish from `~/dev/doctrine` onto the guest's working branch;
+`capsule-collect` fetches the guest's refs into a quarantine repo under
+`.vm/host/collect/`. NOTES item 18 is the measurement and the reasoning.
 
-- Bare is a hard requirement: a non-bare clone refuses pushes to its checked-out
-  branch (`receive.denyCurrentBranch`).
-- `--mirror` over plain `--bare` buys `fetch = +refs/*:refs/*`, so the mirror
-  tracks every ref namespace rather than just `refs/heads/*` + tags. Your
-  `phase/`, `dispatch/`, `review/`, `candidate/`, `w/` namespaces all live
-  under `refs/heads/` (274 refs), so plain `--bare` would have carried them
-  too — the mirror's edge is fidelity on anything future that doesn't.
-- **Never `git remote update` the mirror.** A mirror's fetch is force+prune and
-  would delete what the guest pushed. `capsule-host` refreshes with an explicit
-  `+refs/heads/*:refs/heads/*` instead.
-- An `update` hook restricts guest pushes to `refs/heads/capsule/*`. The agent
-  cannot rewrite your history through the mirror — it gets a namespace, and you
-  fetch from it:
-  ```
-  git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
-  ```
+- The guest boots with an **empty repository** and no history until you provision
+  it, which is what makes the base commit an argument rather than a value in the
+  guest's closure.
+- `receive.denyCurrentBranch=updateInstead` in the guest is what turns the push
+  into a checkout. It governs only the branch the guest's HEAD names, so the
+  seed sets `--initial-branch` and provision verifies the advertised symref
+  before pushing — otherwise a push lands history and leaves the worktree alone,
+  silently.
+- A provision is refused rather than forced when it would discard the guest's
+  commits, and refused by the guest while its worktree is dirty.
+- Collection is `--no-tags` into `refs/capsule/<name>/*` with
+  `transfer.fsckObjects`: the host names the destination namespace, and tag
+  auto-following is the one way the guest could otherwise choose where its refs
+  land. Then `just fetch` is the second step into the repo you work in.
   Which lines up with SPEC-012's merge-safety-by-absence: the agent has no path
-  to the coordination tier, physically.
-
-Guest helpers: `capsule-clone` (re-fetch, for when the host side came up late)
-and `capsule-push <name>`.
+  to the coordination tier, physically — and now no channel to it either.
 
 **State.** One 32 GiB sparse volume at `/work`: the checkout, `target/`,
 `TMPDIR`, cargo + bun caches. Survives reboots. Deliberately not on the
@@ -262,9 +261,12 @@ Guest ring-0 to host, largest surface first:
    a bwrap process holds no effective `CAP_NET_RAW`, because the host netns is
    owned by the initial user namespace. Which is why none of the host config in
    README "Host requirements" is optional (open item 7).
-4. **The two host services on the /30.** tinyproxy (C, parsing guest-authored
-   HTTP) and git-daemon, which runs `receive-pack` as the host user on a repo
-   whose objects then flow into the real tree.
+4. **The one host service on the /30.** tinyproxy — C, parsing guest-authored
+   HTTP. There were two; the second was a git daemon running `receive-pack` as
+   the host user on a repo whose objects then flowed into the real tree, and it
+   is gone rather than hardened (item 18). What remains of that surface is
+   `index-pack` inside a host-initiated fetch, which no longer listens and which
+   the guest cannot start.
 
 **Raising the price of (1).** Guest ring-0 is the *input* to the KVM surface,
 and loading a kernel module is the cheap way to get there once something has
@@ -319,9 +321,11 @@ second-order to it. The confinement's job is to bound what the agent can reach
    dictd, steam's 27036, LLMNR). Loopback-bound services were never exposed:
    guest packets are addressed to the tap, not to `127.0.0.1`. The scoped form
    is what belongs in the host config —
-   `networking.firewall.interfaces."vm-capsule".allowedTCPPorts = [ 3128 9418 ];`
-   — and *not* plain `allowedTCPPorts`, which would also open the proxy and the
-   git daemon on the LAN and the tailnet.
+   `networking.firewall.interfaces."vm-capsule".allowedTCPPorts = [ 3128 ];`
+   — and *not* plain `allowedTCPPorts`, which would also open the proxy on the
+   LAN and the tailnet. It was `[ 3128 9418 ]` until the git channel inverted
+   (item 18); dropping 9418 is a host-config edit and a rebuild, not something
+   this repo can do.
 
    The input chain was only half of it. **The tap must also not be a transit
    path**: the guest has no default route, but a guest with root can add one,
@@ -370,19 +374,20 @@ second-order to it. The confinement's job is to bound what the agent can reach
    not in `perimeter/`): `dropped` verified, `latent` unverifiable but nothing
    forwards, `open` forwarding live and unverifiable → refuse. Preflight alone
    would only prove the perimeter held at start, so `capsule-host` also
-   supervises a `watch` child that re-checks, and exits — tearing the proxy and
-   the git daemon down with it — if forwarding comes up mid-session or the tap's
+   supervises a `watch` child that re-checks, and exits — tearing the proxy
+   down with it — if forwarding comes up mid-session or the tap's
    address vanishes. Losing egress is the correct outcome; continuing to serve
    it past a missing control is not. `watch` is an injected fragment for the
    same reason `preflight` is: `perimeter/` must not learn what nftables is.
-8. **git-daemon is unauthenticated**, and `--enable=receive-pack` is what makes
-   the update hook load-bearing. Now narrowed by two independent guards:
-   `--strict-paths` plus the mirror as the sole whitelisted path (so no sibling
-   under `.vm/host/` that happens to look like a repo can be served), and a
-   per-repo `git-daemon-export-ok` marker in place of `--export-all`. Still
-   reachable from the host itself on the foreground path, which is accepted; the
-   unit path closes it with `IPAddressDeny` (item 11). All of which confines a
-   service that item 18 measured a way to not run at all.
+8. ~~**git-daemon is unauthenticated**~~ **— resolved by deletion (item 18).**
+   It was, and `--enable=receive-pack` was what made the update hook
+   load-bearing. It had accumulated `--strict-paths` with the mirror as the sole
+   whitelisted path, a `git-daemon-export-ok` marker in place of `--export-all`,
+   `IPAddressDeny` on the unit path, and finally a `safe.directory` exception to
+   work at all. Every one of those confined a service the host only ran because
+   the guest was the party initiating. The host initiates now, so there is no
+   daemon, no hook, no mirror and no port. Kept here because the accretion is the
+   argument: five guards on one service is what a wrongly-pointed channel costs.
 9. **Egress allowlist is unproven** against a real Claude Code session —
    expect to add hosts on first run. `perimeter/egress-allow.txt`, restart
    `capsule-host`, no rebuild.
@@ -603,10 +608,9 @@ second-order to it. The confinement's job is to bound what the agent can reach
       would be the wrong fix. Rotated (weekly, `copytruncate`) on the unit path
       only — see item 11.
 16. **Target-agnostic — done for one target at a time.** Nothing structural tied
-    the confinement to doctrine. The perimeter was already target-blind: the
-    mirror's name is `basename "$CAPSULE_REPO"`, the ref restriction is
-    `refs/heads/capsule/*` whatever the repo is, and `host/services.nix` took
-    `repo` as an option. What was actually hardcoded was smaller than it looked —
+    the confinement to doctrine. The perimeter was already target-blind, and is
+    more so since item 18 — it holds no repo path at all now, only the allowlist
+    — and `host/services.nix` took `repo` as an option. What was actually hardcoded was smaller than it looked —
     the string `doctrine` in `vm/capsule.nix` (checkout dir, clone URL, motd),
     the input's name in `flake.nix`, doctrine-shaped defaults in
     `perimeter/default.nix` and `justfile`, and a handful of guest settings that
@@ -639,11 +643,10 @@ second-order to it. The confinement's job is to bound what the agent can reach
       breath, or its next lock fails on an input that no longer exists.
     - **Per-target policy must not live in the target repo.** The tempting
       version — `.capsule/egress-allow.txt` in the repo being worked on — hands
-      the allowlist to the thing being confined. Not directly (the host reads
-      the human's working tree, not the mirror) but one careless `capsule-sync`
-      after a `capsule/*` merge and the agent has widened its own egress. The
-      allowlist, the sizes and the ref policy are host-side config keyed by
-      target name; only the *tool set* comes from the target, because that is a
+      the allowlist to the thing being confined. Not directly, since the host
+      reads the human's working tree — but one careless merge of collected work
+      and the agent has widened its own egress. The allowlist and the sizes are
+      host-side config keyed by target name; only the *tool set* comes from the target, because that is a
       build input rather than a control. Keep that asymmetry explicit or the
       whole perimeter argument leaks.
     - **One target chosen ≠ several at once.** The parameterised single-target
@@ -680,11 +683,16 @@ second-order to it. The confinement's job is to bound what the agent can reach
       is almost entirely shared. Getting the per-instance values out of the
       closure buys one image and N small runners, and there are two of them, not
       one: the guest's address, and the **base commit**, which a capsule is
-      usually pinned to and which `capsule-clone` would bake in the same way the
-      remote already is. A kernel param does *not* work for either — it lands in
+      usually pinned to and which `capsule-clone` baked in the same way it baked
+      the remote. A kernel param does *not* work for either — it lands in
       `toplevel` and so in the closure. Measure `nix path-info -Sh .#capsule`
       before choosing, and see the netns option below, which makes the guest
       bit-identical without any of it.
+
+      **The base commit half is done, as a side effect of item 18.** The guest
+      boots with an empty repository and `capsule-provision <ref>` is what puts
+      history in it, so the ref is an argument to a host command and never
+      reaches the closure. Only the address is left.
     - **No daemon, and the premise that suggests one is wrong.** Nix runs nothing
       at run time here: `vm` is build-then-exec. Everything a dispatcher would do
       is systemd's, and microvm.nix's host module already models it — which is
@@ -753,30 +761,57 @@ second-order to it. The confinement's job is to bound what the agent can reach
 
     Mixed targets stays deferred, with the instance record carrying its own
     target so it remains a relaxation rather than a rewrite (item 16).
-18. **Which way the git channel points — measured, and it should be inverted.**
+18. **Which way the git channel points — measured, inverted, and done.**
     Asked because doctrine wants to know how a result leaves a capsule; answered
-    with two commands, and the answer deletes more than it adds.
+    with two commands, and the answer deleted more than it added.
 
-    Today the **guest pushes**: the host runs `receive-pack` as a live service on
-    a port the guest can reach, and the ref hook, the `capsule-git` group and the
-    mirror-sync uid all exist to confine that. The alternative is for the host to
-    **initiate both directions** over the ssh channel that already exists —
-    `git fetch ssh://agent@<guest>/work/<target>` into a fresh host-side
-    quarantine repo to get work out, `git push` to get history in.
+    It used to be that the **guest pushed**: the host ran `receive-pack` as a
+    live service on a port the guest could reach, and the ref hook, the
+    `capsule-git` group and the mirror-sync uid all existed to confine that. The
+    host now **initiates both directions** over the ssh channel that already
+    existed — `capsule-provision <ref>` pushes history in, `capsule-collect`
+    fetches work out into a host-side quarantine repo.
 
     **Both directions run, n = 1, on Sleipnir, on the devshell tap shape.** For
     doctrine — 66.4k objects, 32 MiB — each direction moves at ~100 MiB/s over
     the tap, so the link is not the cost. The push needs
-    `receive.denyCurrentBranch=updateInstead` on the guest's checkout, which
-    handles the unborn-HEAD case and leaves a populated worktree, so the
-    provisioning clone becomes one host action with no bare intermediary and no
-    guest-side step. It refuses once the worktree is dirty — mid-session
-    re-provisioning is the thing that costs, and a bare `/work/origin.git` plus a
-    guest-side local clone is the fallback if that matters.
+    `receive.denyCurrentBranch=updateInstead`, which accepts an unborn HEAD and
+    leaves a populated worktree, so provisioning is one host action with no bare
+    intermediary and no guest-side step. It refuses once the worktree is dirty —
+    mid-session re-provisioning is the thing that costs, and a bare
+    `/work/origin.git` plus a guest-side local clone is the fallback if that
+    matters. Freshness (item 17, `REQ-450`) means never re-provisioning, so those
+    two decisions hold each other up: if anything ever needs a mid-session
+    re-provision, both move together.
+
+    **`denyCurrentBranch` only governs the branch HEAD names, and that is
+    load-bearing.** Push a branch the guest's HEAD does not point at and the
+    guard never applies: the ref lands, the worktree is untouched, and nothing
+    says so — a capsule with history and no files. So the guest's HEAD must name
+    the branch provision pushes to. It does, twice over: `capsule-seed` passes
+    `--initial-branch` explicitly rather than leaning on `init.defaultBranch`,
+    and `capsule-provision` checks the guest's advertised HEAD symref before
+    pushing and refuses if it has moved — which is the case that actually
+    happens, an agent running `git checkout -b`. `git ls-remote --symref` does
+    the check over the git transport, so the program still knows only a URL; an
+    empty repo advertises no symref at all, which is why the seed has to
+    guarantee the first one.
+
+    **A correction that was itself wrong, worth recording as method.** This rule
+    was found by a reproduction that concluded the original probe had only
+    appeared to work — `git init` giving `HEAD = refs/heads/master`, so the push
+    of `edge` bypassing the guard. That is not what happened here: the probe ran
+    `git init` *inside the guest*, where `/etc/gitconfig` sets
+    `init.defaultBranch = edge`, so HEAD was on `edge` and `updateInstead` did
+    apply. Verified after the fact — `git config --show-origin` reports
+    `file:/etc/gitconfig edge`, `/work/scratch` HEAD is `refs/heads/edge`, and its
+    worktree is populated. The rule is real and the fix is worth having; the
+    retraction was an artefact of reproducing in a different environment, which is
+    the same `n = 1` trap in the other direction.
 
     Not measured: git over the netns unix-socket `ProxyCommand` (item 17 crossed
-    it with socat and raw bytes only), and whether `transfer.fsckObjects` would
-    reject anything the current push path accepts.
+    it with socat and raw bytes only), and whether `transfer.fsckObjects` rejects
+    anything the old push path accepted.
 
     **The refspec does not fully decide the destination.** The fetch also wrote
     `refs/tags/*`, outside the `refs/capsule/<name>/*` namespace it was given,
@@ -819,20 +854,60 @@ second-order to it. The confinement's job is to bound what the agent can reach
     writes, fetches into a quarantine repo only the human writes, and the
     guest's repo is only the guest's. No setgid, no `sharedRepository`, no
     `safe.directory` exception, nothing for a compromised daemon to leave behind
-    — because there is no daemon. What goes: `perimeter/`'s `gitd` and
-    `pushGuard` and the export marker, `host/services.nix`'s `capsule-gitd` unit
-    and `capsule-git` user, group and setgid state dir, `net.nix`'s `gitPort`,
-    the guest's `capsule-clone` and `capsule-push` (leaving the guest with no
-    capsule-specific program at all), `just branches`/`fetch`, and one of the
-    two ports in the host's own firewall stanza (item 7 — outside this repo).
-    In PLAN_C it retires the per-capsule git daemon entirely, and with it the
-    whole "one gitd uid or N" question.
+    — because there is no daemon.
 
-    What it costs, beyond the dirty-worktree case: `index-pack` still parses
-    guest bytes host-side, which is true of every option including bundles, so
-    `transfer.fsckObjects` plus a ceiling — and a ceiling has no natural source
-    here, since the guest's 32 GiB volume is far too loose to be one. And the
-    agent loses the ability to hand work over: `capsule-push` is the guest's own
-    act, and after the inversion only the host can pull. That is a workflow
-    regression rather than a security one, and it is the only thing the
-    inversion makes worse.
+    **What went**, and the `safe.directory` fix above went with it, having lasted
+    one commit: `perimeter/`'s `sync`, `gitd`, `pushGuard`, export marker and
+    `gitPort` — leaving it the proxy and nothing else, which is what the perimeter
+    now is; `host/services.nix`'s `capsule-gitd` unit, `capsule-git` user and
+    group, and setgid state directory; the mirror itself, since it *was* the
+    two-uid repo; `net.nix`'s `gitPort`; and the guest's `capsule-clone` and
+    `capsule-push`, leaving the guest with no capsule-specific program at all.
+    What arrived is `host/git-channel.nix` — two programs, no service, jail-shaped
+    transport injected at the call site on the same seam as `preflight`/`watch`.
+    One of the two ports leaves the host's own firewall stanza too (item 7 —
+    outside this repo, so it is a README change and a rebuild you do). In PLAN_C
+    it retires the per-capsule git daemon entirely, and with it the whole "one
+    gitd uid or N" question.
+
+    **It also finishes the single-image goal in item 17 for free.** The base
+    commit was one of the two per-instance values that had to leave the guest's
+    closure, and `capsule-clone` baked it in exactly as it baked the remote. It is
+    now an argument to a host command — required, not defaulted, because a
+    capsule's pin should be stated at every provision — so the only value left in
+    the closure is the address, which netns already handles.
+
+    Five things it costs or leaves open, none of them fixed by pretending
+    otherwise:
+
+    - **`index-pack` still parses guest bytes host-side.** True of every option
+      including bundles. `transfer.fsckObjects` is on, and `ulimit -f`
+      (`target.collectMaxPackBytes`) bounds the packfile — but **that is a
+      backstop on one file, not a bound on the transfer.** RLIMIT_FSIZE: a pack
+      of a million small objects never trips it and still fills the disk, and a
+      delta bomb never trips it and still eats `index-pack`'s memory. A real
+      bound needs a quota or a dedicated filesystem for the quarantine directory
+      (disk), `ulimit -v` or a `MemoryMax` cgroup around the fetch (expansion),
+      and `--depth` (input) — the first of which is host config, the same
+      category as the nftables drop. **Do not read the `ulimit -f` as closing
+      this.**
+    - **The quarantine is persistent, not fresh**, which is a deviation from what
+      was accepted: kept so a second collect is incremental, and because the
+      repository is the retained exhibit. The execution-context rule is
+      untouched — it is host-created, host-configured, and the guest can write
+      neither its config nor its hooks — only freshness changed. Recorded here
+      rather than left to be discovered.
+    - **The sha is the pin; the quarantine repo is the exhibit.** So reaping the
+      quarantine is when the exhibit expires, and nothing here sets that
+      retention. First concrete instance of a knob that was deliberately left
+      unspecified upstream.
+    - **Non-git provisioning inputs have no program.** The guest boots empty and
+      gets one push, which carries committed objects only. Uncommitted files,
+      gitignored working material, generated config and secrets have no carrier
+      — today's `/work/.env` is still made by hand over ssh. The *transport*
+      exists and is already host-initiated; what is missing is anything that uses
+      it, and a worker needing a `.env` is how that gets discovered rather than
+      decided.
+    - **The agent loses the ability to hand work over.** `capsule-push` was the
+      guest's own act; now only the host pulls. A workflow regression rather than
+      a security one, and the only thing the inversion makes worse.

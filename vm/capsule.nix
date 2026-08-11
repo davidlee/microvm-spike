@@ -7,11 +7,12 @@
   ...
 }: let
   work = "/work";
-  repo = "${work}/${target.name}";
+  # The one path the host also knows, so it comes from target.nix rather than
+  # being derived twice — the host pushes to it and fetches from it.
+  repo = target.guestPath;
   # $HOME lives on the volume, so ~/.claude, credentials and shell history
   # survive reboots.
   home = "${work}/home";
-  remote = "git://${net.host}:${toString net.gitPort}/${target.name}.git";
 
   # Caches that would otherwise land on the RAM-backed rootfs. One declaration
   # (target.nix) for the env vars and for the directories the seed must create.
@@ -21,32 +22,6 @@
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
   ];
   proxy = "http://${net.host}:${toString net.proxyPort}";
-
-  # Fetch the real history from the host's mirror. Split out from the seed
-  # service so it can be re-run by hand when the host side comes up late.
-  capsule-clone = pkgs.writeShellApplication {
-    name = "capsule-clone";
-    runtimeInputs = [pkgs.git];
-    text = ''
-      if [ -e ${repo}/.git ]; then
-        echo "already cloned; fetching"
-        git -C ${repo} fetch origin
-        exit 0
-      fi
-      git clone ${remote} ${repo}
-    '';
-  };
-
-  # The mirror's update hook refuses anything outside refs/heads/capsule/*.
-  capsule-push = pkgs.writeShellApplication {
-    name = "capsule-push";
-    runtimeInputs = [pkgs.git];
-    text = ''
-      name="''${1:?usage: capsule-push <name>}"
-      git -C ${repo} push origin "HEAD:refs/heads/capsule/$name"
-      echo "pushed to capsule/$name — on the host: just fetch"
-    '';
-  };
 in {
   # claude-code is unfree; permit it by name rather than opening the whole
   # guest closure to unfree packages.
@@ -105,10 +80,10 @@ in {
 
   environment.systemPackages =
     [
-      capsule-clone
-      capsule-push
-      # git is the guest's own requirement, not the target's: the two helpers
-      # above are a clone and a push.
+      # The guest's own requirement, not the target's — and the guest's whole
+      # part in the git channel: it commits locally and answers the host's
+      # `upload-pack` and `receive-pack`. There are no capsule helpers in here
+      # any more, because there is nothing for the guest to initiate.
       pkgs.git
     ]
     # The target's devshell tool set, built from the target's own nixpkgs pin so
@@ -142,6 +117,16 @@ in {
       user.name = "capsule";
       user.email = "capsule@localhost";
       init.defaultBranch = target.defaultBranch;
+      # What makes `capsule-provision` land in the worktree and not just move a
+      # ref: the host pushes the branch the guest has checked out, which git
+      # refuses by default. `updateInstead` accepts it and checks it out, and
+      # refuses while the worktree is dirty — which is the guard on the agent's
+      # uncommitted work, and the reason a provision can fail mid-session.
+      #
+      # In /etc rather than in the repo so it cannot be lost to a re-init. Not a
+      # control: the host decides what it pushes, and nothing here can widen
+      # that.
+      receive.denyCurrentBranch = "updateInstead";
     };
   };
 
@@ -185,18 +170,20 @@ in {
   # for the agent. Admin is a thing you do from outside the jail.
   users.users.root.openssh.authorizedKeys.keys = adminKeys;
 
-  # First boot: prepare the volume and pull the checkout. Non-fatal if the
-  # host side isn't running yet — `capsule-clone` retries.
+  # First boot: prepare the volume and make an empty repository for the host to
+  # push into. No clone, so no network and no host service has to be up — the
+  # capsule boots empty and gets its history when you provision it. That is what
+  # makes the base commit an argument rather than a value in this closure.
   systemd.services.capsule-seed = {
-    description = "Seed /work and clone from the host mirror";
+    description = "Seed /work and the empty checkout";
     wantedBy = ["multi-user.target"];
     before = ["getty@ttyS0.service"];
-    after = ["local-fs.target" "systemd-networkd-wait-online.service"];
+    after = ["local-fs.target"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
     };
-    path = [pkgs.coreutils pkgs.util-linux capsule-clone];
+    path = [pkgs.coreutils pkgs.util-linux pkgs.git];
     script = ''
       mkdir -p ${work}/tmp ${home} ${work}/ssh ${lib.escapeShellArgs cacheDirs}
       chmod 1777 ${work}/tmp
@@ -206,8 +193,19 @@ in {
         chown -R agent:users ${work}
       fi
       chown agent:users ${home} ${lib.escapeShellArgs cacheDirs}
-      runuser -u agent -- capsule-clone \
-        || echo "capsule-seed: clone failed — start capsule-host, then run capsule-clone"
+      if [ ! -e ${repo}/.git ]; then
+        install -d -o agent -g users ${repo}
+        # --initial-branch explicitly, not via init.defaultBranch below: HEAD
+        # must point at the branch `capsule-provision` pushes to, because
+        # `receive.denyCurrentBranch` only governs a push to the branch HEAD
+        # names. Seeded on any other branch, a provision creates the ref, skips
+        # the guard entirely, never checks anything out, and leaves a repo with
+        # history and no files — silently. The two values are the same one from
+        # target.nix, and provision verifies it besides.
+        runuser -u agent -- git init --quiet \
+          --initial-branch=${target.defaultBranch} ${repo}
+        echo "capsule-seed: ${repo} is empty — run capsule-provision on the host"
+      fi
     '';
   };
 
@@ -219,13 +217,15 @@ in {
   users.motd = ''
     ${target.name} capsule — confined. checkout at ${repo}
 
-      capsule-clone         (re)fetch from the host mirror
-      capsule-push <name>   push HEAD to capsule/<name> on the mirror
       ${target.commands}
 
     running as `agent` (uid 1000) — no sudo, no su.
     from the host: ssh agent@${net.guest}   admin: ssh root@${net.guest}
     $HOME is ${home} — on the volume, so ~/.claude survives reboots.
+
+    git: commit locally, and there is nothing to push to. The host initiates
+    both directions — `capsule-provision` puts history here, `capsule-collect`
+    takes work out. If the checkout is empty, it has not been provisioned yet.
 
     egress: allowlist proxy at ${proxy} only — no default route.
     secrets: put `export ANTHROPIC_API_KEY=...` in ${work}/.env (sourced at login,
