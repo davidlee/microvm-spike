@@ -25,7 +25,7 @@ work — no more.
 | `.vm/host/`                  | proxy config + logs, `collect/` quarantines (gitignored) |
 | `probe/harness.sh`           | check/observe/report, prepended to each probe at build |
 | `probe/netns.sh`             | is a netns per capsule sound? kept as evidence — `sudo probe-netns` |
-| `probe/netns-boot.sh`        | does firecracker boot with its tap in one? — `sudo probe-netns-boot` |
+| `probe/netns-boot.sh`        | does firecracker boot with its tap in one? (yes) — `sudo probe-netns-boot` |
 | `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
 | `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
 
@@ -736,12 +736,15 @@ second-order to it. The confinement's job is to bound what the agent can reach
       `known_hosts` because the socket path is the identity.
 
       The host module takes the namespace without a patch — verified against the
-      pinned source, see item 11. What is left is one boot: whether firecracker
-      comes up with its tap inside a namespace. Reading source is not running
-      code. `probe/netns-boot.sh` (`sudo probe-netns-boot`) is that boot, and
-      needs no host config to do it — a namespace, a tap created in it, and the
-      runner started in there as you. Unrun as of this commit; results belong
-      here and in PLAN_C when it has been.
+      pinned source, see item 11. **And the boot is no longer a question
+      either**: `probe/netns-boot.sh` (`sudo probe-netns-boot`) puts the real
+      capsule in a namespace with its tap created inside it and the runner
+      started in there as you — 9 assertions green. The VMM comes up, the guest
+      boots and answers ssh in the namespace, its NIC carries traffic on the
+      namespaced tap, and the tap, the guest and its ssh port are all
+      unreachable from the root namespace. ssh and git both cross a unix socket
+      into it unprivileged. No host config was needed to establish any of that,
+      which is the other result: the boot was never systemd's question.
 
       Netns applies to the **host-module path only**. The devshell path keeps
       working with no rebuild and no root, which a namespace cannot do, so the
@@ -839,9 +842,13 @@ second-order to it. The confinement's job is to bound what the agent can reach
     refs into one real repo and that is where the name has to survive. It reads
     correctly the moment a capsule is called anything else.
 
-    Not measured: git over the netns unix-socket `ProxyCommand` (item 17 crossed
-    it with socat and raw bytes only), and whether `transfer.fsckObjects` rejects
-    anything the old push path accepted.
+    **Git over the netns unix-socket `ProxyCommand` now runs**, which item 17 had
+    only crossed with socat and raw bytes: `probe/netns-boot.sh` does
+    `git ls-remote --symref` against the guest through the socket, as the human,
+    with the guest in a namespace — the same call `capsule-provision` makes
+    before it pushes. Still not measured: throughput over the socket (the tap did
+    ~100 MiB/s each way), and whether `transfer.fsckObjects` rejects anything the
+    old push path accepted.
 
     **The refspec does not fully decide the destination.** The fetch also wrote
     `refs/tags/*`, outside the `refs/capsule/<name>/*` namespace it was given,

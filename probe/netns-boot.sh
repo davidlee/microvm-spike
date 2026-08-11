@@ -38,6 +38,11 @@
 #
 # Run: sudo probe-netns-boot     (from the repo, so $PWD/.vm is the VM's state)
 #
+# Takes a couple of minutes: a build, a boot, and a clean shutdown. It needs an
+# ssh identity the guest authorises and finds your agent itself — see the
+# refusal below, which is there because `sudo` strips SSH_AUTH_SOCK and the
+# first run of this probe failed three checks for exactly that reason.
+#
 # `probe/harness.sh` is concatenated ahead of this by flake.nix, along with the
 # values it takes from net.nix and target.nix — TAP, HOST_ADDR, GUEST_ADDR,
 # PREFIX, VM and GUEST_REPO are set there, not here.
@@ -84,6 +89,42 @@ SSH_OPTS=(
 vm_running() { pgrep -f "microvm@$VM" >/dev/null; }
 
 # ------------------------------------------------------------------- refusals
+
+# An ssh identity, found *before* anything boots. `sudo` strips SSH_AUTH_SOCK,
+# and the key a capsule authorises need not have a default filename — on this
+# host it is `~/.ssh/id`, which ssh only ever finds through the agent. Without
+# one, ssh offers the wrong key, every check that is not a ping fails, and the
+# teardown cannot ask the guest to power off either. Cost one probe run.
+HUMAN_UID=$(id -u "$HUMAN")
+if [ -n "${CAPSULE_SSH_KEY:-}" ]; then
+  SSH_OPTS+=(-o IdentitiesOnly=yes -i "$CAPSULE_SSH_KEY")
+else
+  # Whatever agent this host runs — gcr, gnome-keyring, 1Password, plain
+  # ssh-agent. A socket is not namespaced, so it works from inside the capsule
+  # namespace unchanged. `ssh-add -l` rather than a bare -S test: an agent
+  # holding nothing is the same failure one step later.
+  AGENT_SOCK=""
+  for sock in \
+    "${SSH_AUTH_SOCK:-}" \
+    "/run/user/$HUMAN_UID/gcr/ssh" \
+    "/run/user/$HUMAN_UID/keyring/ssh" \
+    "/run/user/$HUMAN_UID/ssh-agent.socket" \
+    "$HOME_DIR/.1password/agent.sock"; do
+    [ -n "$sock" ] && [ -S "$sock" ] || continue
+    as_human env "SSH_AUTH_SOCK=$sock" ssh-add -l >/dev/null 2>&1 || continue
+    AGENT_SOCK=$sock
+    break
+  done
+  if [ -z "$AGENT_SOCK" ]; then
+    echo "$PROG: no ssh agent with keys, and no CAPSULE_SSH_KEY." >&2
+    echo "  sudo strips SSH_AUTH_SOCK, and ~/.ssh/id is not a name ssh tries." >&2
+    echo "  sudo --preserve-env=SSH_AUTH_SOCK $PROG" >&2
+    echo "  sudo CAPSULE_SSH_KEY=\$HOME/.ssh/id $PROG" >&2
+    exit 1
+  fi
+  human_env+=("SSH_AUTH_SOCK=$AGENT_SOCK")
+  echo "== ssh identity: agent at $AGENT_SOCK =="
+fi
 
 if ip link show "$TAP" >/dev/null 2>&1; then
   echo "$PROG: $TAP exists in the root namespace — the devshell shape is up." >&2
@@ -187,10 +228,20 @@ wait_guest() {
   return 1
 }
 
-echo "== stage 1: the boot itself =="
+# Why the last attempt failed, when it did. A silent `deny` on ssh is
+# unreadable — auth, no route and no sshd all look identical from `check`.
+ssh_error() {
+  in_ns_as_human ssh "${SSH_OPTS[@]}" "root@$GUEST_ADDR" true 2>&1 | tail -1
+}
+
+echo "== stage 1: the boot itself (up to two minutes) =="
 
 check "the VMM starts with its tap inside the namespace" ok wait_vm
-check "the guest boots and answers ssh from inside the namespace" ok wait_guest
+# Run once, assert on the result, and say what went wrong if it did.
+if wait_guest; then ssh_ready=1; else ssh_ready=0; fi
+check "the guest boots and answers ssh from inside the namespace" ok \
+  test "$ssh_ready" = 1
+[ "$ssh_ready" = 1 ] || RESULTS+=("NOTE  ssh says: $(ssh_error)")
 check "the guest's NIC is live on the namespaced tap" ok nsping "$NS" "$GUEST_ADDR"
 
 echo "== stage 2: and is unreachable from outside it =="

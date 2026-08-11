@@ -19,13 +19,19 @@ config.
 
 Read this first if you are picking the work up cold.
 
-**Settled, with evidence.** The netns shape holds. `probe/netns.sh` — `sudo
-probe-netns`, or `--internet` for the egress stage — models two capsules with
-identical addressing and a guest that already has root, in namespaces, with no
-VM. 14 assertions, green. It is kept rather than thrown away: it is the evidence
-behind the addressing and isolation decisions below, it re-runs in seconds, and
-it is what to point at when this shape is proposed somewhere else. Re-run it
-after any change to the netns machinery.
+**Settled, with evidence.** The netns shape holds, in the model and in a real
+boot. Two probes, both kept rather than thrown away: they are the evidence behind
+the addressing and isolation decisions below, and they are what to point at when
+this shape is proposed somewhere else. Re-run both after any change to the netns
+machinery.
+
+- `probe/netns.sh` — `sudo probe-netns`, or `--internet` for the egress stage —
+  models two capsules with identical addressing and a guest that already has
+  root, in namespaces, with no VM. 14 assertions, green, in seconds.
+- `probe/netns-boot.sh` — `sudo probe-netns-boot` — boots the *real* capsule with
+  its tap inside a namespace, which is the one thing the model could not answer.
+  9 assertions, green, in a couple of minutes:
+  [the boot](#the-last-unknown--run-and-it-holds).
 
 **Decided.** Per-capsule proxy. Netns on the host-module path only, with the
 foreground path staying at N=1. Units generated per instance rather than
@@ -42,10 +48,10 @@ the only per-instance value still in the guest's closure is the address, which
 netns handles. What survives here unchanged is the netns work, the addressing,
 the image measurement and `capsules.nix`.
 
-**Open, in order.** One real boot with a namespace — the last unverified thing
-in the shape, and `sudo probe-netns-boot` is now the cheap way to run it, with no
-host rebuild — then the guest image measurement, then `capsules.nix`. Full list
-under [order of work](#order-of-work).
+**Open, in order.** Nothing in the shape is unverified any more. Next is the
+guest image measurement (`nix path-info -Sh .#capsule`), which prices how much
+the one-image argument was worth, then `capsules.nix`. Full list under
+[order of work](#order-of-work).
 
 **Do not re-derive these.** Three claims in earlier drafts of this document were
 wrong, and are corrected in place rather than deleted: the forward drop does not
@@ -289,22 +295,21 @@ first boot rather than after:
   11). Both already need a drop-in; the namespace work is the natural time to
   write it.
 
-### The one thing still unverified
+### The last unknown — run, and it holds
 
-**That firecracker comes up with its tap inside a namespace.** Everything says
-it will — it opens `/dev/net/tun` and `TUNSETIFF`s by interface name, both
-resolved in its own namespace — but nothing here has run it, and reading source
-is not running code. That is one boot, and it is the last unknown in the shape.
+**Firecracker comes up with its tap inside a namespace.** Measured, not read:
+`sudo probe-netns-boot` (`probe/netns-boot.sh`), 9 assertions, green. A namespace
+with `ip_forward=0`, `vm-capsule` created inside it, the existing runner started
+in there as the human — the VMM comes up, the guest boots to a login prompt, and
+its NIC carries traffic on the namespaced tap. The last unknown in the shape is
+gone, and nothing about the netns plan changes as a result.
 
-**There is now a probe for it: `sudo probe-netns-boot`** (`probe/netns-boot.sh`).
-It was worth writing rather than doing the boot by hand because the answer is
-load-bearing for everything downstream, and because the earlier reading of this
-section — that answering it *means* the host module, i.e. declaring the VM in
-`~/flakes` and rebuilding — was wrong. The unknown is firecracker's, not
-systemd's: a namespace, a tap created inside it, and the existing runner started
-in there as the human answers it with no host config at all. If it holds, the
-host-module wiring is bookkeeping against a known-good result; if it does not,
-nothing was spent on units for a shape that cannot boot.
+Answering it did **not** mean the host module. An earlier reading of this section
+said the only way was step 5 — declare the VM in `~/flakes` and rebuild. Wrong,
+and expensively so: the unknown was firecracker's, not systemd's, so a namespace,
+a tap and the runner answered it with no host config at all. The host-module
+wiring is now bookkeeping against a known-good result rather than the experiment
+itself.
 
 It is the one probe that uses the live tap name, the live /30 and the live
 volume, which is otherwise the trap in [traps](#traps-already-paid-for) — the
@@ -312,14 +317,32 @@ guest image has `net.nix` baked into it, so a probe on other addressing would
 boot a different guest and answer a different question. Hence its refusals: it
 will not start beside the devshell tap or a running VM.
 
-What it asserts, both directions: the VMM starts, the guest boots and answers
-ssh *inside* the namespace, the tap and the guest are invisible from the root
-namespace, and a socat relay on a unix socket carries both ssh and git across
-unprivileged — which also closes NOTES item 18's "git over the netns socket, not
-measured". What it deliberately does not assert is egress: there is no upstream
-in the namespace at all, so a denial there would pass for the wrong reason. That
-half is stage 2 of `probe/netns.sh` plus a proxy joined to the namespace, and it
-belongs with the module that creates the namespace for real.
+What it asserts, both directions:
+
+- the VMM starts, the guest answers ssh *inside* the namespace, and the NIC is
+  live on the namespaced tap;
+- the tap, the guest and the guest's ssh port are all unreachable from the root
+  namespace — the isolation is structural, exactly as `probe/netns.sh` modelled
+  it with veths;
+- a socat relay on a unix socket carries ssh *and* git across unprivileged. That
+  closes NOTES item 18's "git over the netns unix-socket `ProxyCommand`, not
+  measured" — `git ls-remote --symref` over the socket, which is the call
+  `capsule-provision` itself makes before it pushes. Throughput over the socket
+  is still unmeasured; the tap did 100 MiB/s each way.
+
+What it deliberately does not assert is egress: there is no upstream in the
+namespace at all, so a denial there would pass for the wrong reason. That half is
+stage 2 of `probe/netns.sh` plus a proxy joined to the namespace, and it belongs
+with the module that creates the namespace for real.
+
+**One host-side fact it cost a run to find, and the probe now encodes:** a
+root-side program cannot borrow your ssh agent. `sudo` strips `SSH_AUTH_SOCK`,
+and the key the guest authorises is `~/.ssh/id` — not a filename ssh tries by
+default — so ssh offered the wrong key and three checks failed while ping passed.
+Every ssh-shaped path here runs as the human for a reason; anything that ever
+runs one as root needs an identity handed to it, not inherited. The probe finds
+the agent socket itself (a socket is a file, so it crosses into the namespace
+unchanged) and refuses before booting if there is none.
 
 Two consequences to handle in the same pass, neither of them unknowns:
 
@@ -594,14 +617,13 @@ case, not before the dev-machine case.
 
 ## Order of work
 
-1. ~~Spike the netns.~~ **Done — it holds**, along with the tap and the
-   unix-socket way in ([results](#probed-it-holds)), and the host module takes
-   the namespace without a patch
-   ([from source](#the-host-module-question-answered-from-source)). What is left
-   is one boot with a real guest — **`sudo probe-netns-boot`**, which does not
-   mean step 5: the unknown is firecracker's, so a namespace, a tap in it and the
-   existing runner answer it with no host config
-   ([the probe](#the-one-thing-still-unverified)).
+1. ~~Spike the netns.~~ ~~One boot with a real guest.~~ **Both done — it holds**:
+   the namespace, the tap and the unix-socket way in
+   ([results](#probed-it-holds)), the host module taking the namespace without a
+   patch ([from source](#the-host-module-question-answered-from-source)), and
+   firecracker booting with its tap inside one, 9/9
+   ([the boot](#the-last-unknown--run-and-it-holds)). Nothing in the shape is
+   unverified now.
 2. ~~Make the base commit a runtime value.~~ **Done, as a side effect of NOTES
    item 18.** The guest boots with an empty repository and
    `capsule-provision <ref>` puts history in it, so the ref never reaches the

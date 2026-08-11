@@ -151,6 +151,16 @@ which shape nearly every decision here:
   Sound only because the link is a host-created /30 with one peer — change it in
   the same commit as any change to the transport, and don't "fix" it with a
   capsule-scoped `known_hosts`, which just accumulates one stale key per capsule.
+- **`sudo` strips `SSH_AUTH_SOCK`, and the guest's key is `~/.ssh/id`** — not a
+  filename ssh tries by default, so a root-side program gets the *wrong* key
+  offered and a clean `Permission denied`, while ping keeps passing. Cost one
+  `probe-netns-boot` run. Anything host-side that ssh's to the guest runs as the
+  human for this reason; `probe/netns-boot.sh` finds the agent socket itself and
+  refuses before it boots anything if there is none.
+- **`nix run`/devshell binaries are store paths, so an edited program is stale
+  until it is rebuilt.** A probe that "ignores your fix" is the old build on
+  `PATH` — `just build`, re-enter the devshell, or
+  `sudo "$(nix build --no-link --print-out-paths .#probe-netns-boot)/bin/…"`.
 - **`denyCurrentBranch` only governs the branch HEAD names.** Push any other
   branch and the ref lands while the worktree is untouched, silently. The seed
   sets `--initial-branch` and `capsule-provision` verifies the advertised symref
