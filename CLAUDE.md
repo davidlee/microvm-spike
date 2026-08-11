@@ -29,10 +29,18 @@ PLAN_C's addressing and isolation decisions rest on. They need root, so they are
 the user's to run (`sudo probe-netns`); `just build` shellchecks them. Write new
 ones the same way: assert both directions, since a denial-only network test
 passes for the wrong reason, and never borrow live addressing — a probe on the
-real `/30` tests the real capsule. `probe/harness.sh` (check/observe/report) is
-concatenated ahead of each probe by the `probe` builder in `flake.nix`, not
-sourced, so shellcheck sees one file; values from `net.nix`/`target.nix` reach a
-probe through that builder's `prelude` rather than being spelled in the script.
+real `/30` tests the real capsule. `probe/harness.sh` is concatenated ahead of
+each probe by the `probe` builder in `flake.nix`, not sourced, so shellcheck sees
+one file; values from `net.nix`/`target.nix` reach a probe through that builder's
+`prelude` rather than being spelled in the script. **Quote them there** — an
+unquoted `TAP=vm-capsule` reads as arithmetic to shellcheck (SC2100) once the
+harness has a `vm` variable in scope, and `writeShellApplication` fails the build
+on it. The harness carries four verbs, not three: `check` a verdict, `observe` a
+finding, `measure` a figure (a round whose bar is a price needs numbers beside
+the assertions), and `report`. It also carries the whole capsule-in-a-namespace
+boot — `ns_up`, `capsule_boot`, `wait_guest`, `halt_guest` — because
+`netns-boot.sh` and `freshness.sh` assert and measure the same shape, and two
+copies of a boot sequence are two answers the first time one is edited.
 `probe/netns-boot.sh` is the deliberate exception to the addressing rule and
 says why in its header: it boots the real guest, whose image has `net.nix` in
 it, so the real capsule *is* the subject.

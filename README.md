@@ -210,6 +210,7 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |
 | `sudo probe-netns-boot` | evidence: does the capsule boot with its tap in one?     |
+| `sudo probe-freshness [REF]` | evidence: what a fresh capsule costs, and which axes hold. |
 
 Nothing in the guest: it initiates neither direction, and has no remote.
 
@@ -298,6 +299,8 @@ different one.
 | symptom                                        | cause                                                     |
 | ---------------------------------------------- | --------------------------------------------------------- |
 | `Cannot assign requested address` on start     | tap missing — `capsule-net up`                             |
+| firecracker `TapOpen … Operation not permitted` | also tap missing: an absent name makes `TUNSETIFF` *create* one, which the unprivileged VMM may not do. Tap present and still EPERM ⇒ wrong owner (`cat /sys/class/net/vm-capsule/owner` should be your uid) |
+| firecracker `Device or resource busy`          | tap exists and is already attached — a VMM outlived its guest; `pgrep -af 'microvm@'`, then `vm-stop` |
 | `Address already in use` on start              | orphaned daemon from an earlier run; `capsule-host` names the pid |
 | `No route to host` to `10.99.0.2`              | tap was recreated under a running VM, or the VM is down    |
 | `refusing — net.ipv4.ip_forward is on`         | the `capsule-forward` table isn't loaded (or isn't readable) while something forwards — see "Host requirements" |
@@ -305,6 +308,8 @@ different one.
 | `FORWARD drop ... cannot be verified`          | the sudo read rule is missing; safe only while `ip_forward` is 0 |
 | guest reaches nothing, host is up              | host firewall dropping the tap — see "Host requirements"    |
 | a hostname 403s through the proxy              | not in `perimeter/egress-allow.txt`; `.vm/host/tinyproxy.log` names it |
+| a download hangs mid-way, no error, no log line | proxy at `MaxClients` — `ss -lnt 'sport = :3128'` shows a non-zero `Recv-Q` (connections queued, never accepted). Cap the client (`bun install --network-concurrency 8`) or raise `MaxClients` in `perimeter/default.nix` |
+| the proxy log looks stale while egress works   | the unit path is serving, not `capsule-host` — its log is `/var/lib/capsule-proxy/tinyproxy.log`. `just proxy-log` picks the right one |
 | a TUI (claude, etc.) renders but ignores Enter | serial console input quirk — run TUIs over ssh              |
 | `modprobe` fails in the guest                  | `security.lockKernelModules` — deliberate; NOTES has the trade |
 

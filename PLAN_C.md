@@ -90,8 +90,21 @@ firecracker JSON. Two things are in the closure and have to come out:
   it is an eval-time value and nothing has to be persisted on the volume. Only
   the address is left, which makes (4) below cheaper than it looked.
 
-**Measure first:** `nix path-info -Sh .#capsule`. If the image is small this
-section is moot and N closures is the right answer for its simplicity.
+**Measured, and it is not small.** `nix path-info -Sh .#capsule` is 11.9 GiB,
+but that is the runner's whole closure and ~99% of it is shared — the number that
+costs per instance is the erofs blob it names, and it does not dedupe:
+
+| per instance | | shared across instances | |
+| --- | --- | --- | --- |
+| `microvm-store-disk.erofs` | **3.0 GiB** | guest kernel (`vmlinux`) | 381 MiB |
+| the volume, in use | 385 MiB | initrd | 25 MiB |
+| | *(32 GiB sparse; NOTES item 15)* | the rest of the closure | ~8 GiB |
+
+So N closures is **3.0 GiB of disk and one 3.0 GiB erofs pack per capsule**, on
+every tool-set bump — 9 GiB extra at N=4, against 180 GiB free on this host. Not
+fatal, and not free either. Since the netns machinery is now verified rather than
+speculative, mechanism (4) is cheaper than the thing it replaces on both axes,
+and this section stops being a trade-off.
 
 Four mechanisms:
 
@@ -120,10 +133,11 @@ admits it degenerates into a boot script deriving `.1` from `.2`, i.e. exactly
 the guest-side moving part that (3) was rejected for. It does at least fix the
 hostname for free (`UseHostname=true`).
 
-**Recommendation: (4).** It was probed and it holds; identical addressing in
-every capsule means the question this whole section asks stops being asked. Keep
-(1) as the fallback if the netns machinery turns out to cost more than the image
-does — which is what step 3 of the work order measures.
+**Recommendation: (4), and now with the numbers behind it.** It was probed, it
+booted, and identical addressing in every capsule means the question this whole
+section asks stops being asked. (1) stays the fallback, but it is a 3.0 GiB
+fallback per capsule rather than a free one, and the netns machinery it was
+hedging against is one oneshot unit and two drop-ins.
 
 ## Netns per capsule
 
@@ -526,7 +540,10 @@ decides whether adding a capsule is a rebuild or a command.
 ## Disk is the practical limit
 
 One 32 GiB sparse volume per capsule, no discard, high-water mark only (NOTES
-item 15), plus a duplicated cargo/bun cache each. Sharing caches across VMs means
+item 15) — 385 MiB in use after this capsule's life so far, so the sparseness is
+doing its job — plus a duplicated cargo/bun cache each, and, under mechanism (1)
+only, a 3.0 GiB guest image each
+([measured](#the-cost-that-shapes-everything-else)). Sharing caches across VMs means
 a read-only shared volume plus a per-capsule overlay — real machinery, and a
 shared *writable* volume across two VMs is corruption, not a shortcut. Note it;
 don't build it. In practice this, not CPU, sets the useful N.
@@ -628,7 +645,10 @@ case, not before the dev-machine case.
    item 18.** The guest boots with an empty repository and
    `capsule-provision <ref>` puts history in it, so the ref never reaches the
    closure and nothing has to be persisted on the volume for it.
-3. Measure the guest image. It prices how much (1) is worth.
+3. ~~Measure the guest image.~~ **Done: 3.0 GiB of erofs per instance**, the
+   rest of the 11.9 GiB closure being shared
+   ([the numbers](#the-cost-that-shapes-everything-else)). Prices (1) at 3.0 GiB
+   and one pack per capsule per bump, which is what makes netns worth its unit.
 4. `capsules.nix` + the instance record. Under netns that is a name list and
    little else; without it, the index function, the wildcard drop and the
    daddr-paired accept rule. The single capsule becomes instance zero either way.

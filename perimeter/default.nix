@@ -99,8 +99,21 @@
   proxyConf = pkgs.writeText "capsule-tinyproxy.conf" ''
     Port ${toString proxyPort}
     Listen ${bind}
-    Timeout 600
-    MaxClients 32
+    # A client fans out wider than MaxClients and the proxy stops accepting:
+    # the kernel completes the handshakes anyway, so the client sees connected
+    # sockets and waits forever on a worker that never comes. Observed as
+    # `bun install` hanging mid-download with 32 connections queued on the
+    # listener — bun's default --network-concurrency is 48, so it deadlocked
+    # against 32 workers every time, and looked intermittent because it depends
+    # on how many packages are already cached. Keep this above what any one tool
+    # opens; it is a slot count, not a security control.
+    #
+    # Timeout is how long an idle connection holds its slot. 600 meant a
+    # finished keep-alive pool occupied workers for ten minutes. Not cut
+    # further: a streaming agent response can idle between tokens, and killing
+    # those is a worse failure than a slow slot.
+    Timeout 300
+    MaxClients 128
     Allow ${client}
     ConnectPort 443
     Filter "@ALLOW@"

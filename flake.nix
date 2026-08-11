@@ -346,13 +346,16 @@
     probe-netns-boot = probe {
       name = "probe-netns-boot";
       script = ./probe/netns-boot.sh;
+      # Quoted, and it matters: `TAP=vm-capsule` unquoted reads as arithmetic to
+      # shellcheck (SC2100) the moment the harness has a `vm` variable in scope,
+      # and writeShellApplication takes that as a build failure.
       prelude = ''
-        TAP=${net.tap}
-        HOST_ADDR=${net.host}
-        GUEST_ADDR=${net.guest}
-        PREFIX=${toString net.prefix}
-        VM=capsule
-        GUEST_REPO=${guestRepo}
+        TAP="${net.tap}"
+        HOST_ADDR="${net.host}"
+        GUEST_ADDR="${net.guest}"
+        PREFIX="${toString net.prefix}"
+        VM="capsule"
+        GUEST_REPO="${guestRepo}"
       '';
       runtimeInputs = [
         pkgs.iproute2
@@ -367,6 +370,53 @@
         pkgs.openssh
         pkgs.git
         pkgs.nix # builds the runner, as the human
+      ];
+    };
+
+    # What does a fresh capsule cost, and which of REQ-450's five freshness axes
+    # does a microVM actually satisfy (doctrine IMP-426 P1a)? Boots the real
+    # guest image, twice, against its *own* state directory — freshness means
+    # making and destroying volumes, and a probe that did that to `.vm/capsule`
+    # could be run once.
+    #
+    # The socket path is the designed one rather than a mktemp, because
+    # `capsule-provision` has to be built with a ProxyCommand against it: the
+    # probe exercises the real program on the real seam, which is the whole
+    # point of `sshCommand` being injected.
+    nsSocket = "/run/capsule/capsule/ssh.sock";
+    nsGitChannel = import ./host/git-channel.nix {
+      inherit pkgs target guestRepo;
+      sshCommand = "${guestSsh} -o ProxyCommand='socat - UNIX-CONNECT:${nsSocket}'";
+    };
+    probe-freshness = probe {
+      name = "probe-freshness";
+      script = ./probe/freshness.sh;
+      prelude = ''
+        TAP="${net.tap}"
+        HOST_ADDR="${net.host}"
+        GUEST_ADDR="${net.guest}"
+        PREFIX="${toString net.prefix}"
+        VM="capsule"
+        GUEST_PATH="${target.guestPath}"
+        TARGET_PATH="${target.path}"
+        DEFAULT_BRANCH="${target.defaultBranch}"
+        CACHES="${lib.concatStringsSep " " (lib.attrValues target.caches)}"
+        PROVISION="${nsGitChannel.provision}/bin/capsule-provision"
+      '';
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.iputils
+        pkgs.procps
+        pkgs.coreutils # du, dirname, date
+        pkgs.gnugrep
+        pkgs.gawk # the arithmetic behind every figure
+        pkgs.util-linux # runuser: enter the namespace as root, boot the VM as you
+        pkgs.glibc.bin # getent, for the human's home directory
+        pkgs.bash
+        pkgs.socat
+        pkgs.openssh
+        pkgs.git
+        pkgs.nix # builds the runner and prices its closure, as the human
       ];
     };
 
@@ -436,7 +486,7 @@
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
         inherit vm vm-stop capsule-net capsule-host capsule-provision capsule-collect;
-        inherit probe-netns probe-netns-boot;
+        inherit probe-netns probe-netns-boot probe-freshness;
         default = self.packages.${system}.capsule;
       };
 
@@ -450,6 +500,7 @@
         capsule-collect
         probe-netns
         probe-netns-boot
+        probe-freshness
         pkgs.firecracker
         pkgs.just
         microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)

@@ -23,9 +23,10 @@ work — no more.
 | `vm/capsule.nix`             | the agent jail                                      |
 | `.vm/<name>/`                | per-VM state: volume images, API socket (gitignored)|
 | `.vm/host/`                  | proxy config + logs, `collect/` quarantines (gitignored) |
-| `probe/harness.sh`           | check/observe/report, prepended to each probe at build |
+| `probe/harness.sh`           | check/observe/measure/report + the capsule-in-a-namespace boot, prepended to each probe at build |
 | `probe/netns.sh`             | is a netns per capsule sound? kept as evidence — `sudo probe-netns` |
 | `probe/netns-boot.sh`        | does firecracker boot with its tap in one? (yes) — `sudo probe-netns-boot` |
+| `probe/freshness.sh`         | what does a *fresh* capsule cost, and which axes hold? — `sudo probe-freshness` |
 | `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
 | `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
 
@@ -393,6 +394,21 @@ second-order to it. The confinement's job is to bound what the agent can reach
 9. **Egress allowlist is unproven** against a real Claude Code session —
    expect to add hosts on first run. `perimeter/egress-allow.txt`, restart
    `capsule-host`, no rebuild.
+
+   **The first real workload found a limit that was not the allowlist.**
+   `bun install` in the guest hung mid-download, repeatably, and succeeded
+   instantly when killed and re-run. Nothing was denied and nothing was logged:
+   tinyproxy was at `MaxClients 32`, so it had stopped accepting, while the
+   kernel went on completing handshakes — 32 connections sat in the listener's
+   accept queue (`ss -lnt 'sport = :3128'`, `Recv-Q 32`) and bun waited on
+   sockets no worker would ever read. bun's default `--network-concurrency` is
+   48, so it deadlocked against 32 workers every time; it looked intermittent
+   only because how many packages are already cached decides how wide it fans
+   out. `MaxClients 128` and `Timeout 300` now (`perimeter/default.nix`, with
+   the reasoning). Worth generalising: a proxy in the path turns *any* client's
+   parallelism into a shared resource, and the failure mode is a hang with no
+   error on either side — not a refusal. The allowlist is the control; the slot
+   count is capacity, and they fail in completely different ways.
 10. **Dropped since the first cut:** vendored crates
     (`rustPlatform.importCargoLock`) and the pre-seeded `node_modules` from
     doctrine's `web-modules` FOD. Both existed to make an offline capsule
