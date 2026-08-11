@@ -6,15 +6,24 @@ exactly enough network for a coding agent to work — no more.
 
 ## Layout
 
-| path                   | what                                               |
-| ---------------------- | -------------------------------------------------- |
-| `flake.nix`            | VMs, devshell, host-side scripts, the link's config |
-| `vm/common.nix`        | shared guest config (firecracker, serial console)   |
-| `vm/hello.nix`         | smoke test VM, no network                           |
-| `vm/capsule.nix`       | the agent jail                                      |
-| `net/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild   |
-| `.vm/<name>/`          | per-VM state: volume images, API socket (gitignored)|
-| `.vm/host/`            | the bare mirror, proxy config + logs (gitignored)   |
+| path                    | what                                               |
+| ----------------------- | -------------------------------------------------- |
+| `flake.nix`             | VMs, devshell, tap + runner scripts, the link's config |
+| `perimeter/default.nix` | proxy, mirror, ref guard — `capsule-host`. Jail-agnostic |
+| `vm/common.nix`         | shared guest config (firecracker, serial console)   |
+| `vm/hello.nix`          | smoke test VM, no network                           |
+| `vm/capsule.nix`        | the agent jail                                      |
+| `net/egress-allow.txt`  | proxy hostname allowlist — plain file, no rebuild   |
+| `.vm/<name>/`           | per-VM state: volume images, API socket (gitignored)|
+| `.vm/host/`             | the bare mirror, proxy config + logs (gitignored)   |
+
+The split is load-bearing, not tidiness: the perimeter is where nearly all the
+policy lives and it is the only part that ports to a non-firecracker jail
+(PLAN_B.md). It takes addresses and ports as arguments and one injected
+`preflight` fragment — on firecracker, the tap-address check — so nothing
+hypervisor- or platform-shaped leaks into it. Runtime paths are environment
+(`CAPSULE_ROOT`, `CAPSULE_STATE`, `CAPSULE_ALLOWLIST`, `CAPSULE_REPO`), which
+is what keeps the allowlist an editable file rather than a store path.
 
 ## Running
 

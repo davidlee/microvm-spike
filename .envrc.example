@@ -1,0 +1,5 @@
+export CAPSULE_ROOT=$PWD
+
+watch_file vm/common.nix vm/hello.nix vm/capsule.nix
+
+use flake

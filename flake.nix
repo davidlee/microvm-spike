@@ -112,118 +112,24 @@
       '';
     };
 
-    # Guests may only push to refs/heads/capsule/* — the mirror's own history
-    # is not theirs to rewrite.
-    pushGuard = pkgs.writeShellScript "capsule-push-guard" ''
-      case "$1" in
-        refs/heads/capsule/*) exit 0 ;;
-      esac
-      echo "capsule: pushes are restricted to refs/heads/capsule/*" >&2
-      exit 1
-    '';
-
-    # @ALLOW@ / @STATE@ are filled in at run time so the allowlist stays an
-    # ordinary editable file rather than a store path behind a rebuild.
-    tinyproxyConf = pkgs.writeText "capsule-tinyproxy.conf" ''
-      Port ${toString net.proxyPort}
-      Listen ${net.host}
-      Timeout 600
-      MaxClients 32
-      Allow ${net.guest}
-      ConnectPort 443
-      Filter "@ALLOW@"
-      FilterDefaultDeny Yes
-      FilterType extended
-      FilterCaseSensitive No
-      LogLevel Info
-      LogFile "@STATE@/tinyproxy.log"
-      PidFile "@STATE@/tinyproxy.pid"
-    '';
-
-    # The two host-side services the guest talks to over the p2p link.
-    capsule-host = pkgs.writeShellApplication {
-      name = "capsule-host";
-      runtimeInputs = [pkgs.git pkgs.tinyproxy pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.iproute2 pkgs.procps];
-      text = ''
+    # Proxy + mirror + ref guard. Jail-agnostic by construction (see
+    # perimeter/default.nix); the tap check is the one firecracker-specific
+    # bit and is injected rather than assumed.
+    perimeter = import ./perimeter {
+      inherit pkgs;
+      bind = net.host;
+      client = net.guest;
+      inherit (net) proxyPort gitPort;
+      extraRuntimeInputs = [pkgs.iproute2];
+      preflight = ''
         # Both services bind ${net.host}, which only exists while the tap does.
         if ! ip -brief addr show ${net.tap} 2>/dev/null | grep -q ${net.host}; then
           echo "capsule-host: ${net.host} is not assigned — run 'capsule-net up' first" >&2
           exit 1
         fi
-        # Nothing here wants privilege, and running it as root would leave the
-        # mirror root-owned.
-        if [ "$(id -u)" = 0 ]; then
-          echo "capsule-host: do not run as root" >&2
-          exit 1
-        fi
-
-        root="''${MICROVM_SPIKE_ROOT:-$PWD}"
-        src="''${CAPSULE_REPO:-$HOME/dev/doctrine}"
-        state="$root/.vm/host"
-
-        # git daemon outlives the SIGINT that kills tinyproxy, so a Ctrl-C and
-        # restart would otherwise hit a port it still holds. Match on this
-        # state dir: strays from *this* capsule and nothing else.
-        # Patterns must not start with a dash: pkill would read them as options.
-        for pattern in "tinyproxy -d -c $state/tinyproxy.conf" "base-path=$state"; do
-          if pkill -f -- "$pattern"; then
-            echo "capsule-host: reaped a stray ($pattern)"
-          fi
-        done
-
-        for port in ${toString net.proxyPort} ${toString net.gitPort}; do
-          for _ in 1 2 3 4 5; do
-            ss -lnt "sport = :$port" | grep -q ${net.host} || break
-            sleep 0.2
-          done
-          if ss -lnt "sport = :$port" | grep -q ${net.host}; then
-            echo "capsule-host: ${net.host}:$port is bound by something else:" >&2
-            ss -lntp "sport = :$port" >&2
-            exit 1
-          fi
-        done
-
-        mirror="$state/$(basename "$src").git"
-        allow="$root/net/egress-allow.txt"
-        mkdir -p "$state"
-
-        if [ ! -d "$mirror" ]; then
-          echo "capsule-host: mirroring $src"
-          git clone --mirror "$src" "$mirror"
-        fi
-
-        # Explicit refspec, never `git remote update`: a mirror's default fetch
-        # is force+prune and would delete whatever the guest has pushed.
-        git -C "$mirror" fetch origin \
-          '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
-        install -m755 ${pushGuard} "$mirror/hooks/update"
-        # Two independent guards on what the daemon will serve, since it is
-        # unauthenticated and `receive-pack` is enabled: the per-repo marker
-        # (which replaces --export-all) and the explicit whitelist below.
-        touch "$mirror/git-daemon-export-ok"
-
-        sed -e "s|@ALLOW@|$allow|" -e "s|@STATE@|$state|" \
-          ${tinyproxyConf} > "$state/tinyproxy.conf"
-
-        echo "capsule-host: proxy on ${net.host}:${toString net.proxyPort} (allowlist: $allow)"
-        echo "capsule-host: git on ${net.host}:${toString net.gitPort} serving $state"
-        tinyproxy -d -c "$state/tinyproxy.conf" &
-        proxy=$!
-        # --strict-paths + an explicit repo whitelist: the guest may reach
-        # exactly this one path, spelled exactly, and no sibling under $state
-        # that happens to look like a repo.
-        git daemon \
-          --base-path="$state" --strict-paths --enable=receive-pack \
-          --listen=${net.host} --port=${toString net.gitPort} \
-          --reuseaddr --verbose "$mirror" &
-        daemon=$!
-        # INT/TERM as well as EXIT, and `wait -n` so that either child dying
-        # tears the other down instead of leaving it holding a port.
-        trap 'kill $proxy $daemon 2>/dev/null' EXIT INT TERM
-        wait -n
-        echo "capsule-host: a service exited — shutting down" >&2
       '';
     };
+    capsule-host = perimeter.host;
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -231,7 +137,7 @@
       name = "vm";
       text = ''
         name="''${1:-capsule}"
-        root="''${MICROVM_SPIKE_ROOT:-$PWD}"
+        root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
         dir="$root/.vm/$name"
         mkdir -p "$dir"
         cd "$dir"
@@ -249,7 +155,7 @@
       runtimeInputs = [pkgs.nix pkgs.openssh pkgs.procps pkgs.coreutils];
       text = ''
         name="''${1:-capsule}"
-        root="''${MICROVM_SPIKE_ROOT:-$PWD}"
+        root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
 
         stopped=0
         if [ "$name" = capsule ]; then

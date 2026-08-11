@@ -23,6 +23,11 @@ Break these and the confinement stops meaning anything:
   the host, where the guest cannot reach them. Guest-side settings — proxy env
   vars, the unprivileged `agent` user — are convenience and clumsiness-guards,
   not security. Never move a control from the host into the guest.
+- **`perimeter/` knows nothing about the jail.** It builds `capsule-host` from
+  addresses, ports, and one injected `preflight` fragment. No tap name, no
+  hypervisor, no Linux-only tool goes in there — that is what lets a
+  seatbelt or VM-based shape reuse it (PLAN_B.md). Anything platform-shaped
+  belongs at the call site in `flake.nix`.
 - **No default route in the guest.** The only egress is the proxy. Adding NAT
   or a gateway would silently void the allowlist.
 - **Root is reachable only by ssh key from the host.** The agent has no sudo and
