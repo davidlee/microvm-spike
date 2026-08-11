@@ -41,6 +41,9 @@
 #     blocked it. Without one, every negative passes for the wrong reason.
 #
 # Run: sudo probe-netns [--internet]
+#
+# `probe/harness.sh` — check/observe/report and the netns helpers — is
+# concatenated ahead of this by flake.nix, so it is not defined here.
 
 # Deliberately no errexit: half these tests are supposed to fail.
 
@@ -55,12 +58,8 @@ GUEST_NET=10.98.0.0/30
 FORWARD_SAVED=""
 UPLINK=""
 SOCKDIR=""
-HELPERS=()
 
-[ "$(id -u)" = 0 ] || {
-  echo "probe-netns: needs root (ip netns)" >&2
-  exit 1
-}
+need_root probe-netns
 
 # Refuse rather than produce wrong answers: an overlapping route in the root
 # namespace silently redirects this spike's replies to whatever really owns the
@@ -75,10 +74,8 @@ for net in "$GUEST_NET" 10.100.0.0/16 10.101.0.0/30; do
 done
 
 cleanup() {
-  local ns pid
-  for pid in "${HELPERS[@]}"; do
-    kill "$pid" 2>/dev/null
-  done
+  local ns
+  kill_helpers
   for ns in "${NSCAP[@]}" "${NSGST[@]}" "$NSWAN"; do
     ip netns del "$ns" 2>/dev/null
   done
@@ -91,63 +88,6 @@ cleanup() {
   echo "cleaned up."
 }
 trap cleanup EXIT
-
-# ---------------------------------------------------------------- test harness
-
-PASSED=0
-FAILED=0
-RESULTS=()
-
-# check <name> <ok|deny> <cmd...>  — "deny" means the command must fail
-check() {
-  local name=$1 expect=$2 got
-  shift 2
-  if "$@" >/dev/null 2>&1; then got=ok; else got=deny; fi
-  if [ "$got" = "$expect" ]; then
-    RESULTS+=("PASS  $name")
-    PASSED=$((PASSED + 1))
-  else
-    RESULTS+=("FAIL  $name — expected $expect, got $got")
-    FAILED=$((FAILED + 1))
-  fi
-}
-
-# Findings, not pass/fail: they record which way the world turns out to be.
-observe() {
-  local name=$1
-  shift
-  if "$@" >/dev/null 2>&1; then
-    RESULTS+=("NOTE  $name: reachable")
-  else
-    RESULTS+=("NOTE  $name: blocked")
-  fi
-}
-
-nsping() { ip netns exec "$1" ping -c1 -W2 -n "$2"; }
-nstcp() { ip netns exec "$1" timeout 5 bash -c "exec 3<>/dev/tcp/$2/$3"; }
-
-# A background helper in a namespace, remembered so cleanup can kill it.
-helper() {
-  local ns=$1
-  shift
-  # Quiet: these get SIGTERMed at cleanup and socat announces it, which reads
-  # like a failure at the end of an all-green run. wait_listen is what actually
-  # proves a listener came up.
-  ip netns exec "$ns" "$@" >/dev/null 2>&1 &
-  HELPERS+=("$!")
-}
-
-# Listeners take a moment; poll rather than sleep and hope.
-wait_listen() {
-  local ns=$1 addr=$2 port=$3 i
-  for i in $(seq 20); do
-    if ip netns exec "$ns" ss -lnt 2>/dev/null | grep -qF "$addr:$port"; then
-      return 0
-    fi
-    sleep 0.1
-  done
-  return 1
-}
 
 # --------------------------------------------------------------------- set-up
 
@@ -358,9 +298,4 @@ fi
 
 # ---------------------------------------------------------------------- report
 
-echo
-echo "== results =="
-printf '%s\n' "${RESULTS[@]}"
-echo
-echo "$PASSED passed, $FAILED failed"
-[ "$FAILED" = 0 ] || exit 1
+report || exit 1

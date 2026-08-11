@@ -268,9 +268,13 @@
     # grows a `ProxyCommand` against the capsule's unix socket (NOTES item 17),
     # at which point the socket path is the identity and the relaxation above
     # stops being needed.
+    # Where the guest's checkout is, as a URL. One binding: the git channel
+    # pushes and fetches against it, and probe-netns-boot asks the same question
+    # of it through a unix socket.
+    guestRepo = "ssh://agent@${net.guest}${target.guestPath}";
+
     gitChannel = import ./host/git-channel.nix {
-      inherit pkgs target;
-      guestRepo = "ssh://agent@${net.guest}${target.guestPath}";
+      inherit pkgs target guestRepo;
       sshCommand = guestSsh;
     };
     capsule-provision = gitChannel.provision;
@@ -290,17 +294,38 @@
       '';
     };
 
+    # Probes are in the tree rather than in a scratch file for two reasons: each
+    # is the evidence behind a decision and has to outlive the conversation that
+    # produced it, and building them here means shellcheck runs and their tools
+    # are pinned rather than borrowed from whatever `sudo` happens to have on
+    # PATH. They need root, so they are the human's to run.
+    #
+    # `prelude` is how a probe gets net.nix/target.nix values without spelling
+    # an address itself. The harness is concatenated rather than sourced: one
+    # `writeShellApplication` is one script, so shellcheck sees both halves and
+    # the probe needs no path to a sibling at run time.
+    probe = {
+      name,
+      script,
+      runtimeInputs,
+      prelude ? "",
+    }:
+      pkgs.writeShellApplication {
+        inherit name runtimeInputs;
+        # A probe's whole job includes running commands that must fail.
+        bashOptions = ["nounset" "pipefail"];
+        text =
+          prelude
+          + builtins.readFile ./probe/harness.sh
+          + builtins.readFile script;
+      };
+
     # Does a network namespace per capsule hold up (PLAN_C.md, "Netns per
-    # capsule")? Needs root; models two capsules with identical addressing and
-    # no VM. In the tree rather than in a scratch file for two reasons: it is
-    # the evidence behind PLAN_C's addressing and isolation decisions and has to
-    # outlive the conversation that produced it, and building it here means
-    # shellcheck runs and its tools are pinned rather than borrowed from
-    # whatever `sudo` happens to have on PATH.
-    probe-netns = pkgs.writeShellApplication {
+    # capsule")? Models two capsules with identical addressing and no VM, on
+    # addressing deliberately unlike the live capsule's.
+    probe-netns = probe {
       name = "probe-netns";
-      # The script's whole job is running commands that must fail.
-      bashOptions = ["nounset" "pipefail"];
+      script = ./probe/netns.sh;
       runtimeInputs = [
         pkgs.iproute2
         pkgs.iputils
@@ -312,7 +337,37 @@
         pkgs.bind.dnsutils
         pkgs.socat # listeners, and the unix-socket way into a namespace
       ];
-      text = builtins.readFile ./probe/netns.sh;
+    };
+
+    # The one thing that probe cannot answer, because it has no VM in it: does
+    # firecracker come up with its tap inside a namespace (PLAN_C.md, "The one
+    # thing still unverified")? Boots the real capsule, so it takes the real
+    # values — and refuses to run beside the devshell shape.
+    probe-netns-boot = probe {
+      name = "probe-netns-boot";
+      script = ./probe/netns-boot.sh;
+      prelude = ''
+        TAP=${net.tap}
+        HOST_ADDR=${net.host}
+        GUEST_ADDR=${net.guest}
+        PREFIX=${toString net.prefix}
+        VM=capsule
+        GUEST_REPO=${guestRepo}
+      '';
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.iputils
+        pkgs.procps
+        pkgs.coreutils
+        pkgs.gnugrep
+        pkgs.util-linux # runuser: enter the namespace as root, boot the VM as you
+        pkgs.glibc.bin # getent, for the human's home directory
+        pkgs.bash # /dev/tcp, via `timeout 3 bash -c`
+        pkgs.socat
+        pkgs.openssh
+        pkgs.git
+        pkgs.nix # builds the runner, as the human
+      ];
     };
 
     # Clean shutdown without a console. The runner's own microvm-shutdown is
@@ -380,7 +435,8 @@
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
-        inherit vm vm-stop capsule-net capsule-host capsule-provision capsule-collect probe-netns;
+        inherit vm vm-stop capsule-net capsule-host capsule-provision capsule-collect;
+        inherit probe-netns probe-netns-boot;
         default = self.packages.${system}.capsule;
       };
 
@@ -393,6 +449,7 @@
         capsule-provision
         capsule-collect
         probe-netns
+        probe-netns-boot
         pkgs.firecracker
         pkgs.just
         microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)

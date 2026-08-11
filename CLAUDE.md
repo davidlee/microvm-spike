@@ -29,7 +29,13 @@ PLAN_C's addressing and isolation decisions rest on. They need root, so they are
 the user's to run (`sudo probe-netns`); `just build` shellchecks them. Write new
 ones the same way: assert both directions, since a denial-only network test
 passes for the wrong reason, and never borrow live addressing — a probe on the
-real `/30` tests the real capsule.
+real `/30` tests the real capsule. `probe/harness.sh` (check/observe/report) is
+concatenated ahead of each probe by the `probe` builder in `flake.nix`, not
+sourced, so shellcheck sees one file; values from `net.nix`/`target.nix` reach a
+probe through that builder's `prelude` rather than being spelled in the script.
+`probe/netns-boot.sh` is the deliberate exception to the addressing rule and
+says why in its header: it boots the real guest, whose image has `net.nix` in
+it, so the real capsule *is* the subject.
 
 Formatting is alejandra, 2-space indent, matching doctrine's flake.
 

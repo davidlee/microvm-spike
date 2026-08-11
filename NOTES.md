@@ -23,7 +23,9 @@ work — no more.
 | `vm/capsule.nix`             | the agent jail                                      |
 | `.vm/<name>/`                | per-VM state: volume images, API socket (gitignored)|
 | `.vm/host/`                  | proxy config + logs, `collect/` quarantines (gitignored) |
+| `probe/harness.sh`           | check/observe/report, prepended to each probe at build |
 | `probe/netns.sh`             | is a netns per capsule sound? kept as evidence — `sudo probe-netns` |
+| `probe/netns-boot.sh`        | does firecracker boot with its tap in one? — `sudo probe-netns-boot` |
 | `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
 | `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
 
@@ -736,7 +738,10 @@ second-order to it. The confinement's job is to bound what the agent can reach
       The host module takes the namespace without a patch — verified against the
       pinned source, see item 11. What is left is one boot: whether firecracker
       comes up with its tap inside a namespace. Reading source is not running
-      code.
+      code. `probe/netns-boot.sh` (`sudo probe-netns-boot`) is that boot, and
+      needs no host config to do it — a namespace, a tap created in it, and the
+      runner started in there as you. Unrun as of this commit; results belong
+      here and in PLAN_C when it has been.
 
       Netns applies to the **host-module path only**. The devshell path keeps
       working with no rebuild and no root, which a namespace cannot do, so the

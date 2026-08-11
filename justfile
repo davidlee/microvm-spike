@@ -64,7 +64,8 @@ fmt-check:
 
 # the host-side scripts — shellcheck runs at build, so this is the real lint
 build:
-  nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#probe-netns' \
+  nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' \
+    '.#probe-netns' '.#probe-netns-boot' \
     '.#capsule-provision' '.#capsule-collect'
 
 # the guest closure and its runner — the slow one

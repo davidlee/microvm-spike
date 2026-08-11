@@ -208,8 +208,15 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-collect [NAME]` | fetch the guest's refs into a quarantine repo.          |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
+| `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |
+| `sudo probe-netns-boot` | evidence: does the capsule boot with its tap in one?     |
 
 Nothing in the guest: it initiates neither direction, and has no remote.
+
+The two probes are answers kept runnable, not tools — see NOTES "Layout".
+`probe-netns-boot` boots the real capsule inside a namespace and shuts it down
+again, so it refuses to start beside `capsule-net up` or a running VM; run it
+from the repo, since `$PWD/.vm` is where the VM's state lives.
 
 Those are the lifecycle; `just` has everything that needs more than one command
 to answer, and does not wrap them. `just check` is the gate (every nix file
