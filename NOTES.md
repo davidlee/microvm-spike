@@ -288,7 +288,8 @@ second-order to it. The confinement's job is to bound what the agent can reach
 1. **What has actually been run.** The guest boots and the agent works over ssh;
    the perimeter has been exercised in both shapes — `capsule-host` in the
    devshell, and the units under dedicated uids on Sleipnir (item 11), including
-   the guard's teardown against a live guest. Not exercised: a second host, a
+   the guard's teardown against a live guest — though the unit path's git channel
+   has since stopped serving, and item 18 is why. Not exercised: a second host, a
    second target repo (item 16), and the VMM half of item 11. Assume anything
    documented here but not named in this paragraph is reviewed rather than run.
 2. **Agent credentials.** No shares, so nothing can be injected from the host
@@ -380,7 +381,8 @@ second-order to it. The confinement's job is to bound what the agent can reach
    under `.vm/host/` that happens to look like a repo can be served), and a
    per-repo `git-daemon-export-ok` marker in place of `--export-all`. Still
    reachable from the host itself on the foreground path, which is accepted; the
-   unit path closes it with `IPAddressDeny` (item 11).
+   unit path closes it with `IPAddressDeny` (item 11). All of which confines a
+   service that item 18 measured a way to not run at all.
 9. **Egress allowlist is unproven** against a real Claude Code session —
    expect to add hosts on first run. `perimeter/egress-allow.txt`, restart
    `capsule-host`, no rebuild.
@@ -448,6 +450,11 @@ second-order to it. The confinement's job is to bound what the agent can reach
       the tree the mirror came from. Before, a git-daemon bug read the whole
       home directory; now `ProtectHome` costs it nothing, because it never
       needed home in the first place.
+
+      **That last claim is wrong, and item 18 has the measurement.** The two
+      uids share one repo by necessity, so `hooks/` and `config` in the mirror
+      are writable by the serving uid and `capsule-sync` runs git there as you.
+      The route to the tree is your next sync.
     - `git-daemon` gets `IPAddressDeny=any` with only the guest allowed, so a
       compromise cannot dial out at all. That also closes the "still reachable
       from the host itself" gap in item 8 as a side effect, at the price of
@@ -746,3 +753,86 @@ second-order to it. The confinement's job is to bound what the agent can reach
 
     Mixed targets stays deferred, with the instance record carrying its own
     target so it remains a relaxation rather than a rewrite (item 16).
+18. **Which way the git channel points — measured, and it should be inverted.**
+    Asked because doctrine wants to know how a result leaves a capsule; answered
+    with two commands, and the answer deletes more than it adds.
+
+    Today the **guest pushes**: the host runs `receive-pack` as a live service on
+    a port the guest can reach, and the ref hook, the `capsule-git` group and the
+    mirror-sync uid all exist to confine that. The alternative is for the host to
+    **initiate both directions** over the ssh channel that already exists —
+    `git fetch ssh://agent@<guest>/work/<target>` into a fresh host-side
+    quarantine repo to get work out, `git push` to get history in.
+
+    **Both directions run, n = 1, on Sleipnir, on the devshell tap shape.** For
+    doctrine — 66.4k objects, 32 MiB — each direction moves at ~100 MiB/s over
+    the tap, so the link is not the cost. The push needs
+    `receive.denyCurrentBranch=updateInstead` on the guest's checkout, which
+    handles the unborn-HEAD case and leaves a populated worktree, so the
+    provisioning clone becomes one host action with no bare intermediary and no
+    guest-side step. It refuses once the worktree is dirty — mid-session
+    re-provisioning is the thing that costs, and a bare `/work/origin.git` plus a
+    guest-side local clone is the fallback if that matters.
+
+    Not measured: git over the netns unix-socket `ProxyCommand` (item 17 crossed
+    it with socat and raw bytes only), and whether `transfer.fsckObjects` would
+    reject anything the current push path accepts.
+
+    **The refspec does not fully decide the destination.** The fetch also wrote
+    `refs/tags/*`, outside the `refs/capsule/<name>/*` namespace it was given,
+    via automatic tag following. Harmless into a disposable quarantine repo, but
+    `--no-tags` is what makes "the host chooses where guest refs land" true as
+    stated, and the unqualified version of that claim should not be repeated.
+
+    **Nor does the guest stop initiating connections to the host** — the proxy is
+    one, and tinyproxy is the larger of the two C parsers of guest-authored
+    input. What the inversion removes is any host service that parses guest git
+    input. That is the claim worth making; the stronger one is wrong.
+
+    **The finding that decides it was a live defect, not the probes.** The
+    guest's `origin` was dead while both new directions worked. `capsule-gitd` is
+    up and reachable; `upload-pack` refuses inside — git 2.55 `detected dubious
+    ownership`, because the daemon runs as `capsule-git` and `capsule-sync`
+    creates the mirror as the human. So item 1's "exercised in both shapes" is
+    stale for this half: the unit path's git channel had stopped serving. Fixed
+    where it broke — `GIT_CONFIG_*` on the unit, which is the `command` scope and
+    so counts as the protected configuration `safe.directory` insists on. Needs a
+    host rebuild to take effect, and is the safe direction of that exception: the
+    serving uid trusts a repo the human owns. The reverse is the escalation
+    below, and has no exception.
+
+    Underneath that is the reason the check exists. The mirror is `2775` group
+    `capsule-git` with `core.sharedRepository=group`, because the push design
+    *requires* two uids to share one repo — the human syncs it, the daemon
+    serves and receives into it. So `hooks/` and `config` are writable by the
+    daemon's uid, and `capsule-sync` and `just fetch` both run git in that repo
+    **as the human**. A compromised `receive-pack` — the precondition the uid
+    split exists for — writes `hooks/post-receive` or sets `core.hooksPath`, and
+    the next sync executes it as you. Item 11's "the uid serving the mirror has
+    no path to the tree the mirror came from" is therefore not true: the path is
+    the human's next sync. It is also the same shape as doctrine's rule about
+    never running trusted git in a capsule-authored repository, reached from the
+    host end instead of the guest end.
+
+    **The inversion removes the precondition rather than the bug.** No repo is
+    written by two uids anywhere: the host pushes from a repo only the human
+    writes, fetches into a quarantine repo only the human writes, and the
+    guest's repo is only the guest's. No setgid, no `sharedRepository`, no
+    `safe.directory` exception, nothing for a compromised daemon to leave behind
+    — because there is no daemon. What goes: `perimeter/`'s `gitd` and
+    `pushGuard` and the export marker, `host/services.nix`'s `capsule-gitd` unit
+    and `capsule-git` user, group and setgid state dir, `net.nix`'s `gitPort`,
+    the guest's `capsule-clone` and `capsule-push` (leaving the guest with no
+    capsule-specific program at all), `just branches`/`fetch`, and one of the
+    two ports in the host's own firewall stanza (item 7 — outside this repo).
+    In PLAN_C it retires the per-capsule git daemon entirely, and with it the
+    whole "one gitd uid or N" question.
+
+    What it costs, beyond the dirty-worktree case: `index-pack` still parses
+    guest bytes host-side, which is true of every option including bundles, so
+    `transfer.fsckObjects` plus a ceiling — and a ceiling has no natural source
+    here, since the guest's 32 GiB volume is far too loose to be one. And the
+    agent loses the ability to hand work over: `capsule-push` is the guest's own
+    act, and after the inversion only the host can pull. That is a workflow
+    regression rather than a security one, and it is the only thing the
+    inversion makes worse.

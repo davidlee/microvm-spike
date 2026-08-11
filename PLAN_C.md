@@ -32,6 +32,14 @@ only, with the foreground path staying at N=1. The base commit becomes a runtime
 value. Units generated per instance rather than templated. Reasons are with each
 decision, not here.
 
+**Reopened by measurement — read before costing any of the git-daemon work
+below.** NOTES item 18 has both directions of a host-initiated git channel
+running, which would remove the git daemon from the perimeter rather than
+replicate it N times. Everything in this document about per-capsule gitd uids,
+per-capsule mirrors and whether one daemon can serve N is downstream of a
+decision that is no longer made. Do not spend effort there until item 18 is
+resolved either way; the netns, addressing and image work is unaffected.
+
 **Open, in order.** One real boot with a namespace — the last unverified thing
 in the shape — then the guest image measurement, then `capsules.nix`. Full list
 under [order of work](#order-of-work).
