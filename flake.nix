@@ -241,13 +241,37 @@
     };
     capsule-host = perimeter.host;
 
+    # Host->guest ssh, for everything that is not the proxy. The guest's host
+    # keys live on its volume, so a *fresh* capsule has fresh keys at the same
+    # address — and freshness is the goal, not an accident (NOTES item 17). Since
+    # the git channel rides ssh, a changed key no longer merely annoys
+    # `just ssh`: it blocks provisioning. `accept-new` does not help, because it
+    # accepts *unknown* hosts and this is a *changed* one.
+    #
+    # So: no host-key check at all, and no record of one. That is sound only
+    # because of what this link is — a /30 this host created itself, with exactly
+    # one peer, and no third party on it to be in the middle. It stops being
+    # sound the moment the transport is a bridge, a LAN or another machine, and
+    # it must change in the same commit that does that. `/dev/null` rather than a
+    # capsule-scoped file on purpose: a file would accumulate one stale key per
+    # capsule and quietly reintroduce the failure. LogLevel=ERROR because
+    # otherwise every invocation announces the key it just accepted.
+    #
+    # The interactive paths — `just ssh`, `just admin` — deliberately do *not*
+    # use this. A human present to read the warning is the case where the strict
+    # default is still worth having.
+    guestSsh = "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR";
+
     # Git in both directions, host-initiated. The one jail-shaped fact it takes
     # is how to reach the guest's checkout: here, ssh over the p2p tap as the
     # unprivileged guest user. Under netns the URL is the same and `sshCommand`
-    # grows a `ProxyCommand` against the capsule's unix socket (NOTES item 17).
+    # grows a `ProxyCommand` against the capsule's unix socket (NOTES item 17),
+    # at which point the socket path is the identity and the relaxation above
+    # stops being needed.
     gitChannel = import ./host/git-channel.nix {
       inherit pkgs target;
       guestRepo = "ssh://agent@${net.guest}${target.guestPath}";
+      sshCommand = guestSsh;
     };
     capsule-provision = gitChannel.provision;
     capsule-collect = gitChannel.collect;
@@ -305,7 +329,10 @@
 
         stopped=0
         if [ "$name" = capsule ]; then
-          if ssh -o BatchMode=yes -o ConnectTimeout=4 \
+          # Same relaxed host-key handling as the git channel, and for the same
+          # reason: a fresh capsule's new key would otherwise send this down the
+          # API-socket fallback, which is a worse shutdown than the ssh poweroff.
+          if ${guestSsh} -o BatchMode=yes -o ConnectTimeout=4 \
                root@${net.guest} 'systemctl --no-block poweroff' 2>/dev/null; then
             echo "vm-stop: poweroff requested over ssh"
             stopped=1

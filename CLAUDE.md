@@ -137,6 +137,14 @@ which shape nearly every decision here:
   systemd drops the probe and the port reads as free. Hence the explicit
   `systemctl is-active` refusal in the injected `preflight` — systemd-shaped, so
   it lives at the call site in `flake.nix`, not in `perimeter/`.
+- **A fresh capsule has fresh ssh host keys at the same address**, because they
+  live on its volume — so `known_hosts` refuses, and since the git channel rides
+  ssh that blocks provisioning rather than merely annoying `just ssh`.
+  `accept-new` does not fix it: the host is *changed*, not unknown. `guestSsh` in
+  `flake.nix` disables the check and keeps no record, injected via `sshCommand`.
+  Sound only because the link is a host-created /30 with one peer — change it in
+  the same commit as any change to the transport, and don't "fix" it with a
+  capsule-scoped `known_hosts`, which just accumulates one stale key per capsule.
 - **`denyCurrentBranch` only governs the branch HEAD names.** Push any other
   branch and the ref lands while the worktree is untouched, silently. The seed
   sets `--initial-branch` and `capsule-provision` verifies the advertised symref

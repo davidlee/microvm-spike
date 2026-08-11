@@ -911,3 +911,26 @@ second-order to it. The confinement's job is to bound what the agent can reach
     - **The agent loses the ability to hand work over.** `capsule-push` was the
       guest's own act; now only the host pulls. A workflow regression rather than
       a security one, and the only thing the inversion makes worse.
+
+    **The first thing a fresh capsule broke was `known_hosts`, and it was the git
+    channel that made it matter.** The guest's host keys live on its volume, so a
+    new volume means new keys at the same address; a real capsule hit exactly
+    that. Before, ssh was convenience and a changed key annoyed `just ssh`. Now
+    the channel rides ssh, so it blocks provisioning outright — and freshness
+    (item 17, `REQ-450`) means it fires on *every* capsule, not occasionally.
+    `StrictHostKeyChecking=accept-new` is not the fix: it accepts hosts that are
+    unknown, and this one is *changed*.
+
+    So `guestSsh` in `flake.nix` turns the check off and keeps no record
+    (`UserKnownHostsFile=/dev/null`), injected through `sshCommand` — the seam
+    that exists for exactly this, so `host/git-channel.nix` still knows only a
+    URL. `vm-stop` takes it too, or a fresh capsule's key would send its shutdown
+    down the API-socket fallback. **It is sound only because of what the link
+    is:** a /30 this host created, one peer, nobody on it to be in the middle. A
+    bridge, a LAN or another machine invalidates it, and it has to change in the
+    same commit that changes the transport. A capsule-scoped `known_hosts` file
+    was the tidier-looking option and is worse — it accumulates a stale key per
+    capsule and reintroduces the failure it was meant to fix. `just ssh` and
+    `just admin` deliberately keep the strict default: a human is there to read
+    the warning. Under netns none of this is needed, because the socket path is
+    the identity (item 17).
