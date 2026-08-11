@@ -186,7 +186,12 @@ in {
     # `owner` is a member so it can sync the mirror and fetch the guest's
     # branches back out. Read and write of the mirror; nothing else.
     users.groups.capsule-git.members = [cfg.owner];
-    users.groups.capsule-proxy = {};
+    # Read-only by ownership: the state directory is 0750 and everything in it
+    # 0644, so this buys `owner` the egress log — the record of every attempt,
+    # and the first thing you read when the guest cannot reach something — and
+    # no write anywhere. `just proxy-log` needing sudo made the record the one
+    # part of the perimeter you could not casually look at.
+    users.groups.capsule-proxy.members = [cfg.owner];
 
     # Setgid, so objects the guest pushes stay group-owned and `owner` can
     # fetch them out. Created here rather than by StateDirectory= because

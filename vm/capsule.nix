@@ -81,6 +81,16 @@ in {
   security.lockKernelModules = true;
   security.protectKernelImage = true;
 
+  # No resolver in the guest, which the boundary claim has always said and this
+  # makes true: networkd pulled in systemd-resolved, leaving a stub on
+  # 127.0.0.53 with no configured upstream and no route to one — it could only
+  # ever SERVFAIL, but it answered, and a client that retries a stub is a client
+  # that hangs. Names are resolved by the host's proxy instead, as the host, so
+  # guest lookups inherit whatever the host resolves through (here: resolved ->
+  # stubby -> ControlD over DoT). Nothing guest-side can bypass that, because
+  # nothing guest-side has a route to a nameserver.
+  services.resolved.enable = false;
+
   # Point-to-point link only. No gateway, no resolver: everything outbound
   # goes through the host's allowlist proxy, which does its own DNS.
   systemd.network = {

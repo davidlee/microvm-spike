@@ -62,7 +62,12 @@ the /30.
 
 **Egress.** tinyproxy on the host, `FilterDefaultDeny Yes` over
 `perimeter/egress-allow.txt` (hostnames, extended regex). The guest gets
-`HTTPS_PROXY` and no resolver at all — DNS happens in the proxy, so a name
+`HTTPS_PROXY` and no resolver at all — `services.resolved.enable = false`, since
+networkd otherwise leaves a stub on 127.0.0.53 that has no upstream it can reach
+and so answers nothing while still answering. DNS happens in the proxy, as the
+host, which means guest lookups inherit the host's resolver chain (here resolved
+-> stubby -> ControlD over DoT) and nothing guest-side can route around it. So a
+name
 that is not on the list cannot even be resolved, let alone reached. IP-level
 allowlisting was rejected: `api.anthropic.com` is CDN-fronted with rotating
 addresses.
