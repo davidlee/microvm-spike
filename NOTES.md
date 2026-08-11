@@ -1,8 +1,9 @@
 # microvm.nix spike — notes
 
 A **capsule**: a firecracker microVM used as an agent jail. It holds a real
-git clone of `~/dev/doctrine`, can run `just web-build` / `just test`, and has
-exactly enough network for a coding agent to work — no more.
+git clone of one target repo (`target.nix`; here `~/dev/doctrine`), can run that
+project's build and tests, and has exactly enough network for a coding agent to
+work — no more.
 
 ## Layout
 
@@ -10,9 +11,10 @@ exactly enough network for a coding agent to work — no more.
 | ---------------------------- | -------------------------------------------------- |
 | `flake.nix`                  | VMs, devshell, tap + runner scripts, module exports |
 | `net.nix`                    | tap name, both addresses, MAC, ports — single source |
+| `target.nix`                 | which repo is confined, and everything target-shaped |
 | `justfile`                   | the gate (`just check`) + the multi-command questions |
 | `perimeter/default.nix`      | `sync`/`proxy`/`gitd` + `capsule-host`. Jail-agnostic |
-| `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild   |
+| `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild. Per target |
 | `host/perimeter-check.nix`   | is the host's nftables drop loaded? Linux-shaped, injected |
 | `host/services.nix`          | the same services as units under dedicated uids. Opt-in |
 | `vm/common.nix`              | shared guest config (firecracker, serial console)   |
@@ -27,7 +29,9 @@ policy lives and it is the only part that ports to a non-firecracker jail
 `preflight` fragment — on firecracker, the tap-address check — so nothing
 hypervisor- or platform-shaped leaks into it. Runtime paths are environment
 (`CAPSULE_ROOT`, `CAPSULE_STATE`, `CAPSULE_ALLOWLIST`, `CAPSULE_REPO`), which
-is what keeps the allowlist an editable file rather than a store path.
+is what keeps the allowlist an editable file rather than a store path. Which
+repo is confined reaches it the same way as the addresses do — as a value from
+the call site, from `target.nix` (item 16).
 
 ## Running
 
@@ -568,31 +572,41 @@ second-order to it. The confinement's job is to bound what the agent can reach
       but it is the record of every egress attempt, so truncating it on start
       would be the wrong fix. Rotated (weekly, `copytruncate`) on the unit path
       only — see item 11.
-16. **Target-agnostic — what the thinnest contract is.** Nothing structural ties
-    the confinement to doctrine. The perimeter is already target-blind: the
+16. **Target-agnostic — done for one target at a time.** Nothing structural tied
+    the confinement to doctrine. The perimeter was already target-blind: the
     mirror's name is `basename "$CAPSULE_REPO"`, the ref restriction is
-    `refs/heads/capsule/*` whatever the repo is, and `host/services.nix` takes
-    `repo` as an option. What is actually hardcoded is smaller than it looks —
+    `refs/heads/capsule/*` whatever the repo is, and `host/services.nix` took
+    `repo` as an option. What was actually hardcoded was smaller than it looked —
     the string `doctrine` in `vm/capsule.nix` (checkout dir, clone URL, motd),
-    the input named `doctrine` in `flake.nix`, the doctrine-shaped defaults in
+    the input's name in `flake.nix`, doctrine-shaped defaults in
     `perimeter/default.nix` and `justfile`, and a handful of guest settings that
     are really *toolchain* settings: `CARGO_HOME`, `BUN_INSTALL_CACHE_DIR`,
-    `LD_LIBRARY_PATH` for rust's linker, `init.defaultBranch = "edge"`, the
-    vcpu/mem/volume sizes, and half the allowlist.
+    `init.defaultBranch = "edge"`, `pkg-config`/`openssl`, the vcpu/mem/volume
+    sizes, and half the allowlist.
 
-    So the shape is the one `net.nix` already established: a `target.nix`
-    holding `{name, path, toolsAttr, allowlist, guestEnv, sizes}`, imported by
-    `flake.nix` and threaded via `specialArgs` alongside `net`, with every
-    literal above derived from it. Small and mostly deletion.
+    **What it became:** `target.nix`, the shape `net.nix` already established —
+    `{name, path, toolsPackage, extraTools, allowlist, caches, defaultBranch,
+    commands, sizes}` — imported by `flake.nix` and threaded via `specialArgs`
+    alongside `net`, with every literal above derived from it. `perimeter/` gained
+    two arguments (`repo`, `allowlistFile`) and lost two doctrine defaults, which
+    is the same move as `bind`/`client`: a value from the call site, not knowledge
+    in the library. `justfile` grew `_target` beside `_net`. `caches` is one
+    declaration serving both the guest's env vars and the directories the seed
+    service must create; it used to be two lists that could disagree. Net effect
+    on size is roughly nil, and `doctrine` now appears in exactly two places —
+    `target.nix`, and the input url it cannot be removed from.
 
-    Three things decide whether it is worth doing, and they are not the code:
+    Three things decided the shape, and they are not the code:
 
     - **A flake input cannot be computed.** `inputs.<name>.url` must be a
       literal, so the target's flake ref stays spelled in `flake.nix` no matter
-      how much else is parameterised. The honest version is *one* generically
-      named input — `target.url` — swapped by editing that line or by
-      `--override-input target path:…` at build time. Which means the win is
-      "this repo does not *name* doctrine", not "targets are data".
+      how much else is parameterised: `inputs.target.url` and `target.nix`'s
+      `path` name the same repo and nothing checks that they agree. Swapped by
+      editing both, or by `--override-input target path:…` for one build. Which
+      means the win is "this repo does not *name* doctrine", not "targets are
+      data". Renaming that input is also not free downstream — `~/flakes` carries
+      `inputs.target.follows = "nixpkgs"` and had to be edited in the same
+      breath, or its next lock fails on an input that no longer exists.
     - **Per-target policy must not live in the target repo.** The tempting
       version — `.capsule/egress-allow.txt` in the repo being worked on — hands
       the allowlist to the thing being confined. Not directly (the host reads
@@ -603,7 +617,7 @@ second-order to it. The confinement's job is to bound what the agent can reach
       build input rather than a control. Keep that asymmetry explicit or the
       whole perimeter argument leaks.
     - **One target chosen ≠ several at once.** The parameterised single-target
-      version costs an afternoon and shrinks the tree. *Concurrent* capsules is
+      version is what got built, and it is an afternoon. *Concurrent* capsules is
       a different job: `net.nix` becomes per-instance (tap name, /30, MAC, two
       ports each), the units become templates (`capsule-proxy@<target>`) with a
       uid pair each, and the host's own config grows a per-tap nftables drop and
@@ -611,9 +625,13 @@ second-order to it. The confinement's job is to bound what the agent can reach
       this repo cannot install for itself (item 7). Don't buy the second while
       pricing the first.
 
-    The contract a target must satisfy, if it is written down: *be a git repo on
-    this host, and expose one flake package for this system that is your
-    devshell's tool set* (doctrine: `packages.dev-tools`). Everything else about
-    the target is optional and host-side. A target with no flake still works —
-    it just gets whatever tool list `target.nix` names from this repo's nixpkgs,
-    and loses the no-drift property that made `dev-tools` worth threading.
+    The contract, written down: *be a git repo on this host, and expose one flake
+    package for this system that is your devshell's tool set* (doctrine:
+    `packages.dev-tools`). Everything else about the target is optional and
+    host-side. `toolsPackage = null` still works — the guest then gets
+    `extraTools` from this repo's nixpkgs and loses the no-drift property that
+    made threading the target's own list worth it.
+
+    Untested: a second target. The parameterisation is only *claimed* until one
+    exists, and the likely friction is in the guest — `extraTools`, the cache
+    set, and the sizes are all this target's toolchain wearing a general name.

@@ -27,11 +27,16 @@
 # ordinary editable file rather than a store path behind a rebuild. Defaults
 # below are relative to CAPSULE_ROOT unless absolute:
 #
-#   CAPSULE_ROOT         $PWD                        repo root
-#   CAPSULE_STATE        .vm/host                    mirror
-#   CAPSULE_PROXY_STATE  $CAPSULE_STATE              proxy conf, log, pid
-#   CAPSULE_ALLOWLIST    perimeter/egress-allow.txt  proxy hostname allowlist
-#   CAPSULE_REPO         $HOME/dev/doctrine          repo to mirror
+#   CAPSULE_ROOT         $PWD             repo root
+#   CAPSULE_STATE        .vm/host         mirror
+#   CAPSULE_PROXY_STATE  $CAPSULE_STATE   proxy conf, log, pid
+#   CAPSULE_ALLOWLIST    $allowlistFile   proxy hostname allowlist
+#   CAPSULE_REPO         $repo            repo to mirror
+#
+# The last two come from the caller (target.nix, via flake.nix or the module's
+# options): which repo is confined is no more this file's business than which
+# hypervisor is. Nothing here reads the target — the mirror's name is a
+# basename, the ref restriction is a namespace, and both hold for any repo.
 {
   pkgs,
   # Address the two services listen on, and the single client permitted to use
@@ -41,6 +46,11 @@
   client,
   proxyPort,
   gitPort,
+  # The repo to mirror, absolute, and the allowlist file relative to
+  # CAPSULE_ROOT. Values, like the addresses above — the caller knows the
+  # target, this does not. Both stay overridable by environment.
+  repo,
+  allowlistFile,
   # Shell fragment run before anything binds. Fail-closed: `exit 1`.
   preflight ? "",
   # Shell fragment supervised alongside the two services, for perimeter state
@@ -63,9 +73,9 @@
   # program that asks for `mirror` must also ask for `state` and `src`;
   # forgetting one is a build error (SC2154), not a runtime surprise.
   #
-  # `${HOME:-}` because a systemd unit has no HOME and `set -u` is on; the
-  # units pass CAPSULE_REPO explicitly, which is what the mirror's name is
-  # derived from.
+  # `repo` is baked in absolute rather than derived from `$HOME`, which a
+  # systemd unit does not have; the mirror's name comes off it by basename, so
+  # every program agrees without being told.
   pathDefs = [
     {
       name = "root";
@@ -81,11 +91,11 @@
     }
     {
       name = "allow";
-      text = ''allow="''${CAPSULE_ALLOWLIST:-$root/perimeter/egress-allow.txt}"'';
+      text = ''allow="''${CAPSULE_ALLOWLIST:-$root/${allowlistFile}}"'';
     }
     {
       name = "src";
-      text = ''src="''${CAPSULE_REPO:-''${HOME:-}/dev/doctrine}"'';
+      text = ''src="''${CAPSULE_REPO:-${repo}}"'';
     }
     {
       name = "mirror";

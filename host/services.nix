@@ -13,14 +13,17 @@
 #     compromise cannot dial out at all. The proxy must reach the internet, so
 #     it instead loses the LAN and loopback.
 #   - the mirror is *never* refreshed by the daemon's uid: `capsule-sync` runs
-#     as you, and is the only thing that reads ~/dev/doctrine. The serving uid
+#     as you, and is the only thing that reads the target repo. The serving uid
 #     has no path to the tree the mirror came from.
 #   - cgroup ceilings, which nothing had before (NOTES open item 12).
 #
 # Not here: the nftables drop and the interface-scoped ports. Those are the
 # host's own config (README "Host requirements") and this module deliberately
 # does not restate them — it verifies them, in the guard unit below.
-{net}: {
+{
+  net,
+  target,
+}: {
   config,
   lib,
   pkgs,
@@ -30,22 +33,26 @@
 
   # Same perimeter, built with the host's pkgs. No preflight/watch: those are
   # for the foreground composition, and the guard unit is this path's version
-  # of them.
+  # of them. Target paths come from the options rather than from `target.nix`,
+  # so a host that sets them differently gets what it asked for.
   perimeter = import ../perimeter {
     inherit pkgs;
     bind = net.host;
     client = net.guest;
     inherit (net) proxyPort gitPort;
+    repo = cfg.repo;
+    allowlistFile = target.allowlist;
   };
 
   proxyState = "/var/lib/capsule-proxy";
 
+  # `repo` is baked into the programs above, so it is deliberately not here:
+  # one value, one place. These are the paths that differ from the foreground
+  # path's defaults, which are relative to a repo root no unit has.
   env = {
     CAPSULE_STATE = cfg.stateDir;
     CAPSULE_PROXY_STATE = proxyState;
     CAPSULE_ALLOWLIST = cfg.allowlist;
-    # The mirror's name is derived from this, so every unit must agree on it.
-    CAPSULE_REPO = cfg.repo;
   };
 
   # Hardening common to both services. Neither needs privilege, a device, a
@@ -138,15 +145,19 @@ in {
 
     repo = lib.mkOption {
       type = lib.types.str;
-      default = "/home/${cfg.owner}/dev/doctrine";
-      defaultText = "/home/\${owner}/dev/doctrine";
-      description = "Repo to mirror. Read by `capsule-sync` only, as `owner`.";
+      default = "/home/${cfg.owner}/dev/${target.name}";
+      defaultText = "/home/\${owner}/dev/\${target.name}";
+      description = ''
+        Repo to mirror. Read by `capsule-sync` only, as `owner`. Defaults under
+        `owner`'s home rather than to `target.path`, so the module stays right
+        on a host whose human is not this one.
+      '';
     };
 
     allowlist = lib.mkOption {
       type = lib.types.str;
-      default = "/home/${cfg.owner}/dev/microvm-spike/perimeter/egress-allow.txt";
-      defaultText = "/home/\${owner}/dev/microvm-spike/perimeter/egress-allow.txt";
+      default = "/home/${cfg.owner}/dev/microvm-spike/${target.allowlist}";
+      defaultText = "/home/\${owner}/dev/microvm-spike/\${target.allowlist}";
       description = ''
         Proxy hostname allowlist. Deliberately a plain file rather than a store
         path, so changing it needs a service restart and not a rebuild — it is
@@ -187,14 +198,13 @@ in {
     # Wrapped, not `perimeter.sync` bare: unwrapped it defaults the mirror to
     # `$PWD/.vm/host` — the foreground path's — so running it to feed the units
     # would quietly build a second mirror wherever you happened to be standing.
-    # The units' own env, from the one place that knows it. The devshell's copy
-    # comes first on PATH inside the repo, so `capsule-host` is unaffected; both
-    # print the mirror they used.
+    # The devshell's copy comes first on PATH inside the repo, so `capsule-host`
+    # is unaffected; both print the mirror they used.
     environment.systemPackages = [
       (pkgs.writeShellApplication {
         name = "capsule-sync";
         text = ''
-          export CAPSULE_STATE=${cfg.stateDir} CAPSULE_REPO=${cfg.repo}
+          export CAPSULE_STATE=${cfg.stateDir}
           exec ${lib.getExe perimeter.sync} "$@"
         '';
       })

@@ -16,11 +16,17 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Source of the guest's tool set (`packages.dev-tools`) — one list, shared
-    # with doctrine's own devshell, so the capsule cannot drift from it.
+    # The repo this capsule confines, as a flake: the source of the guest's tool
+    # set (`target.nix`'s `toolsPackage`), one list shared with that repo's own
+    # devshell so the guest cannot drift from it. Everything else about the
+    # target is described in ./target.nix — this must name the same repo as
+    # `path` there, and nix cannot check that for you (NOTES item 16). An input
+    # url has to be a literal, hence the duplication; `--override-input target
+    # path:/…` switches it for one build.
+    #
     # `git+file:` reads committed HEAD, so changes there need a commit before
-    # `nix flake update doctrine` will see them.
-    doctrine.url = "git+file:///home/david/dev/doctrine";
+    # `nix flake update target` will see them.
+    target.url = "git+file:///home/david/dev/doctrine";
   };
 
   outputs = inputs @ {
@@ -37,10 +43,14 @@
     # host-side NixOS module needs the same values.
     net = import ./net.nix;
 
+    # Which repo is confined, and the target-shaped settings that follow from it.
+    # Same rule as net.nix: nothing below spells a target detail twice.
+    target = import ./target.nix;
+
     mkVm = name: module:
       lib.nixosSystem {
         inherit system;
-        specialArgs = {inherit inputs net;};
+        specialArgs = {inherit inputs net target;};
         modules = [
           microvm.nixosModules.microvm
           ./vm/common.nix
@@ -166,6 +176,8 @@
       bind = net.host;
       client = net.guest;
       inherit (net) proxyPort gitPort;
+      repo = target.path;
+      allowlistFile = target.allowlist;
       extraRuntimeInputs = [pkgs.iproute2];
       preflight = ''
         ${perimeterChecks}
@@ -289,7 +301,7 @@
     # host that wants it as its real posture. Opt-in: `capsule-host` in the
     # devshell stays the development path and needs no rebuild. Import it in the
     # host's config and set `services.capsule-perimeter.{enable,owner}`.
-    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net;};
+    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target;};
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms

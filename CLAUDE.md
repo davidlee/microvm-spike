@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-Firecracker microVM used to confine a coding agent working on `~/dev/doctrine`.
+Firecracker microVM used to confine a coding agent working on one target repo
+(`target.nix`; here `~/dev/doctrine`).
 [README.md](./README.md) is usage; [NOTES.md](./NOTES.md) is rationale, gaps and
 things deliberately not built. Read NOTES before proposing changes — several
 obvious-looking ideas are already recorded there as considered-and-rejected.
@@ -12,8 +13,9 @@ slow, and as a subshell they have crashed the session. Verify with
 `just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`;
 neither evaluates). Hand the user the command to run — `just build` for the
 host-side scripts, which is also where shellcheck runs — and say what you
-expect it to do. `just` recipes that shell out to `nix eval` (`_net`, and so
-`status`/`ssh`/`admin`) are the user's to run, not yours.
+expect it to do. `just` recipes that shell out to `nix eval` (`_net`, `_target`,
+and so `status`/`fetch`/`allowed`/`ssh`/`admin`) are the user's to run, not
+yours.
 
 Shell in `writeShellApplication` cannot be run either, since it only exists
 after a build. Render the script by hand into the scratchpad and `shellcheck`
@@ -56,6 +58,13 @@ Break these and the confinement stops meaning anything:
 - **`net` in `flake.nix` is the single source of truth** for tap name, both
   addresses, MAC and ports. It is threaded to the guest via `specialArgs`.
   Don't hardcode an address anywhere else.
+- **`target.nix` is the same deal for the repo under confinement** — name, path,
+  tools package, allowlist file, caches, default branch, sizes. Threaded the same
+  way. `doctrine` may appear in exactly two places: `target.nix`, and
+  `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
+  `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a value.
+  And nothing target-shaped is ever read *out of the target repo* — the agent can
+  edit that (NOTES item 16).
 
 ## Firecracker constraints (verified in microvm.nix source)
 
@@ -98,8 +107,8 @@ which shape nearly every decision here:
   time the other can keep its port. It now preflights both ports and uses
   `wait -n` with an INT/TERM trap; if a bind fails anyway, look for strays with
   `ss -lntp`.
-- **`git+file:` inputs read committed HEAD.** Changes to doctrine's flake need a
-  commit there before `nix flake update doctrine` sees them. Uncommitted work
+- **`git+file:` inputs read committed HEAD.** Changes to the target's flake need
+  a commit there before `nix flake update target` sees them. Uncommitted work
   in that repo is invisible to the capsule.
 - **Never `git remote update` the mirror** — a mirror's fetch is force+prune and
   deletes what the guest pushed. Explicit refspecs only.
@@ -126,7 +135,8 @@ which shape nearly every decision here:
   either — if a unit needs something, it comes from the same program.
   `capsule-sync` is the only thing that may read the real repo, and it always
   runs as the human: that is what keeps the serving uid away from the tree.
-- The guest's tool set comes from doctrine's `packages.dev-tools`. Add tools
+- The guest's tool set comes from the target's flake — `target.nix`'s
+  `toolsPackage`, for doctrine `packages.dev-tools`. Add tools
   there, not here, so the VM and that devshell cannot drift. The jailed
   `claude`/`codex` bwrap wrappers are excluded on purpose — they bind host
   paths that do not exist in the VM.

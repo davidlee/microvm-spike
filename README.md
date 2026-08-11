@@ -1,8 +1,10 @@
 # microvm-spike
 
 A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM.nix](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. It holds a
-real git clone of `~/dev/doctrine`, carries that project's tool set, and has
-exactly enough network to work and no more.
+real git clone of one **target** repo — `target.nix`, here `~/dev/doctrine` —
+carries that project's tool set, and has exactly enough network to work and no
+more. Nothing below is doctrine-specific: `target.nix` is the only file that
+names it, and `net.nix` is the only file that holds an address.
 
 Design rationale and known gaps live in [NOTES.md](./NOTES.md). This file is
 how to drive it.
@@ -111,8 +113,8 @@ services.capsule-perimeter = {
 ```
 
 Wired in on Sleipnir: `~/flakes/modules/nixos/capsule.nix`, imported from
-`hosts/Sleipnir/config.nix`, with the input taking `inputs.doctrine.follows =
-"nixpkgs"` so the graph is fetchable from darwin (the `git+file:` doctrine path
+`hosts/Sleipnir/config.nix`, with the input taking `inputs.target.follows =
+"nixpkgs"` so the graph is fetchable from darwin (the `git+file:` target path
 exists on one machine only, and nothing in the host config evaluates the guest).
 That shim has to be undone if the VMM ever moves to microvm.nix's host module —
 NOTES item 11.
@@ -184,7 +186,7 @@ vm capsule          # foreground: the VM, with its serial console on your tty
 
 Then from a fourth: `ssh agent@10.99.0.2`.
 
-Inside the guest you are `agent`, in `/work/doctrine`:
+Inside the guest you are `agent`, in `/work/<target>` (here `/work/doctrine`):
 
 ```
 just test
@@ -192,10 +194,12 @@ just web-build
 capsule-push my-branch     # -> refs/heads/capsule/my-branch on the host mirror
 ```
 
-Back on the host, collect the work:
+Back on the host, collect the work — `just fetch` finds the mirror wherever this
+host keeps it (`.vm/host` or `/var/lib/capsule`) and pulls `capsule/*` into the
+target repo:
 
 ```
-git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
+just fetch
 ```
 
 ## Commands
@@ -206,7 +210,7 @@ git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
 | `capsule-net down`  | remove it. Refuses while a VM runs; `--force` overrides.    |
 | `capsule-net verify`| report the perimeter's state without touching the link.      |
 | `capsule-host`      | git daemon + tinyproxy. Foreground, unprivileged.           |
-| `capsule-sync`      | create/refresh the mirror + ref guard. The only reader of `~/dev/doctrine`. |
+| `capsule-sync`      | create/refresh the mirror + ref guard. The only reader of the target repo. |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
 | `capsule-clone`     | *(guest)* clone/fetch from the host mirror.                 |
@@ -218,7 +222,8 @@ parses and is alejandra-clean — no eval, so it can't trigger a VM build).
 `just status` puts the VM, the tap, the listeners, the perimeter's verdict, the
 units and the mirror on one screen. Then `just verify`, `just fetch`,
 `just branches`, `just proxy-log`, `just allowed`, `just ssh`, `just admin`.
-`just --list` for the rest. Addresses come from `net.nix`, never a literal.
+`just --list` for the rest. Addresses come from `net.nix` and target paths from
+`target.nix`, never a literal.
 
 ## Process lifecycle
 
@@ -253,15 +258,37 @@ one hostname per line) and restart `capsule-host`. No rebuild.
 
 ## Changing the guest's tools
 
-The tool set comes from doctrine's `packages.dev-tools`, so both this VM and
-that devshell take from one list. To change it:
+The tool set comes from the target's own flake — `target.nix`'s `toolsPackage`,
+for doctrine `packages.dev-tools` — so both this VM and that devshell take from
+one list. To change it:
 
 ```
 cd ~/dev/doctrine        # edit devToolPkgs in flake.nix
 git commit               # git+file: inputs read committed HEAD
-cd ~/dev/microvm-spike && nix flake update doctrine
+cd ~/dev/microvm-spike && nix flake update target
 vm-stop capsule && vm capsule
 ```
+
+Tools the target's list omits because it assumes a host that has them go in
+`target.nix`'s `extraTools`, not here.
+
+## Pointing it at a different repo
+
+`target.nix` holds everything target-shaped: name, path, tools package, egress
+allowlist file, cache directories, default branch, and the guest's sizes. Change
+it and the mirror name, the guest's checkout path, the motd and the two host
+services all follow.
+
+One duplication is unavoidable: an input's url must be a literal, so
+`inputs.target.url` in `flake.nix` has to name the same repo as `path` in
+`target.nix`, and nix will not check that for you. For a one-off, override it
+instead: `--override-input target path:/home/you/dev/other`.
+
+Give each target its own allowlist file — half of any such list is that
+project's dependency hosts. And keep it here, host-side: an allowlist read out
+of the repo being worked on is an allowlist the agent can widen. NOTES item 16
+has the reasoning, and why *concurrent* capsules is a much bigger job than a
+different one.
 
 ## Troubleshooting
 

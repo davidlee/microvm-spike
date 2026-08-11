@@ -6,18 +6,22 @@
 # more than one command to answer.
 
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
-nix_paths := "flake.nix net.nix perimeter host vm"
+nix_paths := "flake.nix net.nix target.nix perimeter host vm"
 
 # addresses and ports come from net.nix or they drift
 # --json, not --raw: the ports are integers and --raw refuses to coerce one
 _net key:
   @nix eval --json --file net.nix {{key}} | tr -d '"'
 
+# same for the repo under confinement — target.nix or it drifts
+_target key:
+  @nix eval --json --file target.nix {{key}} | tr -d '"'
+
 # the mirror, wherever this host keeps it: /var/lib/capsule (units) or .vm/host
 _mirror:
   #!/usr/bin/env bash
   set -euo pipefail
-  src="${CAPSULE_REPO:-$HOME/dev/doctrine}"
+  src="${CAPSULE_REPO:-$(just _target path)}"
   name="$(basename "$src").git"
   for state in "${CAPSULE_STATE:-}" /var/lib/capsule "${CAPSULE_ROOT:-$PWD}/.vm/host"; do
     [ -n "$state" ] && [ -d "$state/$name" ] && { echo "$state/$name"; exit 0; }
@@ -99,9 +103,9 @@ branches:
     --format='%(refname:short)  %(committerdate:relative)  %(subject)' \
     'refs/heads/capsule/*'
 
-# collect the guest's work into this repo's clone of the source
+# collect the guest's work into the target repo
 fetch:
-  git -C "${CAPSULE_REPO:-$HOME/dev/doctrine}" fetch "$(just _mirror)" \
+  git -C "${CAPSULE_REPO:-$(just _target path)}" fetch "$(just _mirror)" \
     'refs/heads/capsule/*:refs/heads/capsule/*'
 
 # every egress attempt, live — unlisted hostnames show up here as denials
@@ -110,7 +114,7 @@ proxy-log:
 
 # hostnames the proxy will resolve — a destination control, not an exfil one
 allowed:
-  @cat perimeter/egress-allow.txt
+  @cat "${CAPSULE_ALLOWLIST:-$(just _target allowlist)}"
 
 # a shell in the guest as the agent — TUIs work here, not on the console
 ssh:

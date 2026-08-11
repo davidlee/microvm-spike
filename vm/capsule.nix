@@ -3,14 +3,19 @@
   lib,
   inputs,
   net,
+  target,
   ...
 }: let
   work = "/work";
-  repo = "${work}/doctrine";
+  repo = "${work}/${target.name}";
   # $HOME lives on the volume, so ~/.claude, credentials and shell history
   # survive reboots.
   home = "${work}/home";
-  remote = "git://${net.host}:${toString net.gitPort}/doctrine.git";
+  remote = "git://${net.host}:${toString net.gitPort}/${target.name}.git";
+
+  # Caches that would otherwise land on the RAM-backed rootfs. One declaration
+  # (target.nix) for the env vars and for the directories the seed must create.
+  cacheDirs = lib.mapAttrsToList (_: dir: "${work}/${dir}") target.caches;
 
   adminKeys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
@@ -39,7 +44,7 @@
     text = ''
       name="''${1:?usage: capsule-push <name>}"
       git -C ${repo} push origin "HEAD:refs/heads/capsule/$name"
-      echo "pushed to capsule/$name — on the host: git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'"
+      echo "pushed to capsule/$name — on the host: just fetch"
     '';
   };
 in {
@@ -49,13 +54,12 @@ in {
     builtins.elem (lib.getName pkg) ["claude-code"];
 
   microvm = {
-    vcpu = 8;
-    mem = 16384; # / is tmpfs, so guest RAM also pays for /tmp and rootfs
+    inherit (target.sizes) vcpu mem;
     volumes = [
       {
         image = "capsule-work.img";
         mountPoint = work;
-        size = 32768; # sparse; holds the checkout, target/, caches
+        size = target.sizes.volume;
       }
     ];
     interfaces = [
@@ -91,43 +95,43 @@ in {
 
   environment.systemPackages =
     [
-      # The doctrine devshell's tool set — rust toolchain, bun, node, just,
-      # the doctrine binary itself. Built from doctrine's own nixpkgs pin, so
-      # the guest and that devshell cannot drift.
-      inputs.doctrine.packages.${pkgs.stdenv.hostPlatform.system}.dev-tools
       capsule-clone
       capsule-push
+      # git is the guest's own requirement, not the target's: the two helpers
+      # above are a clone and a push.
+      pkgs.git
     ]
-    # Not in doctrine's list: it assumes a host that already has them.
-    ++ (with pkgs; [
-      git
-      pkg-config
-      openssl
-    ])
+    # The target's devshell tool set, built from the target's own nixpkgs pin so
+    # the guest and that devshell cannot drift.
+    ++ lib.optional (target.toolsPackage != null)
+    inputs.target.packages.${pkgs.stdenv.hostPlatform.system}.${target.toolsPackage}
+    # What that list leaves out because it assumes a host which has them.
+    ++ map (name: pkgs.${name}) target.extraTools
     # Only in nixpkgs on recent channels; skip rather than break eval.
     ++ lib.optional (pkgs ? claude-code) pkgs.claude-code;
 
-  environment.variables = {
-    HTTP_PROXY = proxy;
-    HTTPS_PROXY = proxy;
-    http_proxy = proxy;
-    https_proxy = proxy;
-    NO_PROXY = "${net.host},localhost,127.0.0.1";
-    no_proxy = "${net.host},localhost,127.0.0.1";
+  environment.variables =
+    {
+      HTTP_PROXY = proxy;
+      HTTPS_PROXY = proxy;
+      http_proxy = proxy;
+      https_proxy = proxy;
+      NO_PROXY = "${net.host},localhost,127.0.0.1";
+      no_proxy = "${net.host},localhost,127.0.0.1";
 
-    CARGO_HOME = "${work}/.cargo";
-    BUN_INSTALL_CACHE_DIR = "${work}/.bun-cache";
-    # Keep rustc/link temporaries off the RAM-backed rootfs.
-    TMPDIR = "${work}/tmp";
-    LD_LIBRARY_PATH = lib.makeLibraryPath [pkgs.stdenv.cc.cc.lib];
-  };
+      # Keep compiler and link temporaries off the RAM-backed rootfs.
+      TMPDIR = "${work}/tmp";
+      # Anything built in the guest links against these at run time.
+      LD_LIBRARY_PATH = lib.makeLibraryPath [pkgs.stdenv.cc.cc.lib];
+    }
+    // lib.mapAttrs (_: dir: "${work}/${dir}") target.caches;
 
   programs.git = {
     enable = true;
     config = {
       user.name = "capsule";
       user.email = "capsule@localhost";
-      init.defaultBranch = "edge";
+      init.defaultBranch = target.defaultBranch;
     };
   };
 
@@ -184,14 +188,14 @@ in {
     };
     path = [pkgs.coreutils pkgs.util-linux capsule-clone];
     script = ''
-      mkdir -p ${work}/tmp ${work}/.cargo ${work}/.bun-cache ${home} ${work}/ssh
+      mkdir -p ${work}/tmp ${home} ${work}/ssh ${lib.escapeShellArgs cacheDirs}
       chmod 1777 ${work}/tmp
       # One-time migration for volumes seeded before the agent user existed.
       # Guarded on /work's owner so a populated target/ isn't walked each boot.
       if [ "$(stat -c %u ${work})" != "1000" ]; then
         chown -R agent:users ${work}
       fi
-      chown agent:users ${work}/.cargo ${work}/.bun-cache ${home}
+      chown agent:users ${home} ${lib.escapeShellArgs cacheDirs}
       runuser -u agent -- capsule-clone \
         || echo "capsule-seed: clone failed — start capsule-host, then run capsule-clone"
     '';
@@ -203,11 +207,11 @@ in {
   '';
 
   users.motd = ''
-    doctrine capsule — confined. checkout at ${repo}
+    ${target.name} capsule — confined. checkout at ${repo}
 
       capsule-clone         (re)fetch from the host mirror
       capsule-push <name>   push HEAD to capsule/<name> on the mirror
-      just test / just web-build
+      ${target.commands}
 
     running as `agent` (uid 1000) — no sudo, no su.
     from the host: ssh agent@${net.guest}   admin: ssh root@${net.guest}
