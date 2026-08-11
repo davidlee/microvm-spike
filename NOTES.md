@@ -22,6 +22,7 @@ work — no more.
 | `vm/capsule.nix`             | the agent jail                                      |
 | `.vm/<name>/`                | per-VM state: volume images, API socket (gitignored)|
 | `.vm/host/`                  | the bare mirror, proxy config + logs (gitignored)   |
+| `probe/netns.sh`             | is a netns per capsule sound? kept as evidence — `sudo probe-netns` |
 | `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
 | `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
 
@@ -505,6 +506,21 @@ second-order to it. The confinement's job is to bound what the agent can reach
     a drop-in overriding `ExecStop` with the ssh poweroff `vm-stop` already
     does, and a decision about `Restart`.
 
+    **It also takes a network namespace, which PLAN_C needs and this was
+    checked for at the same time.** `microvm@` and `microvm-tap-interfaces@` are
+    ordinary `systemd.services` attributes, and the module already emits a
+    per-name drop-in for each (`overrideStrategy = "asDropin"`), so
+    `serviceConfig.NetworkNamespacePath` goes in per instance through a
+    mechanism it uses in-tree — no patch, and no `%i` specifier to gamble on.
+    `tap-up` is namespace-agnostic (`ip tuntap add … user`, `ip link set up`,
+    and `tap-down` deletes), so putting the namespace on that unit too means the
+    tap is created and destroyed *inside* it and never moves. `User = microvm`
+    is no obstacle: systemd sets namespaces up as PID 1, before dropping
+    privilege. Watch one detail — `ExecStartPost`/`ExecStopPost` carry the `+`
+    prefix, which bypasses sandboxing, so those run in the *host* namespace;
+    harmless today (they do nothing without `registerWithMachined`) and a silent
+    hole for anything added there later.
+
     Remaining costs: the VM is declared in `~/flakes`, iterating means a host
     rebuild, and the console moves to the journal — which matters little, since
     TUIs never worked on the serial console anyway and ssh is already the
@@ -678,11 +694,11 @@ second-order to it. The confinement's job is to bound what the agent can reach
       wildcard `iifname "vm-cap*"` accept, written once and never touched again)
       is exactly wrong: it *grants* the reach. The accept has to pair iifname
       with destination address. The drop can still be a wildcard.
-    - **A netns per capsule dissolves most of the above, and has been spiked:
+    - **A netns per capsule dissolves most of the above, and has been probed:
       it holds.** Identical /30 and MAC in every capsule (so one image, with no
       DHCP and no boot-time step), no path from A to B, and — because
       `net.ipv4.ip_forward` is per-netns — a forward control that is *ours*
-      rather than one shared with docker and tailscale. `spike/netns.sh` models
+      rather than one shared with docker and tailscale. `probe/netns.sh` models
       two capsules and a guest that already has root: it cannot reach the
       upstream, cannot reach the other capsule, and cannot be reached from
       outside even by something holding a route to it, while a process in the
@@ -690,15 +706,22 @@ second-order to it. The confinement's job is to bound what the agent can reach
       `ip_forward` to 1 lets the guest straight out, which is what proves the
       switch is the thing doing the work.
 
-      The plumbing went with it: a tap created in the root namespace moves into
-      a capsule namespace, is then gone from root entirely, and a process inside
-      can bind an address on it — so `microvm-tap-interfaces@%i` needs no change,
-      it just has to run before the VMM. And ssh gets in over a unix socket
+      The plumbing went with it. A tap can be created directly inside a capsule
+      namespace, or created in the root namespace and moved in — and after a
+      move it is *gone* from root, so nothing there can delete it out from under
+      the guest. Either way a process inside can bind an address on it. Creating
+      it inside is the plan, because `tap-up`/`tap-down` are namespace-agnostic
+      and putting the namespace on that unit makes stop symmetric with start
+      (item 11); the move is the fallback. And ssh gets in over a unix socket
       (`/run/capsule/<name>/ssh.sock`, an `ssh` `ProxyCommand`), since the
-      filesystem is not namespaced — no privilege, no port allocation, and no
-      socket-activation fd passing. The only unknown left is whether
-      microvm.nix's host module takes a `NetworkNamespacePath=` drop-in on
-      `microvm@%i`.
+      filesystem is not namespaced — no privilege, no port allocation, no
+      socket-activation fd passing, and identical guest addresses never reach
+      `known_hosts` because the socket path is the identity.
+
+      The host module takes the namespace without a patch — verified against the
+      pinned source, see item 11. What is left is one boot: whether firecracker
+      comes up with its tap inside a namespace. Reading source is not running
+      code.
 
       Netns applies to the **host-module path only**. The devshell path keeps
       working with no rebuild and no root, which a namespace cannot do, so the

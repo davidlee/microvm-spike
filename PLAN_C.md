@@ -15,8 +15,34 @@ here, but nothing below may design it into implausibility — which is mostly a
 constraint on how much of the instance list has to live in the host's own
 config.
 
-Near-term next step is a spike, not code: [a netns per
-capsule](#netns-per-capsule), which if it holds collapses most of what follows.
+## Where this stands
+
+Read this first if you are picking the work up cold.
+
+**Settled, with evidence.** The netns shape holds. `probe/netns.sh` — `sudo
+probe-netns`, or `--internet` for the egress stage — models two capsules with
+identical addressing and a guest that already has root, in namespaces, with no
+VM. 14 assertions, green. It is kept rather than thrown away: it is the evidence
+behind the addressing and isolation decisions below, it re-runs in seconds, and
+it is what to point at when this shape is proposed somewhere else. Re-run it
+after any change to the netns machinery.
+
+**Decided.** Per-capsule proxy *and* git daemon. Netns on the host-module path
+only, with the foreground path staying at N=1. The base commit becomes a runtime
+value. Units generated per instance rather than templated. Reasons are with each
+decision, not here.
+
+**Open, in order.** One real boot with a namespace — the last unverified thing
+in the shape — then the guest image measurement, then `capsules.nix`. Full list
+under [order of work](#order-of-work).
+
+**Do not re-derive these.** Three claims in earlier drafts of this document were
+wrong, and are corrected in place rather than deleted: the forward drop does not
+stop cross-capsule reach, one git daemon cannot serve N capsules safely, and a
+per-instance kernel cmdline does not buy one guest image. Each is explained where
+it does its damage. Likewise two probe methodology traps that cost three runs —
+a denial-only network test needs a return path, and a probe borrowing production
+addressing tests production — are in [traps](#traps-already-paid-for).
 
 ## The cost that shapes everything else
 
@@ -70,14 +96,14 @@ Four mechanisms:
    problem for the same reason.
 4. **[A netns per capsule](#netns-per-capsule).** Every capsule uses the same
    /30 and the same MAC, because they are no longer in one routing domain, so
-   the guest is bit-identical for free. Spike target.
+   the guest is bit-identical for free. Probed, and it holds — see below.
 
 Of 1-3, only DHCP preserves a bit-identical guest — and its own cost note below
 admits it degenerates into a boot script deriving `.1` from `.2`, i.e. exactly
 the guest-side moving part that (3) was rejected for. It does at least fix the
 hostname for free (`UseHostname=true`).
 
-**Recommendation: (4).** It was spiked and it holds; identical addressing in
+**Recommendation: (4).** It was probed and it holds; identical addressing in
 every capsule means the question this whole section asks stops being asked. Keep
 (1) as the fallback if the netns machinery turns out to cost more than the image
 does — which is what step 3 of the work order measures.
@@ -104,11 +130,12 @@ It dissolves three of the hardest problems here at once:
   control lives in `~/flakes` and has to be read back out of the running kernel
   (NOTES item 7).
 
-### Spiked. It holds.
+### Probed. It holds.
 
-`spike/netns.sh` — two capsules with identical addressing, no VM, a simulated
-guest that already has root and has added the default route. 11 assertions, all
-passing, both stages. What it establishes:
+`probe/netns.sh` — two capsules with identical addressing, no VM, a simulated
+guest that already has root and has added the default route. 14 assertions green
+on the default run, and stage 2's further three green when it was run. What it
+establishes:
 
 - **Identical /30 and identical MAC in two namespaces is fine.** Nothing
   complains, nothing collides. The one-image argument survives its first test.
@@ -126,7 +153,7 @@ passing, both stages. What it establishes:
 - **Real egress works**: a process in the namespace reaches the internet over
   the veth, while the guest still cannot with every upstream hop forwarding.
 - **A tap moves into a namespace and stays bindable**, and **a unix socket gets
-  ssh in without privilege** — see [plumbing](#plumbing--settled-by-the-same-spike).
+  ssh in without privilege** — see [plumbing](#plumbing--settled-by-the-same-probe).
 
 Three costs it also found, none fatal, all needing to be designed in rather than
 discovered later:
@@ -157,7 +184,7 @@ discovered later:
 
 ### What it does to the host-config dependency
 
-The largest consequence, and it was not what the spike was for. Today the
+The largest consequence, and it was not what the probe was for. Today the
 perimeter's weakest documented point is that half of it lives in `~/flakes`
 (NOTES item 7): the forward drop is in someone else's config, rests on a global
 sysctl docker and tailscale both write, and therefore has to be read back out of
@@ -186,7 +213,7 @@ state disappears with the sudoers rule.
 Cost of collecting that: namespace creation is root-side, so the host module
 (item 11) stops being optional for this shape.
 
-### Plumbing — settled by the same spike
+### Plumbing — settled by the same probe
 
 - **The tap does not need microvm.nix to cooperate.** A tap created in the root
   namespace moves into a capsule namespace cleanly, is then gone from the root
@@ -207,18 +234,61 @@ Cost of collecting that: namespace creation is root-side, so the host module
   needed. It also sidesteps identical guest addresses making a mess of
   known_hosts: the socket path is the identity.
 
-### Plumbing — still unknown
+### The host-module question, answered from source
 
-- Whether microvm.nix's host module tolerates a namespace: a drop-in setting
-  `NetworkNamespacePath=` on `microvm@%i`. This is now the *only* open question
-  in the shape, and it is a drop-in experiment rather than a design question.
-- `vm-stop` and `just status` currently read things that do not care which
-  namespace they run in. `pgrep` still works (the PID namespace is untouched),
-  but the ssh poweroff moves to the socket, and "is the tap there" stops being
-  answerable from the root namespace at all —
-  `ConditionPathExists=/sys/class/net/<tap>` in a unit is evaluated in the unit's
-  own namespace, so the units keep working while `just status` needs rewriting.
-- Namespace creation is root-side, so the VMM half of item 11 comes first.
+Verified against the pinned microvm.nix — `nixos-modules/host/default.nix` and
+`nixos-modules/microvm/interfaces.nix`. **Yes, and it needs no patch.**
+
+- **`microvm@` and `microvm-tap-interfaces@` are ordinary `systemd.services`
+  attributes**, so `serviceConfig.NetworkNamespacePath` merges in from the host's
+  config like any other option. Better: microvm.nix *already* emits a per-name
+  drop-in for each of them (`systemd.services."microvm@${name}" =
+  {overrideStrategy = "asDropin"; …}`), so a per-instance namespace uses a
+  mechanism the module itself uses in-tree — and there is no `%i` specifier
+  expansion to gamble on.
+- **`tap-up` is namespace-agnostic**: `ip tuntap add name <id> mode tap user
+  <user>`, then `ip link set <id> up`; `tap-down` is the matching `ip link
+  delete`. Nothing about addresses, nothing about namespaces. So put the
+  namespace on *that* unit as well and the tap is created and destroyed inside
+  it — **no tap ever moves**, and stop is symmetric with start. The probe's
+  "created directly inside a capsule ns" is therefore the result that matters;
+  the move result is the fallback, not the plan. `tap-up`'s idempotency guard
+  (`if [ -e /sys/class/net/<id> ]; then ip link delete`) is namespace-local and
+  stays correct.
+- **`User = microvm` is not an obstacle.** systemd sets namespaces up as PID 1,
+  before dropping privilege.
+- **One new unit, and that is the whole addition:** `capsule-netns@` — root,
+  oneshot, `RemainAfterExit`, `ip netns add` / `ip netns del`, ordered `before`
+  `microvm-tap-interfaces@%i`.
+
+Two things the source turned up while checking, both worth knowing before the
+first boot rather than after:
+
+- **`ExecStartPost` / `ExecStopPost` on `microvm@` carry the `+` prefix**, which
+  by design bypasses the unit's sandboxing — so those run in the *host*
+  namespace, not the capsule's. They do nothing unless `registerWithMachined` is
+  set, which this config does not, but anything added there later lands silently
+  on the wrong side of the boundary.
+- **`Restart = "always"` with `RestartSec = 5s`**, and `ExecStop` is
+  `microvm-shutdown`, i.e. the `SendCtrlAltDel` this guest ignores (NOTES item
+  11). Both already need a drop-in; the namespace work is the natural time to
+  write it.
+
+### The one thing still unverified
+
+**That firecracker comes up with its tap inside a namespace.** Everything says
+it will — it opens `/dev/net/tun` and `TUNSETIFF`s by interface name, both
+resolved in its own namespace — but nothing here has run it, and reading source
+is not running code. That is one boot, and it is the last unknown in the shape.
+
+Two consequences to handle in the same pass, neither of them unknowns:
+
+- `just status` needs rewriting. `pgrep` still works (the PID namespace is
+  untouched) but "is the tap there" stops being answerable from the root
+  namespace at all. `ConditionPathExists=/sys/class/net/<tap>` inside a unit is
+  evaluated in that unit's namespace, so the units keep working while the human's
+  status command does not.
+- `vm-stop`'s ssh poweroff moves onto the unix socket, same as `just ssh`.
 
 ### Where netns applies, and where it does not
 
@@ -484,10 +554,12 @@ case, not before the dev-machine case.
 
 ## Order of work
 
-1. ~~Spike the netns.~~ **Done — it holds**, along with the tap move and the
-   unix-socket way in ([results](#spiked-it-holds)). One unknown left, and it is a
-   `microvm@` drop-in rather than a design question: does the host module take a
-   `NetworkNamespacePath=`. Try that next, which means step 5 in practice.
+1. ~~Spike the netns.~~ **Done — it holds**, along with the tap and the
+   unix-socket way in ([results](#probed-it-holds)), and the host module takes
+   the namespace without a patch
+   ([from source](#the-host-module-question-answered-from-source)). What is left
+   is one boot with a real guest, which means step 5 in practice — there is no
+   cheaper way to answer it.
 2. **Make the base commit a runtime value** — `capsule-clone <ref>`, persisted on
    the volume. Independent of everything else, needed either way, worth doing
    now.
@@ -702,17 +774,17 @@ All of these are in CLAUDE.md; they cost time once and will cost it again at N.
 - **`environment.variables` is login-shell scope** in the guest; anything
   daemon-side needs its own `Environment`.
 - **A negative network test needs a return path, or it passes for the wrong
-  reason.** The netns spike's first two runs were green on every "the guest
+  reason.** The netns probe's first two runs were green on every "the guest
   cannot reach X" assertion while proving nothing: with no route back to the
   simulated guest, those pings could not have succeeded whatever the namespace
   did. Only the deliberately-inverted control (turn the switch on, watch the
   wall fall over) caught it. Any test of this perimeter that only asserts
   denials is untrustworthy; pair each with the same test against the control
   disabled.
-- **A spike that borrows the production addressing tests production.** The same
+- **A probe that borrows the production addressing tests production.** The same
   run reused `10.99.0.0/30` while a capsule was live, so the root namespace held
   a connected route to the real guest and replies to the simulated one went to
-  the running VM. Two results came back wrong in opposite directions. The spike
+  the running VM. Two results came back wrong in opposite directions. The probe
   now uses `10.98.0.0/30` and refuses to start on an overlapping route.
 
 ## Explicit non-goals
@@ -739,11 +811,12 @@ Say no to these in the plan, so they don't arrive as scope:
 
 ## Open questions to answer before coding
 
-1. **Does the netns survive contact with microvm.nix?** Narrowed to one thing:
-   whether the host module tolerates a `NetworkNamespacePath=` drop-in on
-   `microvm@%i`. The namespace, the tap move and the way in are all
-   [settled](#spiked-it-holds); the `nix run` path keeps the tap shape at N=1, so
-   it never needs to answer this.
+1. ~~Does the netns survive contact with microvm.nix?~~ **Answered from source:
+   yes, no patch.** The namespace, the tap and the way in are
+   [settled by probe](#probed-it-holds); the module's own per-name drop-ins carry
+   the namespace ([detail](#the-host-module-question-answered-from-source)). What
+   remains is not a question but a boot: does firecracker come up with its tap in
+   a namespace.
 2. How big is the guest image? (`nix path-info -Sh .#capsule`) — prices how much
    the netns machinery is worth versus simply paying for N closures. At 3-4
    capsules on a dev machine, N closures may still be the better trade.

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 #
-# Spike: does "a netns per capsule" hold? (PLAN_C.md, "Netns per capsule")
+# Probe: does "a netns per capsule" hold? (PLAN_C.md, "Netns per capsule")
+#
+# Kept, not thrown away. It is the evidence behind PLAN_C's addressing and
+# isolation decisions, and it re-runs in seconds — which matters when this shape
+# is proposed somewhere else and someone reasonably asks how it is known to
+# hold. Re-run it after any change to the netns machinery.
 #
 # Models two capsules with *identical* addressing, each in its own network
 # namespace, plus a simulated guest that already has root and is trying to get
@@ -35,9 +40,7 @@
 #     path available, a "blocked" result can only mean the capsule namespace
 #     blocked it. Without one, every negative passes for the wrong reason.
 #
-# Throwaway: delete this and its flake entry once PLAN_C settles the question.
-#
-# Run: sudo spike-netns [--internet]
+# Run: sudo probe-netns [--internet]
 
 # Deliberately no errexit: half these tests are supposed to fail.
 
@@ -55,7 +58,7 @@ SOCKDIR=""
 HELPERS=()
 
 [ "$(id -u)" = 0 ] || {
-  echo "spike-netns: needs root (ip netns)" >&2
+  echo "probe-netns: needs root (ip netns)" >&2
   exit 1
 }
 
@@ -64,9 +67,9 @@ HELPERS=()
 # address — which, with a capsule running, is a live guest.
 for net in "$GUEST_NET" 10.100.0.0/16 10.101.0.0/30; do
   if ip route show | grep -qF "${net%%/*}"; then
-    echo "spike-netns: the root namespace already has a route near $net:" >&2
+    echo "probe-netns: the root namespace already has a route near $net:" >&2
     ip route show | grep -F "${net%%/*}" >&2
-    echo "spike-netns: refusing — results would be meaningless." >&2
+    echo "probe-netns: refusing — results would be meaningless." >&2
     exit 1
   fi
 done
@@ -299,7 +302,7 @@ if [ "$WANT_INTERNET" = 1 ]; then
   echo "== stage 2: real egress (mutates host forwarding + nft, restored on exit) =="
   UPLINK=$(ip -o route show default | awk '{print $5; exit}')
   [ -n "$UPLINK" ] || {
-    echo "spike-netns: no default route; skipping stage 2" >&2
+    echo "probe-netns: no default route; skipping stage 2" >&2
     exit 1
   }
 

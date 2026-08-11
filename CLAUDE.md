@@ -23,6 +23,14 @@ Shell in `writeShellApplication` cannot be run either, since it only exists
 after a build. Render the script by hand into the scratchpad and `shellcheck`
 that — it catches the SC2034/SC2154 class before the user spends a build on it.
 
+**`probe/` is evidence, not scaffolding.** Each probe answers one design
+question and is kept so the answer stays checkable — `probe/netns.sh` is what
+PLAN_C's addressing and isolation decisions rest on. They need root, so they are
+the user's to run (`sudo probe-netns`); `just build` shellchecks them. Write new
+ones the same way: assert both directions, since a denial-only network test
+passes for the wrong reason, and never borrow live addressing — a probe on the
+real `/30` tests the real capsule.
+
 Formatting is alejandra, 2-space indent, matching doctrine's flake.
 
 ## Architecture invariants
