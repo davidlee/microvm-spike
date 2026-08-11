@@ -28,8 +28,15 @@ Break these and the confinement stops meaning anything:
   hypervisor, no Linux-only tool goes in there — that is what lets a
   seatbelt or VM-based shape reuse it (PLAN_B.md). Anything platform-shaped
   belongs at the call site in `flake.nix`.
+- **Part of the perimeter is not in this repo.** The firewall ports and the
+  forward-chain drop on the tap live in the host's NixOS config — README "Host
+  requirements". Anything proposed here that assumes the host is unconfigured,
+  or that tries to compensate for it guest-side, is wrong twice.
 - **No default route in the guest.** The only egress is the proxy. Adding NAT
-  or a gateway would silently void the allowlist.
+  or a gateway would silently void the allowlist — and so would leaving the
+  host forwarding for the tap, since guest root can add the route itself.
+  Guest kernel hardening (`lockKernelModules`) raises the cost of getting that
+  root; it is not what makes the claim true.
 - **Root is reachable only by ssh key from the host.** The agent has no sudo and
   no su, by design.
 - **`net` in `flake.nix` is the single source of truth** for tap name, both
@@ -93,8 +100,8 @@ which shape nearly every decision here:
 - Guest modules live in `vm/`; `common.nix` holds only what every VM needs, and
   sizes are `lib.mkDefault` so each VM can override.
 - Host-side helpers are `writeShellApplication` (shellcheck runs at build).
-  `net/egress-allow.txt` is deliberately a plain file, not a store path, so the
-  allowlist can change without a rebuild.
+  `perimeter/egress-allow.txt` is deliberately a plain file, not a store path,
+  so the allowlist can change without a rebuild.
 - The guest's tool set comes from doctrine's `packages.dev-tools`. Add tools
   there, not here, so the VM and that devshell cannot drift. The jailed
   `claude`/`codex` bwrap wrappers are excluded on purpose — they bind host

@@ -121,8 +121,8 @@ The one genuinely awkward part, and it has three answers, best first:
   nix-darwin) or `brew install tinyproxy`; git-daemon ships with git.
 - `pkill -f`, `sed`, `install -m755` are all fine as-is.
 
-The mirror, the `update` hook, and `net/egress-allow.txt` need no changes at
-all. That is the point of the split.
+The mirror, the `update` hook, and `perimeter/egress-allow.txt` need no changes
+at all. That is the point of the split.
 
 ### What Shape A costs relative to the real thing
 

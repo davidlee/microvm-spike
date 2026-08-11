@@ -73,10 +73,27 @@
       runtimeInputs = [pkgs.iproute2 pkgs.procps];
       text = ''
         tap=${net.tap}
+
+        # Forwarding is global state this script has no business setting, and
+        # docker and tailscale both turn it on for their own reasons. The
+        # nftables drop in README "Host requirements" is what actually holds
+        # the line; this only says when that stanza has started to matter.
+        # bash's own redirect, so the check needs nothing on PATH.
+        audit_host() {
+          read -r forwarding < /proc/sys/net/ipv4/ip_forward
+          if [ "$forwarding" != 0 ]; then
+            echo "warning: net.ipv4.ip_forward is on. Without the FORWARD drop on" >&2
+            echo "         $tap, a guest that gains root can add a default route" >&2
+            echo "         and reach the LAN past the proxy." >&2
+            echo "         See README 'Host requirements'." >&2
+          fi
+        }
+
         case "''${1:-}" in
           up)
             if ip link show "$tap" >/dev/null 2>&1; then
               echo "$tap already up"
+              audit_host
               exit 0
             fi
             if pgrep -f "microvm@" >/dev/null; then
@@ -84,14 +101,22 @@
               echo "         *old* tap — recreating one will not reattach it." >&2
             fi
             sudo ip tuntap add dev "$tap" mode tap user "$USER"
+            # Before the link comes up, so the tap never emits a router
+            # solicitation and the host's IPv6 stack is never on the guest's
+            # side of the boundary. Per-interface, and the interface is ours,
+            # so this one belongs here rather than in the host config — a
+            # boot-time sysctl would fire before the tap exists.
+            # Absent only if the host kernel has no IPv6 at all, in which case
+            # there is nothing to turn off.
+            if [ -e "/proc/sys/net/ipv6/conf/$tap/disable_ipv6" ]; then
+              sudo sysctl -q -w "net.ipv6.conf.$tap.disable_ipv6=1"
+            fi
             sudo ip addr add ${net.host}/${toString net.prefix} dev "$tap"
             sudo ip link set "$tap" up
             echo "$tap up — host ${net.host} <-> guest ${net.guest}"
-            echo "if the guest cannot reach the host, the host firewall is dropping it."
-            echo "durable fix, and NOT trustedInterfaces (which would expose every"
-            echo "0.0.0.0-bound host service to the guest):"
-            echo "  networking.firewall.interfaces.\"$tap\".allowedTCPPorts ="
-            echo "    [ ${toString net.proxyPort} ${toString net.gitPort} ];"
+            audit_host
+            echo "if the guest reaches nothing at all, the host is missing the"
+            echo "firewall stanza — see README 'Host requirements'."
             ;;
           down)
             # Deleting a tap out from under a running VM silently kills its

@@ -10,12 +10,13 @@
 # tool below, it belongs at the call site instead.
 #
 # Runtime configuration is environment, not nix, so the allowlist stays an
-# ordinary editable file rather than a store path behind a rebuild:
+# ordinary editable file rather than a store path behind a rebuild. Defaults
+# below are relative to CAPSULE_ROOT unless absolute:
 #
-#   CAPSULE_ROOT       repo root                 (default: $PWD)
-#   CAPSULE_STATE      mirror, conf, logs, pid   (default: $CAPSULE_ROOT/.vm/host)
-#   CAPSULE_ALLOWLIST  proxy hostname allowlist  (default: $CAPSULE_ROOT/net/egress-allow.txt)
-#   CAPSULE_REPO       repo to mirror            (default: $HOME/dev/doctrine)
+#   CAPSULE_ROOT       $PWD                        repo root
+#   CAPSULE_STATE      .vm/host                    mirror, conf, logs, pid
+#   CAPSULE_ALLOWLIST  perimeter/egress-allow.txt  proxy hostname allowlist
+#   CAPSULE_REPO       $HOME/dev/doctrine          repo to mirror
 {
   pkgs,
   # Address the two services listen on, and the single client permitted to use
@@ -52,7 +53,9 @@
     ConnectPort 443
     Filter "@ALLOW@"
     FilterDefaultDeny Yes
-    FilterType extended
+    # `ere`, not `extended` — tinyproxy takes bre|ere|fnmatch and refuses to
+    # start on anything else. (`FilterExtended Yes` is the deprecated spelling.)
+    FilterType ere
     FilterCaseSensitive No
     LogLevel Info
     LogFile "@STATE@/tinyproxy.log"
@@ -76,7 +79,7 @@
 
       root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
       state="''${CAPSULE_STATE:-$root/.vm/host}"
-      allow="''${CAPSULE_ALLOWLIST:-$root/net/egress-allow.txt}"
+      allow="''${CAPSULE_ALLOWLIST:-$root/perimeter/egress-allow.txt}"
       src="''${CAPSULE_REPO:-$HOME/dev/doctrine}"
 
       # Is something already accepting connections there? A connect probe

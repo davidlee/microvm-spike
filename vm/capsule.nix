@@ -67,6 +67,16 @@ in {
     ];
   };
 
+  # Guest ring-0 is the input to KVM's attack surface (NOTES, "Security
+  # posture"), and loading a module is the cheap way to get there from guest
+  # root. Locking that raises the price to a guest kernel LPE. This is not a
+  # perimeter control moved inward — the perimeter is still host-side; it makes
+  # the host-guest boundary costlier to reach at all. The device set is fixed
+  # and everything needed is loaded during boot, so nothing wants a module
+  # later. Turn it off if you ever need one on demand (fuse, loop, nf_tables).
+  security.lockKernelModules = true;
+  security.protectKernelImage = true;
+
   # Point-to-point link only. No gateway, no resolver: everything outbound
   # goes through the host's allowlist proxy, which does its own DNS.
   systemd.network = {
