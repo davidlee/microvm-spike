@@ -8,9 +8,13 @@ exactly enough network for a coding agent to work — no more.
 
 | path                         | what                                               |
 | ---------------------------- | -------------------------------------------------- |
-| `flake.nix`                  | VMs, devshell, tap + runner scripts, the link's config |
-| `perimeter/default.nix`      | proxy, mirror, ref guard — `capsule-host`. Jail-agnostic |
+| `flake.nix`                  | VMs, devshell, tap + runner scripts, module exports |
+| `net.nix`                    | tap name, both addresses, MAC, ports — single source |
+| `justfile`                   | the gate (`just check`) + the multi-command questions |
+| `perimeter/default.nix`      | `sync`/`proxy`/`gitd` + `capsule-host`. Jail-agnostic |
 | `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild   |
+| `host/perimeter-check.nix`   | is the host's nftables drop loaded? Linux-shaped, injected |
+| `host/services.nix`          | the same services as units under dedicated uids. Opt-in |
 | `vm/common.nix`              | shared guest config (firecracker, serial console)   |
 | `vm/hello.nix`               | smoke test VM, no network                           |
 | `vm/capsule.nix`             | the agent jail                                      |
@@ -307,9 +311,8 @@ second-order to it. The confinement's job is to bound what the agent can reach
    after which the sole remaining question is whether the host forwards.
    `net.ipv4.ip_forward` is global and not ours — docker and tailscale both set
    it — so the guarantee cannot rest on it being 0. A standalone nftables table
-   dropping `iifname`/`oifname "vm-capsule"` in the forward hook is the control;
-   `capsule-net up` warns when forwarding goes live so the omission is visible
-   rather than latent. Deliberately *not*
+   dropping `iifname`/`oifname "vm-capsule"` in the forward hook is the control.
+   Deliberately *not*
    `networking.firewall.filterForward`, which flips the whole host's forward
    policy to drop (`firewall-nftables.nix` renders `policy drop` on the forward
    chain) and whose `extraForwardRules` land in an allow-list chain that cannot
@@ -319,12 +322,49 @@ second-order to it. The confinement's job is to bound what the agent can reach
    IPv6 on the tap is host stack the guest can reach for no benefit, and is
    turned off by `capsule-net` before the link comes up rather than by a
    boot-time sysctl, which would fire before the interface exists.
+
+   **And it is now checked rather than documented.** A control that lives in
+   someone else's file and is never read is a control you find out about
+   afterwards — it was in fact missing from this host's config until the check
+   was written, with `ip_forward` at 0 the whole time, which is exactly the
+   failure the check exists to surface.
+
+   The two halves fail differently and that is what decides how much machinery
+   each deserves. Omit the *allow* (interface-scoped ports) and the guest
+   reaches nothing: loud, self-announcing, no verification needed. Omit the
+   *drop* and everything works normally until a guest gains root and adds a
+   route: silent, and worth spending on. So only the drop is verified, and this
+   repo cannot install it — a `drop` in any chain is terminal, so a table here
+   could add denials, but nothing here can grant the accept that the host
+   firewall would still be dropping. Deny-side controls can be self-installed;
+   allow-side controls can't. Hence: check, don't install.
+
+   Verification reads live kernel state (`nft list table inet capsule-forward`),
+   not a stamp file or the config text, because the failure mode being guarded
+   is "the config no longer matches the kernel". That read needs CAP_NET_ADMIN,
+   so it depends on a NOPASSWD sudoers rule for exactly that one command,
+   naming `/run/current-system/sw/bin/nft` — a store path can't work, since the
+   two flakes have separate nixpkgs pins and sudo matches the command string
+   literally. No rule means no verdict, which resolves to `latent`: safe only
+   while nothing forwards, and reported as such rather than passed.
+
+   Three states, one definition shared by `capsule-net` and `capsule-host`
+   (`perimeterChecks` in `flake.nix` — Linux-shaped, hence at the call site and
+   not in `perimeter/`): `dropped` verified, `latent` unverifiable but nothing
+   forwards, `open` forwarding live and unverifiable → refuse. Preflight alone
+   would only prove the perimeter held at start, so `capsule-host` also
+   supervises a `watch` child that re-checks, and exits — tearing the proxy and
+   the git daemon down with it — if forwarding comes up mid-session or the tap's
+   address vanishes. Losing egress is the correct outcome; continuing to serve
+   it past a missing control is not. `watch` is an injected fragment for the
+   same reason `preflight` is: `perimeter/` must not learn what nftables is.
 8. **git-daemon is unauthenticated**, and `--enable=receive-pack` is what makes
    the update hook load-bearing. Now narrowed by two independent guards:
    `--strict-paths` plus the mirror as the sole whitelisted path (so no sibling
    under `.vm/host/` that happens to look like a repo can be served), and a
    per-repo `git-daemon-export-ok` marker in place of `--export-all`. Still
-   reachable from the host itself, which is accepted.
+   reachable from the host itself on the foreground path, which is accepted; the
+   unit path closes it with `IPAddressDeny` (item 11).
 9. **Egress allowlist is unproven** against a real Claude Code session —
    expect to add hosts on first run. `perimeter/egress-allow.txt`, restart
    `capsule-host`, no rebuild.
@@ -334,27 +374,91 @@ second-order to it. The confinement's job is to bound what the agent can reach
     build; the proxy supersedes them, and dropping them removed this flake's
     dependency on doctrine's flake (and its `pub` / `llm-agents` transitives).
     Worth restoring if you want cold-start builds without network.
-11. **Everything host-side runs as you.** Biggest remaining gap (see the jailer
-    note above), and it is two problems that happen to share one fix.
+11. **Everything host-side runs as you** — two problems sharing one fix, and the
+    first half is now done.
 
     - The **VMM**: a firecracker escape lands on uid 1000, with ambient access
       to `~/.ssh`, `~/.claude`, every repo and every shell rc — precisely the
-      assets the capsule exists to keep away from the agent.
+      assets the capsule exists to keep away from the agent. Still open.
     - **`capsule-host`**: tinyproxy is C parsing guest-authored HTTP, and
-      git-daemon runs `receive-pack`, both as you. This half is independent of
-      the hypervisor and gets no benefit from anything in the VM story, so it
-      is worth doing even if the VMM never moves.
+      git-daemon runs `receive-pack`, both as you. Independent of the
+      hypervisor, so it was worth doing first and on its own.
 
-    Fix is a dedicated host uid owning the tap, the mirror and both processes,
-    so a break-out lands on an account holding nothing. The cheap route for the
-    VMM is microvm.nix's **host module**, which already runs VMs as
-    `User=microvm` out of `/var/lib/microvms` with a root-side
-    `microvm-tap-interfaces@` service — and which would also retire most of the
-    lifecycle jank in CLAUDE.md, since `systemctl restart microvm@capsule`
-    SIGTERMs the VMM after `ExecStop` and frees the tap. `capsule-host` needs
-    no upstream help: it is already a plain foreground process with its paths
-    in the environment (`CAPSULE_STATE`, `CAPSULE_ALLOWLIST`, `CAPSULE_REPO`),
-    which is most of what a unit file wants.
+    **The services half — done, opt-in** (`nixosModules.capsule-perimeter`,
+    `host/services.nix`; README has the switch and the path changes). What it is
+    worth recording about the shape:
+
+    - `perimeter/` now builds four programs instead of one: `sync`, `proxy`,
+      `gitd`, and `host` as their foreground composition. That split is what
+      lets the same code be either three children of one unprivileged process
+      or three units under separate uids, with no second implementation. The
+      foreground path is kept deliberately — it needs no root and no rebuild,
+      which is what makes it usable for development, and it is the only path
+      that survives on a host without systemd (PLAN_B).
+    - **The best part is not the uid split, it is what `sync` being separate
+      buys.** The mirror's refresh is the only operation that reads
+      `~/dev/doctrine`, and it runs as you. So the uid *serving* the mirror —
+      the one exposed to an unauthenticated `receive-pack` — has no route to
+      the tree the mirror came from. Before, a git-daemon bug read the whole
+      home directory; now `ProtectHome` costs it nothing, because it never
+      needed home in the first place.
+    - `git-daemon` gets `IPAddressDeny=any` with only the guest allowed, so a
+      compromise cannot dial out at all. That also closes the "still reachable
+      from the host itself" gap in item 8 as a side effect, at the price of
+      `git://` no longer working from the host — the mirror is a path, so fetch
+      it as one.
+    - The proxy cannot be locked down that way, since being the egress point is
+      its job. It instead loses loopback, link-local and RFC1918, with the
+      guest and the resolver allowed back by longest-prefix match, so it can
+      reach the internet and not the LAN. It also sees exactly one file from
+      `$HOME` — `ProtectHome=tmpfs` plus a read-only bind of the allowlist —
+      which keeps the allowlist an ordinary editable file without handing a C
+      HTTP parser the rest of the directory.
+    - The mirror is setgid and `core.sharedRepository=group`, which is what lets
+      one uid serve pushes while another syncs and fetches them out. Ownership,
+      not ACLs, and `owner` is a member of the daemon's group rather than the
+      reverse.
+    - The guard unit is this path's `preflight` + `watch`: root, so it reads the
+      nftables ruleset directly and needs no sudo rule. `BindsTo` on both
+      services, and no `Restart`, so a refusal stays a refusal.
+    - `host/perimeter-check.nix` is the one definition of the check, taking
+      `nft` as a whole command so the sudo path and the root path share it.
+
+    The VMM half is next, and is the option below rather than a decision.
+
+    **The VMM half — microvm.nix's host module. An option, not yet taken.**
+    Verified against the pinned source (`nixos-modules/host/`), because the
+    details decide whether it is worth it:
+
+    - `microvm@%i.service` runs `User=microvm`, `Group=kvm`, `WorkingDirectory=
+      ${stateDir}/%i` with `stateDir = /var/lib/microvms`. So the uid drop is
+      free, and `~/.ssh` / `~/.claude` / every repo leave the VMM's reach.
+    - The tap becomes a **root-side** `microvm-tap-interfaces@%i.service`
+      (`ExecStart=…/bin/tap-up`, `ExecStop=…/bin/tap-down`, `partOf` the VM),
+      which retires `capsule-net` and its sudo for this path.
+    - Declared as `microvm.vms.capsule.flake = <this flake>` from `~/flakes`,
+      which means adding this repo as an input there — and `git+file:` reads
+      committed HEAD, so a host rebuild would start depending on this repo
+      being committed. `microvm.vms.<name>.autostart` and `microvm.autostart`
+      exist if it should come up at boot; it should not, at least at first.
+    - `Group = "kvm"` is **not** a private group — it is shared with everything
+      else on the host that touches `/dev/kvm`. Anything mode-`0660` group-kvm
+      is inside the VMM's reach. Worth a look before adopting.
+
+    **It does not fix the shutdown jank, and the earlier note here claiming it
+    would was wrong.** `ExecStop` is `microvm-shutdown`, i.e. the same
+    `SendCtrlAltDel` this guest ignores (CLAUDE.md). So `systemctl stop` waits
+    out `TimeoutSec` and then SIGTERMs the VMM — a power cut with extra steps,
+    and the volume replays its journal. Also `Restart = "always"`, so killing
+    the VMM by hand brings it straight back. Adopting this path therefore wants
+    a drop-in overriding `ExecStop` with the ssh poweroff `vm-stop` already
+    does, and a decision about `Restart`.
+
+    Remaining costs: the VM is declared in `~/flakes`, iterating means a host
+    rebuild, and the console moves to the journal — which matters little, since
+    TUIs never worked on the serial console anyway and ssh is already the
+    documented way in. Keep the standalone `nix run` path for development; the
+    host-module path would be the real posture.
 
     A systemd unit is also what makes the rest of this list cheap, which is why
     it is worth preferring over the LSM routes:
@@ -372,13 +476,9 @@ second-order to it. The confinement's job is to bound what the agent can reach
       only `--no-seccomp` loses it. Do not add a second layer — the realistic
       outcome is a weaker one.
     - The cgroup knobs in item 12 are unit options.
-
-    Costs: the VM is declared host-side (`microvm.vms.<name>.flake` can still
-    point here), the console moves to the journal, and iterating means a host
-    rebuild. Keep the standalone `nix run` path for development, add the
-    host-module path as the real posture.
-12. **No resource ceiling** — though less is unbounded than that suggests, and
-    the distinction matters for what is worth fixing.
+12. **No resource ceiling on the VM** — though less is unbounded than that
+    suggests, and the distinction matters for what is worth fixing. (The two
+    host services now have ceilings; see item 11. This is about the VMM.)
 
     | resource | bound today | actually open |
     | -------- | ----------- | ------------- |
@@ -424,6 +524,7 @@ second-order to it. The confinement's job is to bound what the agent can reach
       `target/` in the guest frees guest space and nothing host-side. The image
       is a high-water mark; the only reclaim is deleting it, which is also the
       documented way to reset the workspace.
-    - `.vm/host/tinyproxy.log` has no rotation. Small, but it is the record of
-      every egress attempt, so truncating it on start would be the wrong fix —
-      rotate it.
+    - `.vm/host/tinyproxy.log` has no rotation on the foreground path. Small,
+      but it is the record of every egress attempt, so truncating it on start
+      would be the wrong fix. Rotated (weekly, `copytruncate`) on the unit path
+      only — see item 11.

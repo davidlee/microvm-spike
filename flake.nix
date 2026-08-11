@@ -33,18 +33,9 @@
     pkgs = nixpkgs.legacyPackages.${system};
     inherit (nixpkgs) lib;
 
-    # Single source of truth for the host<->guest link. A /30 point-to-point
-    # tap: no bridge, no LAN exposure, and deliberately no default route in the
-    # guest — the only way out is the allowlist proxy on the host end.
-    net = {
-      tap = "vm-capsule";
-      host = "10.99.0.1";
-      guest = "10.99.0.2";
-      prefix = 30;
-      mac = "02:00:00:00:99:02";
-      proxyPort = 3128;
-      gitPort = 9418;
-    };
+    # Tap name, both addresses, MAC and ports. Its own file because the
+    # host-side NixOS module needs the same values.
+    net = import ./net.nix;
 
     mkVm = name: module:
       lib.nixosSystem {
@@ -65,35 +56,61 @@
       capsule = mkVm "capsule" ./vm/capsule.nix;
     };
 
+    # Is the host-side half of the perimeter loaded? Injected into the
+    # jail-agnostic perimeter as `preflight` + `watch` and shared verbatim with
+    # capsule-net, so "intact" has one definition. The systemd path reads the
+    # same ruleset as root instead (host/services.nix); this path goes through
+    # a NOPASSWD sudo rule, since `capsule-host` holds no privilege.
+    #
+    # /run/current-system/sw, not a store path: the host config's sudoers rule
+    # has to name the same string this does, and this one survives a rebuild on
+    # either side.
+    perimeterChecks = import ./host/perimeter-check.nix {
+      inherit net;
+      nft = "sudo -n /run/current-system/sw/bin/nft";
+    };
+
     # Firecracker cannot create its own tap, so one persistent tap is made up
     # front, owned by the invoking user — after which running the VM needs no
     # privilege at all.
     capsule-net = pkgs.writeShellApplication {
       name = "capsule-net";
-      runtimeInputs = [pkgs.iproute2 pkgs.procps];
+      runtimeInputs = [pkgs.iproute2 pkgs.procps pkgs.gnugrep];
       text = ''
         tap=${net.tap}
 
-        # Forwarding is global state this script has no business setting, and
-        # docker and tailscale both turn it on for their own reasons. The
-        # nftables drop in README "Host requirements" is what actually holds
-        # the line; this only says when that stanza has started to matter.
-        # bash's own redirect, so the check needs nothing on PATH.
+        ${perimeterChecks}
+
+        # Fail closed, before the link exists: `open` means the tap would be a
+        # transit path the moment the guest asks for one.
         audit_host() {
-          read -r forwarding < /proc/sys/net/ipv4/ip_forward
-          if [ "$forwarding" != 0 ]; then
-            echo "warning: net.ipv4.ip_forward is on. Without the FORWARD drop on" >&2
-            echo "         $tap, a guest that gains root can add a default route" >&2
-            echo "         and reach the LAN past the proxy." >&2
-            echo "         See README 'Host requirements'." >&2
-          fi
+          case "$(perimeter_state)" in
+            dropped)
+              echo "$tap: FORWARD drop verified"
+              ;;
+            latent)
+              echo "warning: net.ipv4.ip_forward is 0, so nothing forwards today, but" >&2
+              perimeter_advice
+              ;;
+            open)
+              echo "capsule-net: refusing — net.ipv4.ip_forward is on and" >&2
+              perimeter_advice
+              return 1
+              ;;
+          esac
         }
 
         case "''${1:-}" in
           up)
+            audit_host
             if ip link show "$tap" >/dev/null 2>&1; then
               echo "$tap already up"
-              audit_host
+              # A tap with no address is a half-created link: capsule-host
+              # would fail its bind check with nothing pointing at the cause.
+              tap_up || {
+                echo "warning: $tap exists but ${net.host} is not assigned —" >&2
+                echo "         'capsule-net down' then up again." >&2
+              }
               exit 0
             fi
             if pgrep -f "microvm@" >/dev/null; then
@@ -114,9 +131,13 @@
             sudo ip addr add ${net.host}/${toString net.prefix} dev "$tap"
             sudo ip link set "$tap" up
             echo "$tap up — host ${net.host} <-> guest ${net.guest}"
-            audit_host
+            # The allow half of the host config fails loud, unlike the drop:
+            # omit it and the guest simply reaches nothing.
             echo "if the guest reaches nothing at all, the host is missing the"
             echo "firewall stanza — see README 'Host requirements'."
+            ;;
+          verify)
+            audit_host
             ;;
           down)
             # Deleting a tap out from under a running VM silently kills its
@@ -130,7 +151,7 @@
             sudo ip link del "$tap"
             ;;
           *)
-            echo "usage: capsule-net up|down" >&2
+            echo "usage: capsule-net up|down|verify" >&2
             exit 1
             ;;
         esac
@@ -147,14 +168,55 @@
       inherit (net) proxyPort gitPort;
       extraRuntimeInputs = [pkgs.iproute2];
       preflight = ''
-        # Both services bind ${net.host}, which only exists while the tap does.
-        if ! ip -brief addr show ${net.tap} 2>/dev/null | grep -q ${net.host}; then
+        ${perimeterChecks}
+
+        if ! tap_up; then
           echo "capsule-host: ${net.host} is not assigned — run 'capsule-net up' first" >&2
           exit 1
         fi
+
+        # The two services are the guest's only reachable surface, so refuse to
+        # offer them at all when the host-side half of the perimeter is gone.
+        case "$(perimeter_state)" in
+          dropped) echo "capsule-host: FORWARD drop on ${net.tap} verified" ;;
+          latent)
+            echo "capsule-host: warning — net.ipv4.ip_forward is 0, so nothing" >&2
+            echo "  forwards today, but" >&2
+            perimeter_advice
+            ;;
+          open)
+            echo "capsule-host: refusing — net.ipv4.ip_forward is on and" >&2
+            perimeter_advice
+            exit 1
+            ;;
+        esac
+      '';
+      # Preflight only proves the perimeter was intact at start. Docker or
+      # tailscale can flip forwarding on at any point in a session, and a
+      # `capsule-net down --force` can take the bind address out from under
+      # both services, so keep checking and take the egress down with it.
+      # Cheap checks every cycle; the ruleset read only once forwarding is
+      # actually live, which is the only case where the drop matters. The
+      # checks themselves come from `preflight`, which has already run in this
+      # shell.
+      watch = ''
+        while sleep 10; do
+          if ! tap_up; then
+            echo "capsule-host: ${net.host} is gone — the tap was removed" >&2
+            exit 1
+          fi
+          forwarding_off && continue
+          if ! forward_dropped; then
+            echo "capsule-host: net.ipv4.ip_forward went live mid-session and" >&2
+            perimeter_advice
+            echo "  Tearing down egress." >&2
+            exit 1
+          fi
+        done
       '';
     };
     capsule-host = perimeter.host;
+    capsule-sync = perimeter.sync;
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -223,10 +285,16 @@
   in {
     nixosConfigurations = vms;
 
+    # The host half of the perimeter as units under dedicated uids, for a NixOS
+    # host that wants it as its real posture. Opt-in: `capsule-host` in the
+    # devshell stays the development path and needs no rebuild. Import it in the
+    # host's config and set `services.capsule-perimeter.{enable,owner}`.
+    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net;};
+
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
-        inherit vm vm-stop capsule-net capsule-host;
+        inherit vm vm-stop capsule-net capsule-host capsule-sync;
         default = self.packages.${system}.capsule;
       };
 
@@ -236,7 +304,9 @@
         vm-stop
         capsule-net
         capsule-host
+        capsule-sync
         pkgs.firecracker
+        pkgs.just
         microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
       ];
       shellHook = ''

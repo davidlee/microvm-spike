@@ -9,8 +9,15 @@ obvious-looking ideas are already recorded there as considered-and-rejected.
 
 **Do not run nix builds or evals.** The user runs those themselves — they are
 slow, and as a subshell they have crashed the session. Verify with
-`nix-instantiate --parse <file>` (cheap, no eval) and format with `alejandra`.
-Hand the user the command to run and say what you expect it to do.
+`just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`;
+neither evaluates). Hand the user the command to run — `just build` for the
+host-side scripts, which is also where shellcheck runs — and say what you
+expect it to do. `just` recipes that shell out to `nix eval` (`_net`, and so
+`status`/`ssh`/`admin`) are the user's to run, not yours.
+
+Shell in `writeShellApplication` cannot be run either, since it only exists
+after a build. Render the script by hand into the scratchpad and `shellcheck`
+that — it catches the SC2034/SC2154 class before the user spends a build on it.
 
 Formatting is alejandra, 2-space indent, matching doctrine's flake.
 
@@ -24,14 +31,21 @@ Break these and the confinement stops meaning anything:
   vars, the unprivileged `agent` user — are convenience and clumsiness-guards,
   not security. Never move a control from the host into the guest.
 - **`perimeter/` knows nothing about the jail.** It builds `capsule-host` from
-  addresses, ports, and one injected `preflight` fragment. No tap name, no
+  addresses, ports, and two injected shell fragments — `preflight` (once,
+  before anything binds) and `watch` (supervised child; exits nonzero when the
+  perimeter is gone, which tears the services down). No tap name, no
   hypervisor, no Linux-only tool goes in there — that is what lets a
   seatbelt or VM-based shape reuse it (PLAN_B.md). Anything platform-shaped
-  belongs at the call site in `flake.nix`.
-- **Part of the perimeter is not in this repo.** The firewall ports and the
-  forward-chain drop on the tap live in the host's NixOS config — README "Host
+  belongs at the call site in `flake.nix` (`perimeterChecks`).
+- **Part of the perimeter is not in this repo.** The firewall ports, the
+  forward-chain drop on the tap, and the sudoers rule that makes the drop
+  readable all live in the host's NixOS config (`~/flakes`) — README "Host
   requirements". Anything proposed here that assumes the host is unconfigured,
-  or that tries to compensate for it guest-side, is wrong twice.
+  or that tries to compensate for it guest-side, is wrong twice. The drop is
+  *verified at run time*, not assumed: unverifiable-and-forwarding is a refusal
+  to start, and forwarding coming up mid-session kills egress. Don't soften
+  that to a warning — a warning is what it had while the drop was in fact
+  missing from the host config.
 - **No default route in the guest.** The only egress is the proxy. Adding NAT
   or a gateway would silently void the allowlist — and so would leaving the
   host forwarding for the tap, since guest root can add the route itself.
@@ -98,10 +112,20 @@ which shape nearly every decision here:
 ## Conventions
 
 - Guest modules live in `vm/`; `common.nix` holds only what every VM needs, and
-  sizes are `lib.mkDefault` so each VM can override.
-- Host-side helpers are `writeShellApplication` (shellcheck runs at build).
+  sizes are `lib.mkDefault` so each VM can override. Host-side NixOS modules
+  live in `host/` and are exported from `flake.nix`, opt-in — the devshell path
+  must keep working with no rebuild and no root.
+- Host-side helpers are `writeShellApplication` (shellcheck runs at build, so an
+  unused variable is a build failure — hence `paths` in `perimeter/` being a
+  function each program calls with only what it uses).
   `perimeter/egress-allow.txt` is deliberately a plain file, not a store path,
   so the allowlist can change without a rebuild.
+- **Two paths run the same code.** `capsule-host` composes `sync`/`proxy`/`gitd`
+  in the foreground as you; `host/services.nix` runs the same three as units
+  under `capsule-proxy`/`capsule-git`. Don't grow a second implementation for
+  either — if a unit needs something, it comes from the same program.
+  `capsule-sync` is the only thing that may read the real repo, and it always
+  runs as the human: that is what keeps the serving uid away from the tree.
 - The guest's tool set comes from doctrine's `packages.dev-tools`. Add tools
   there, not here, so the VM and that devshell cannot drift. The jailed
   `claude`/`codex` bwrap wrappers are excluded on purpose — they bind host

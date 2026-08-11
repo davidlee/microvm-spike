@@ -36,7 +36,40 @@ networking.nftables.tables.capsule-forward = {
     }
   '';
 };
+
+# So the host side can prove the drop above is loaded, rather than trusting
+# that this file still says so. Read-only, exact arguments, one command.
+# Sudoers is last-match-wins: this must come after any broad wheel/ALL rule
+# or it does nothing.
+security.sudo.extraRules = lib.mkAfter [{
+  users = ["david"];
+  commands = [{
+    command = "/run/current-system/sw/bin/nft list table inet capsule-forward";
+    options = ["NOPASSWD"];
+  }];
+}];
 ```
+
+**These are verified, not assumed.** `capsule-net up` and `capsule-host` both
+call the same check and report one of three states:
+
+| state     | means                                                              |
+| --------- | ------------------------------------------------------------------ |
+| `dropped` | the table is loaded and both rules are present. Verified.           |
+| `latent`  | the drop can't be read, but `net.ipv4.ip_forward` is 0, so nothing forwards yet. Warns. |
+| `open`    | forwarding is live and the drop can't be read. **Refuses to start.** |
+
+`capsule-host` keeps checking for the life of the session, because forwarding is
+global state it doesn't own — start docker or tailscale mid-session and the
+watch tears the proxy and the git daemon down with it. Same if the tap's address
+disappears. The guest loses egress rather than keeping it past a control that
+has gone.
+
+`latent` is the honest verdict for a host with no sudo rule: unverifiable is
+not the same as absent, and it is only safe while nothing forwards.
+`/run/current-system/sw/bin/nft` rather than a store path because this flake and
+the host config have separate nixpkgs pins and sudo matches the command string
+literally.
 
 **Interface-scoped ports, not `trustedInterfaces`.** That option accepts
 *everything* arriving on the tap, which puts every `0.0.0.0`-bound host service
@@ -48,8 +81,8 @@ daemon on the LAN and the tailnet.
 configured.** The guest has no gateway, but a guest that gets root can add one,
 and then the only thing between it and your LAN is whether the host forwards.
 `net.ipv4.ip_forward` is global and both docker and tailscale turn it on for
-their own reasons, so this cannot be left to inspection — `capsule-net up`
-warns when forwarding is live, and the drop is the actual control. Its own
+their own reasons, so this cannot be left to inspection — hence the check
+above, which refuses to bring the link or the services up in that state. Its own
 table rather than `networking.firewall.filterForward`, which switches the
 *whole host's* forward policy to drop and would take those same daemons out;
 `drop` is terminal in any chain, so a separate table needs no cooperation from
@@ -58,13 +91,59 @@ the firewall's.
 IPv6 on the tap is handled by `capsule-net` itself (disabled before the link
 comes up) — a boot-time sysctl would fire before the interface exists.
 
-### Expectations this does not yet meet
+The *allow* half of the firewall config is not verified, and doesn't need to be:
+omit it and the guest reaches nothing, loudly. Only the silent-failure half
+(the forward drop) is checked.
 
-The VMM, tinyproxy and git-daemon all run as **you**, so a VMM escape or a bug
-in tinyproxy's HTTP parser lands on an account holding `~/.ssh`, `~/.claude`
-and every repo on the machine. The fix is a dedicated host uid plus systemd
-units — which also supplies the resource ceilings, none of which exist today.
-NOTES.md, open item 11, has the shape and the trade.
+### Optional: the two services under dedicated uids
+
+`capsule-host` runs tinyproxy and git-daemon as **you** — a bug in tinyproxy's
+HTTP parser, or in `receive-pack`, lands on an account holding `~/.ssh`,
+`~/.claude` and every repo on the machine. The flake exports a NixOS module that
+gives each its own system uid, namespace and cgroup ceiling instead:
+
+```nix
+imports = [inputs.microvm-spike.nixosModules.capsule-perimeter];
+services.capsule-perimeter = {
+  enable = true;
+  owner = "david"; # syncs the mirror and fetches capsule/* back out
+};
+```
+
+Opt-in, and `capsule-host` stays exactly as it was — it needs no root and no
+rebuild, which is what makes it the development path. What the module changes:
+
+| | `capsule-host` | the units |
+| --- | --- | --- |
+| runs as | you | `capsule-proxy`, `capsule-git` |
+| mirror | `.vm/host/doctrine.git` | `/var/lib/capsule/doctrine.git` |
+| proxy log | `.vm/host/tinyproxy.log` | `/var/lib/capsule-proxy/tinyproxy.log`, rotated weekly |
+| perimeter check | sudo read + supervised watch | `capsule-perimeter-guard.service`, root, no sudo rule needed |
+| ceilings | none | `MemoryMax`, `CPUQuota`, `TasksMax`, `IOWeight` |
+
+```
+capsule-sync                                    # refresh the mirror, as you
+systemctl start capsule-proxy capsule-gitd      # pulls in the guard first
+git fetch /var/lib/capsule/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
+```
+
+- **`capsule-sync` is the only thing that reads `~/dev/doctrine`,** and it runs
+  as you. The uid serving the mirror has no path to the tree the mirror came
+  from — the module's main gain beyond the uid split itself.
+- **The guard is a start dependency (`BindsTo`)**, so the services cannot come
+  up while the perimeter is unverifiable-and-forwarding, and stop when it goes.
+  It does not restart itself: a refusal stays a refusal until you fix the cause
+  and start it again.
+- Both units are conditional on the tap existing, so start them after
+  `capsule-net up`. Neither is enabled at boot.
+- git-daemon gets `IPAddressDeny=any` with only the guest allowed, so
+  `git://10.99.0.1:9418/` **stops working from the host** — fetch the mirror
+  path directly, as above. `receive-pack` with no way out is most of the point.
+- Adding this repo as an input to the host config means host rebuilds read its
+  committed HEAD, same as the `git+file:` gotcha for doctrine.
+
+Still as you: the VMM. NOTES.md open item 11 has the microvm.nix host-module
+option and what it does and doesn't fix.
 
 ## Quickstart
 
@@ -98,11 +177,21 @@ git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
 | ------------------- | ---------------------------------------------------------- |
 | `capsule-net up`    | create the tap + assign `10.99.0.1/30`. Needs sudo.         |
 | `capsule-net down`  | remove it. Refuses while a VM runs; `--force` overrides.    |
+| `capsule-net verify`| report the perimeter's state without touching the link.      |
 | `capsule-host`      | git daemon + tinyproxy. Foreground, unprivileged.           |
+| `capsule-sync`      | create/refresh the mirror + ref guard. The only reader of `~/dev/doctrine`. |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
 | `capsule-clone`     | *(guest)* clone/fetch from the host mirror.                 |
 | `capsule-push NAME` | *(guest)* push HEAD to `capsule/NAME` on the mirror.        |
+
+Those are the lifecycle; `just` has everything that needs more than one command
+to answer, and does not wrap them. `just check` is the gate (every nix file
+parses and is alejandra-clean — no eval, so it can't trigger a VM build).
+`just status` puts the VM, the tap, the listeners, the perimeter's verdict, the
+units and the mirror on one screen. Then `just verify`, `just fetch`,
+`just branches`, `just proxy-log`, `just allowed`, `just ssh`, `just admin`.
+`just --list` for the rest. Addresses come from `net.nix`, never a literal.
 
 ## Process lifecycle
 
@@ -154,6 +243,9 @@ vm-stop capsule && vm capsule
 | `Cannot assign requested address` on start     | tap missing — `capsule-net up`                             |
 | `Address already in use` on start              | orphaned daemon from an earlier run; `capsule-host` names the pid |
 | `No route to host` to `10.99.0.2`              | tap was recreated under a running VM, or the VM is down    |
+| `refusing — net.ipv4.ip_forward is on`         | the `capsule-forward` table isn't loaded (or isn't readable) while something forwards — see "Host requirements" |
+| egress dies mid-session, `Tearing down egress` | same, but it happened after start: docker/tailscale flipped forwarding |
+| `FORWARD drop ... cannot be verified`          | the sudo read rule is missing; safe only while `ip_forward` is 0 |
 | guest reaches nothing, host is up              | host firewall dropping the tap — see "Host requirements"    |
 | a hostname 403s through the proxy              | not in `perimeter/egress-allow.txt`; `.vm/host/tinyproxy.log` names it |
 | a TUI (claude, etc.) renders but ignores Enter | serial console input quirk — run TUIs over ssh              |
