@@ -184,7 +184,21 @@ in {
       "d ${cfg.stateDir} 2775 capsule-git capsule-git -"
     ];
 
-    environment.systemPackages = [perimeter.sync];
+    # Wrapped, not `perimeter.sync` bare: unwrapped it defaults the mirror to
+    # `$PWD/.vm/host` — the foreground path's — so running it to feed the units
+    # would quietly build a second mirror wherever you happened to be standing.
+    # The units' own env, from the one place that knows it. The devshell's copy
+    # comes first on PATH inside the repo, so `capsule-host` is unaffected; both
+    # print the mirror they used.
+    environment.systemPackages = [
+      (pkgs.writeShellApplication {
+        name = "capsule-sync";
+        text = ''
+          export CAPSULE_STATE=${cfg.stateDir} CAPSULE_REPO=${cfg.repo}
+          exec ${lib.getExe perimeter.sync} "$@"
+        '';
+      })
+    ];
 
     # Rotated rather than truncated: it is the record of every egress attempt
     # (NOTES open item 15). copytruncate, so tinyproxy needs no signal.

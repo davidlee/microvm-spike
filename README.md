@@ -95,7 +95,7 @@ The *allow* half of the firewall config is not verified, and doesn't need to be:
 omit it and the guest reaches nothing, loudly. Only the silent-failure half
 (the forward drop) is checked.
 
-### Optional: the two services under dedicated uids
+### The two services under dedicated uids
 
 `capsule-host` runs tinyproxy and git-daemon as **you** — a bug in tinyproxy's
 HTTP parser, or in `receive-pack`, lands on an account holding `~/.ssh`,
@@ -110,8 +110,18 @@ services.capsule-perimeter = {
 };
 ```
 
+Wired in on Sleipnir: `~/flakes/modules/nixos/capsule.nix`, imported from
+`hosts/Sleipnir/config.nix`, with the input taking `inputs.doctrine.follows =
+"nixpkgs"` so the graph is fetchable from darwin (the `git+file:` doctrine path
+exists on one machine only, and nothing in the host config evaluates the guest).
+That shim has to be undone if the VMM ever moves to microvm.nix's host module —
+NOTES item 11.
+
 Opt-in, and `capsule-host` stays exactly as it was — it needs no root and no
-rebuild, which is what makes it the development path. What the module changes:
+rebuild, which is what makes it the development path. **Run one or the other,
+never both:** they bind the same two ports and serve *different* mirrors, so
+together you get a port fight plus guest pushes landing in `.vm/host`, where the
+units never look. What the module changes:
 
 | | `capsule-host` | the units |
 | --- | --- | --- |
@@ -122,18 +132,35 @@ rebuild, which is what makes it the development path. What the module changes:
 | ceilings | none | `MemoryMax`, `CPUQuota`, `TasksMax`, `IOWeight` |
 
 ```
+capsule-net up                                  # or `vm capsule`; the tap first
 capsule-sync                                    # refresh the mirror, as you
 systemctl start capsule-proxy capsule-gitd      # pulls in the guard first
 git fetch /var/lib/capsule/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
 ```
 
+**Log out and back in after the first switch.** `owner` joins the `capsule-git`
+group, and supplementary groups are set at login: an existing session keeps its
+old set, and every group-dependent step then fails as `Permission denied` on a
+directory whose mode is in fact correct. `id -nG | grep capsule-git` says which
+you have; `newgrp capsule-git` patches one shell.
+
 - **`capsule-sync` is the only thing that reads `~/dev/doctrine`,** and it runs
   as you. The uid serving the mirror has no path to the tree the mirror came
   from — the module's main gain beyond the uid split itself.
+- The module installs `capsule-sync` **wrapped** with the units' `CAPSULE_STATE`
+  and `CAPSULE_REPO`, because unwrapped it defaults the mirror to
+  `$PWD/.vm/host` — the foreground path's — and would quietly build a second
+  mirror wherever you were standing. The devshell's copy still shadows it inside
+  this repo, which is what keeps `capsule-host` working; both print the mirror
+  they used, so check that line rather than assuming.
 - **The guard is a start dependency (`BindsTo`)**, so the services cannot come
   up while the perimeter is unverifiable-and-forwarding, and stop when it goes.
   It does not restart itself: a refusal stays a refusal until you fix the cause
-  and start it again.
+  and start it again. Exercised on the live host — deleting the table and
+  setting `ip_forward=1` under a running guest stopped both services within the
+  10s poll and took the guest's egress with them. To repeat it, restore with
+  `sudo systemctl restart nftables`, put `ip_forward` back, then start the two
+  services again; the guard is left `failed` and needs the explicit start.
 - Both units are conditional on the tap existing, so start them after
   `capsule-net up`. Neither is enabled at boot.
 - git-daemon gets `IPAddressDeny=any` with only the guest allowed, so

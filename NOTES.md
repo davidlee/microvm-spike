@@ -384,9 +384,39 @@ second-order to it. The confinement's job is to bound what the agent can reach
       git-daemon runs `receive-pack`, both as you. Independent of the
       hypervisor, so it was worth doing first and on its own.
 
-    **The services half — done, opt-in** (`nixosModules.capsule-perimeter`,
-    `host/services.nix`; README has the switch and the path changes). What it is
-    worth recording about the shape:
+    **The services half — deployed and exercised** on Sleipnir
+    (`nixosModules.capsule-perimeter`, `host/services.nix`, wired from
+    `~/flakes/modules/nixos/capsule.nix`; README has the switch and the path
+    changes). Still opt-in as a module — the foreground path is untouched — but
+    no longer merely available. What running it proved and cost:
+
+    - The units bind as uid 971/972, the guest's allowlisted egress works and a
+      host off the allowlist gets a 403 from tinyproxy, pushes to `capsule/*`
+      land in `/var/lib/capsule/doctrine.git` and `owner` fetches them out by
+      group. The guard's teardown was tested by deleting the table and setting
+      `ip_forward=1` under a running guest: both services stopped inside the
+      10s poll and egress died with them. That is the whole claim of this half,
+      so it is worth re-running after any change to the guard.
+    - **First-eval and first-run cost, all of it environmental rather than in
+      the module.** `~/flakes` sits in a sparse `~/.git`, so an untracked
+      `capsule.nix` is simply absent from the flake's store copy — `git add`
+      before the build, not after the confusing error. `owner`'s new
+      `capsule-git` membership does not reach an already-open session, and the
+      resulting `Permission denied` on a `2775` directory reads as a mode bug.
+      And `capsule-host` must be *stopped*, not merely Ctrl-C'd — see the
+      shutdown gotcha in CLAUDE.md; while it holds the ports the units flap on
+      `Restart=on-failure` with `tinyproxy: Could not create listening
+      sockets`.
+    - `perimeter.sync` had to be installed **wrapped**. Its defaults are
+      relative to `CAPSULE_ROOT`, which is right for the foreground path and
+      wrong for a program on `$PATH`: run from anywhere it would mirror into
+      `$PWD/.vm/host` and the units would keep waiting for a mirror that exists
+      somewhere else. The wrapper is in the module because that is the only
+      place that knows `stateDir`. Deliberately still named `capsule-sync`, so
+      the devshell's copy shadows it inside this repo and each path gets its
+      own mirror.
+
+    What is worth recording about the shape:
 
     - `perimeter/` now builds four programs instead of one: `sync`, `proxy`,
       `gitd`, and `host` as their foreground composition. That split is what
@@ -424,7 +454,13 @@ second-order to it. The confinement's job is to bound what the agent can reach
     - `host/perimeter-check.nix` is the one definition of the check, taking
       `nft` as a whole command so the sudo path and the root path share it.
 
-    The VMM half is next, and is the option below rather than a decision.
+    The VMM half is next, and is the option below rather than a decision. Note
+    the coupling the wiring introduced: `~/flakes` takes this repo as an input
+    with `inputs.doctrine.follows = "nixpkgs"`, purely so the input graph is
+    fetchable on a machine without `/home/david/dev/doctrine`. It costs nothing
+    while the host config only reads `nixosModules.capsule-perimeter`, and must
+    be undone if the VMM moves to the host module below — that path evaluates
+    the guest, and the guest's tool set is doctrine.
 
     **The VMM half — microvm.nix's host module. An option, not yet taken.**
     Verified against the pinned source (`nixos-modules/host/`), because the
