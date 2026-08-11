@@ -1,110 +1,130 @@
 # microvm.nix spike — notes
 
-Goal: a **capsule** — a firecracker microVM holding a clean checkout of
-`~/dev/doctrine` that can run `just web-build` and `just test`.
+A **capsule**: a firecracker microVM used as an agent jail. It holds a real
+git clone of `~/dev/doctrine`, can run `just web-build` / `just test`, and has
+exactly enough network for a coding agent to work — no more.
 
 ## Layout
 
-| path             | what                                                        |
-| ---------------- | ----------------------------------------------------------- |
-| `flake.nix`      | inputs, the two VMs, devshell, `vm` launcher                 |
-| `vm/common.nix`  | shared guest config (firecracker, no net, serial console)    |
-| `vm/hello.nix`   | smoke test VM                                                |
-| `vm/capsule.nix` | the doctrine capsule                                         |
-| `.vm/<name>/`    | per-VM runtime state — volume images, API socket (gitignored) |
+| path                   | what                                               |
+| ---------------------- | -------------------------------------------------- |
+| `flake.nix`            | VMs, devshell, host-side scripts, the link's config |
+| `vm/common.nix`        | shared guest config (firecracker, serial console)   |
+| `vm/hello.nix`         | smoke test VM, no network                           |
+| `vm/capsule.nix`       | the agent jail                                      |
+| `net/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild   |
+| `.vm/<name>/`          | per-VM state: volume images, API socket (gitignored)|
+| `.vm/host/`            | the bare mirror, proxy config + logs (gitignored)   |
 
 ## Running
 
 ```
-direnv allow          # nix-direnv picks up the devshell
-vm hello              # smoke test: firecracker boots, `hello` runs
-vm capsule            # the real thing
+direnv allow
+capsule-net up      # one sudo: creates the tap, owned by you
+capsule-host        # foreground: git daemon + egress proxy
+vm capsule          # another terminal
 ```
 
-`vm <name>` just makes `.vm/<name>/`, cds into it and runs
-`nix run .#<name>`. The cd matters: the runner creates volume images and the
-firecracker API socket in `$PWD`.
+`vm hello` first if you want to prove firecracker boots before debugging
+anything else. `capsule-net down` removes the tap.
 
-Inside the capsule you land in `/work/doctrine` as root. `poweroff` to leave.
+## The confinement shape
 
-First build is heavy — guest kernel, rust toolchain, bun, node_modules and the
-vendored crate registry all go into a store disk image. The
-`microvm.cachix.org` substituter in `flake.nix:nixConfig` covers microvm.nix's
-own artifacts if you are in `nix.settings.trusted-users`; otherwise nix will
-ask, or you build the hypervisor and kernel yourself.
+**Link.** One point-to-point tap, `10.99.0.1/30` (host) ↔ `10.99.0.2/30`
+(guest). No bridge, no LAN exposure, **no NAT and no default route in the
+guest**. The guest cannot originate traffic anywhere except the host end of
+the /30.
 
-## Why it is shaped this way
+**Egress.** tinyproxy on the host, `FilterDefaultDeny Yes` over
+`net/egress-allow.txt` (hostnames, extended regex). The guest gets
+`HTTPS_PROXY` and no resolver at all — DNS happens in the proxy, so a name
+that is not on the list cannot even be resolved, let alone reached. IP-level
+allowlisting was rejected: `api.anthropic.com` is CDN-fronted with rotating
+addresses.
 
-**Firecracker shares nothing.** `lib/runners/firecracker.nix:86` in microvm.nix:
+**Git.** `git clone --mirror ~/dev/doctrine` into `.vm/host/`, served by
+`git daemon` on the p2p address with `receive-pack` enabled. The guest clones
+real history with real ancestry and pushes back.
+
+- Bare is a hard requirement: a non-bare clone refuses pushes to its checked-out
+  branch (`receive.denyCurrentBranch`).
+- `--mirror` over plain `--bare` buys `fetch = +refs/*:refs/*`, so the mirror
+  tracks every ref namespace rather than just `refs/heads/*` + tags. Your
+  `phase/`, `dispatch/`, `review/`, `candidate/`, `w/` namespaces all live
+  under `refs/heads/` (274 refs), so plain `--bare` would have carried them
+  too — the mirror's edge is fidelity on anything future that doesn't.
+- **Never `git remote update` the mirror.** A mirror's fetch is force+prune and
+  would delete what the guest pushed. `capsule-host` refreshes with an explicit
+  `+refs/heads/*:refs/heads/*` instead.
+- An `update` hook restricts guest pushes to `refs/heads/capsule/*`. The agent
+  cannot rewrite your history through the mirror — it gets a namespace, and you
+  fetch from it:
+  ```
+  git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'
+  ```
+  Which lines up with SPEC-012's merge-safety-by-absence: the agent has no path
+  to the coordination tier, physically.
+
+Guest helpers: `capsule-clone` (re-fetch, for when the host side came up late)
+and `capsule-push <name>`.
+
+**State.** One 32 GiB sparse volume at `/work`: the checkout, `target/`,
+`TMPDIR`, cargo + bun caches. Survives reboots. Deliberately not on the
+rootfs — microvm.nix roots are tmpfs, i.e. guest RAM.
+
+## Why firecracker forces this
+
+`lib/runners/firecracker.nix:86` in microvm.nix:
 
 ```
 else if shares != []
 then throw "9p/virtiofs shares not implemented for Firecracker"
 ```
 
-Same for device passthrough, balloon and hotplug memory. It also has no
-user-mode networking — only tap, which needs host-side bridge/NAT setup. So:
+Same for device passthrough, balloon, hotplug memory. Firecracker also has no
+user-mode networking — tap only, which is why `capsule-net` needs one sudo.
+(qemu and kvmtool do have user-net *and* virtiofs, which would remove the host
+setup entirely at the cost of the isolation story and of any real egress
+control.) Consequences: guest `/nix/store` is a generated disk image, nothing
+host-side can be mounted in, and the only channels into the VM are the tap and
+the volume.
 
-- the guest `/nix/store` is a **generated disk image**, not the host's store;
-- nothing can be mounted in from the host;
-- **the VM has no network**, by design here.
+microvm.nix has **no jailer support** — firecracker runs unwrapped, so the
+isolation floor is KVM plus whatever the host user can do, not the jailer's
+chroot/seccomp/cgroup setup.
 
-Everything the build needs is therefore either baked into the closure or
-seeded onto a volume at first boot.
+## Open items
 
-**Checkout.** `inputs.doctrine.url = "git+file:///home/david/dev/doctrine"`.
-A flake input over `git+file:` is the committed HEAD — a clean clone, no
-worktree dirt, no `.git` directory. Pick up new commits with
-`nix flake update doctrine`. It is kept as a *flake* (not `flake = false`) so
-the capsule can consume doctrine's own `packages.web-modules` instead of
-forking a second bun-install derivation; cost is that our lock pulls
-doctrine's transitive inputs (`pub`, `llm-agents`, crane, …).
-
-**Crates offline.** `rustPlatform.importCargoLock` over doctrine's
-`Cargo.lock` — a pure function of the lock file, no toolchain needed, and that
-lock has zero git dependencies so no `outputHashes` are required. Seeded as a
-`[source.vendored-sources]` replacement in `/work/.cargo/config.toml`, so
-`cargo test` never reaches for crates.io.
-
-**node_modules offline.** Copied from doctrine's `web-modules` FOD into
-`web/map/node_modules` on first boot.
-
-**State.** One 32 GiB sparse volume at `/work` holds the checkout, `target/`,
-`TMPDIR` and the caches, and survives reboots. It is deliberately not on the
-rootfs — microvm.nix roots are tmpfs, i.e. guest RAM.
-
-## Known gaps / things to check on first run
-
-1. **`just web-build` runs `bun install` first.** node_modules is pre-seeded
-   and `BUN_INSTALL_CACHE_DIR` points at the volume, but whether bun completes
-   fully offline against a satisfied tree is unverified. If it reaches for the
-   registry, the options are: give the capsule a tap interface, or call
-   `bun run build` directly instead of the `web-build` recipe.
-2. **`just test` may want a live Postgres.** doctrine's own flake sets
-   `doCheck = false` with the comment *"tests need a live Postgres"*, though no
-   `DATABASE_URL` appears in the tree. Not provisioned here; if it turns out to
-   be needed, `services.postgresql.enable = true` in `vm/capsule.nix` is the
-   fix.
-3. **No `doctrine` binary in the guest** — so `just validate` / `just check`
-   won't work, only the two target recipes. Adding
-   `inputs.doctrine.packages.x86_64-linux.default` to `systemPackages` covers
-   it at the cost of a bigger store disk.
-4. **Toolchain pin drift.** The guest uses `rust-bin.beta.latest.default` from
-   *this* flake's nixpkgs + rust-overlay, not doctrine's pins. Same channel,
-   possibly a different revision.
-5. **Getting results out** is console-only right now. No shares, no network —
-   so build artifacts stay on the volume image.
-
-## If networking becomes necessary
-
-Firecracker only does tap. Host side needs a bridge or NAT for `vm-*` taps
-(microvm.nix `doc/src/simple-network.md`), which means editing the NixOS host
-config — out of scope for this spike directory. Guest side would be:
-
-```nix
-microvm.interfaces = [{
-  type = "tap";
-  id = "vm-capsule";
-  mac = "02:00:00:00:00:01";
-}];
-```
+1. **Nothing here has been run yet** — no eval, no build. Expect first-boot
+   friction.
+2. **Agent credentials.** No shares, so nothing can be injected from the host
+   filesystem. First boot: put `export ANTHROPIC_API_KEY=...` in `/work/.env`
+   (sourced at login, persists on the volume). OAuth login would need
+   `claude.ai` + `console.anthropic.com`, both allowlisted, but the device flow
+   wants a browser.
+3. **`pkgs.claude-code`** is included only via `lib.optional (pkgs ? claude-code)`
+   — unverified on this channel. Your `llm-agents.nix` / `pub` flake is the
+   fallback source, and would want adding as an input.
+4. **`just test` may want a live Postgres.** doctrine's flake sets
+   `doCheck = false; # tests need a live Postgres`, though no `DATABASE_URL`
+   appears anywhere in the tree. Not provisioned; `services.postgresql.enable`
+   in `vm/capsule.nix` if it bites.
+5. **No `doctrine` binary in the guest**, so `just validate` / `just check`
+   won't run — only `test` and `web-build`.
+6. **Proxy env is login-shell scope** (`environment.variables` → `/etc/set-environment`).
+   Anything run from a systemd unit in the guest won't inherit it.
+7. **Host firewall.** If the guest can't reach `10.99.0.1`, the host is
+   dropping input on the tap. Durable fix:
+   `networking.firewall.trustedInterfaces = [ "vm-capsule" ];`
+8. **git-daemon is unauthenticated.** Fine on a /30 point-to-point link, but
+   it is reachable from the host itself too, and `--enable=receive-pack` is
+   what makes the update hook load-bearing.
+9. **Egress allowlist is unproven** against a real Claude Code session —
+   expect to add hosts on first run. `net/egress-allow.txt`, restart
+   `capsule-host`, no rebuild.
+10. **Dropped since the first cut:** vendored crates
+    (`rustPlatform.importCargoLock`) and the pre-seeded `node_modules` from
+    doctrine's `web-modules` FOD. Both existed to make an offline capsule
+    build; the proxy supersedes them, and dropping them removed this flake's
+    dependency on doctrine's flake (and its `pub` / `llm-agents` transitives).
+    Worth restoring if you want cold-start builds without network.

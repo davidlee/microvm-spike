@@ -1,0 +1,23 @@
+# Hostname allowlist for the capsule's egress proxy (tinyproxy, extended
+# regex, one per line, default-deny). Edited live — restart capsule-host to
+# apply; no nix rebuild.
+
+# Claude
+^api\.anthropic\.com$
+^console\.anthropic\.com$
+^statsig\.anthropic\.com$
+^claude\.ai$
+
+# npm / bun
+^registry\.npmjs\.org$
+
+# crates.io
+^crates\.io$
+^index\.crates\.io$
+^static\.crates\.io$
+
+# github (bun/npm deps that resolve to tarballs, and gh remotes)
+^github\.com$
+^codeload\.github\.com$
+^objects\.githubusercontent\.com$
+^raw\.githubusercontent\.com$

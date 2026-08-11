@@ -2,37 +2,39 @@
   pkgs,
   lib,
   inputs,
+  net,
   ...
 }: let
-  system = pkgs.stdenv.hostPlatform.system;
-
-  # The flake input's source tree: the committed HEAD of ~/dev/doctrine, sans
-  # worktree dirt and sans .git.
-  src = inputs.doctrine;
-
-  # Reuse doctrine's own node_modules FOD (`nix build .#web-modules` over
-  # there) rather than growing a second bun-install derivation here.
-  nodeModules = inputs.doctrine.packages.${system}.web-modules;
-
-  # Pure function of Cargo.lock — no toolchain involved, and doctrine's lock
-  # has no git dependencies, so no outputHashes are needed.
-  cargoVendor = pkgs.rustPlatform.importCargoLock {
-    lockFile = "${src}/Cargo.lock";
-  };
-
-  # Offline crates: redirect crates.io at the vendored store path.
-  cargoConfig = pkgs.writeText "cargo-config.toml" ''
-    [source.crates-io]
-    replace-with = "vendored-sources"
-
-    [source.vendored-sources]
-    directory = "${cargoVendor}"
-  '';
-
-  toolchain = pkgs.rust-bin.beta.latest.default;
-
   work = "/work";
   repo = "${work}/doctrine";
+  remote = "git://${net.host}:${toString net.gitPort}/doctrine.git";
+  proxy = "http://${net.host}:${toString net.proxyPort}";
+
+  # Fetch the real history from the host's mirror. Split out from the seed
+  # service so it can be re-run by hand when the host side comes up late.
+  capsule-clone = pkgs.writeShellApplication {
+    name = "capsule-clone";
+    runtimeInputs = [pkgs.git];
+    text = ''
+      if [ -e ${repo}/.git ]; then
+        echo "already cloned; fetching"
+        git -C ${repo} fetch origin
+        exit 0
+      fi
+      git clone ${remote} ${repo}
+    '';
+  };
+
+  # The mirror's update hook refuses anything outside refs/heads/capsule/*.
+  capsule-push = pkgs.writeShellApplication {
+    name = "capsule-push";
+    runtimeInputs = [pkgs.git];
+    text = ''
+      name="''${1:?usage: capsule-push <name>}"
+      git -C ${repo} push origin "HEAD:refs/heads/capsule/$name"
+      echo "pushed to capsule/$name — on the host: git fetch .vm/host/doctrine.git 'refs/heads/capsule/*:refs/heads/capsule/*'"
+    '';
+  };
 in {
   nixpkgs.overlays = [inputs.rust-overlay.overlays.default];
 
@@ -46,10 +48,33 @@ in {
         size = 32768; # sparse; holds the checkout, target/, caches
       }
     ];
+    interfaces = [
+      {
+        type = "tap";
+        id = net.tap;
+        mac = net.mac;
+      }
+    ];
+  };
+
+  # Point-to-point link only. No gateway, no resolver: everything outbound
+  # goes through the host's allowlist proxy, which does its own DNS.
+  systemd.network = {
+    enable = true;
+    networks."10-capsule" = {
+      matchConfig.MACAddress = net.mac;
+      address = ["${net.guest}/${toString net.prefix}"];
+      networkConfig.DHCP = "no";
+      linkConfig.RequiredForOnline = "carrier";
+    };
   };
 
   environment.systemPackages =
-    [toolchain]
+    [
+      pkgs.rust-bin.beta.latest.default
+      capsule-clone
+      capsule-push
+    ]
     ++ (with pkgs; [
       just
       git
@@ -62,9 +87,18 @@ in {
       openssl
       shellcheck
       procps
-    ]);
+    ])
+    # Only in nixpkgs on recent channels; skip rather than break eval.
+    ++ lib.optional (pkgs ? claude-code) pkgs.claude-code;
 
   environment.variables = {
+    HTTP_PROXY = proxy;
+    HTTPS_PROXY = proxy;
+    http_proxy = proxy;
+    https_proxy = proxy;
+    NO_PROXY = "${net.host},localhost,127.0.0.1";
+    no_proxy = "${net.host},localhost,127.0.0.1";
+
     CARGO_HOME = "${work}/.cargo";
     BUN_INSTALL_CACHE_DIR = "${work}/.bun-cache";
     # Keep rustc/link temporaries off the RAM-backed rootfs.
@@ -72,46 +106,47 @@ in {
     LD_LIBRARY_PATH = lib.makeLibraryPath [pkgs.stdenv.cc.cc.lib];
   };
 
-  # Populate the volume on first boot; cheap no-ops afterwards, so the
-  # checkout and build caches survive a reboot.
+  programs.git = {
+    enable = true;
+    config = {
+      user.name = "capsule";
+      user.email = "capsule@localhost";
+      init.defaultBranch = "edge";
+    };
+  };
+
+  # First boot: prepare the volume and pull the checkout. Non-fatal if the
+  # host side isn't running yet — `capsule-clone` retries.
   systemd.services.capsule-seed = {
-    description = "Seed /work with the doctrine checkout and offline deps";
+    description = "Seed /work and clone from the host mirror";
     wantedBy = ["multi-user.target"];
     before = ["getty@ttyS0.service"];
-    after = ["local-fs.target"];
+    after = ["local-fs.target" "systemd-networkd-wait-online.service"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
     };
-    path = [pkgs.coreutils];
+    path = [pkgs.coreutils capsule-clone];
     script = ''
-      set -euo pipefail
       mkdir -p ${work}/tmp ${work}/.cargo ${work}/.bun-cache
-      install -m644 ${cargoConfig} ${work}/.cargo/config.toml
-
-      if [ ! -d ${repo} ]; then
-        echo "seeding checkout"
-        mkdir -p ${repo}
-        cp -a ${src}/. ${repo}/
-        chmod -R u+w ${repo}
-      fi
-
-      if [ ! -e ${repo}/web/map/node_modules ]; then
-        echo "seeding node_modules"
-        cp -a ${nodeModules}/node_modules ${repo}/web/map/node_modules
-        chmod -R u+w ${repo}/web/map/node_modules
-      fi
+      capsule-clone || echo "capsule-seed: clone failed — start capsule-host, then run capsule-clone"
     '';
   };
 
-  programs.bash.interactiveShellInit = "cd ${repo}";
+  programs.bash.interactiveShellInit = ''
+    [ -d ${repo} ] && cd ${repo}
+    [ -f ${work}/.env ] && . ${work}/.env
+  '';
 
   users.motd = ''
-    doctrine capsule — offline. checkout at ${repo}
+    doctrine capsule — confined. checkout at ${repo}
 
-      just test        cargo test (crates vendored, no network needed)
-      just web-build   bun install + vite build (node_modules pre-seeded)
+      capsule-clone         (re)fetch from the host mirror
+      capsule-push <name>   push HEAD to capsule/<name> on the mirror
+      just test / just web-build
 
-    /work is a volume and persists across boots. `poweroff` to leave.
+    egress: allowlist proxy at ${proxy} only — no default route.
+    secrets: put `export ANTHROPIC_API_KEY=...` in ${work}/.env (sourced at login,
+    persists on the volume).
   '';
 }
