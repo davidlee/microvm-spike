@@ -273,8 +273,12 @@ second-order to it. The confinement's job is to bound what the agent can reach
 
 ## Open items
 
-1. **Nothing here has been run yet** — no eval, no build. Expect first-boot
-   friction.
+1. **What has actually been run.** The guest boots and the agent works over ssh;
+   the perimeter has been exercised in both shapes — `capsule-host` in the
+   devshell, and the units under dedicated uids on Sleipnir (item 11), including
+   the guard's teardown against a live guest. Not exercised: a second host, a
+   second target repo (item 16), and the VMM half of item 11. Assume anything
+   documented here but not named in this paragraph is reviewed rather than run.
 2. **Agent credentials.** No shares, so nothing can be injected from the host
    filesystem. First boot: put `export ANTHROPIC_API_KEY=...` in `/work/.env`
    (sourced at login, persists on the volume). OAuth login would need
@@ -564,3 +568,52 @@ second-order to it. The confinement's job is to bound what the agent can reach
       but it is the record of every egress attempt, so truncating it on start
       would be the wrong fix. Rotated (weekly, `copytruncate`) on the unit path
       only — see item 11.
+16. **Target-agnostic — what the thinnest contract is.** Nothing structural ties
+    the confinement to doctrine. The perimeter is already target-blind: the
+    mirror's name is `basename "$CAPSULE_REPO"`, the ref restriction is
+    `refs/heads/capsule/*` whatever the repo is, and `host/services.nix` takes
+    `repo` as an option. What is actually hardcoded is smaller than it looks —
+    the string `doctrine` in `vm/capsule.nix` (checkout dir, clone URL, motd),
+    the input named `doctrine` in `flake.nix`, the doctrine-shaped defaults in
+    `perimeter/default.nix` and `justfile`, and a handful of guest settings that
+    are really *toolchain* settings: `CARGO_HOME`, `BUN_INSTALL_CACHE_DIR`,
+    `LD_LIBRARY_PATH` for rust's linker, `init.defaultBranch = "edge"`, the
+    vcpu/mem/volume sizes, and half the allowlist.
+
+    So the shape is the one `net.nix` already established: a `target.nix`
+    holding `{name, path, toolsAttr, allowlist, guestEnv, sizes}`, imported by
+    `flake.nix` and threaded via `specialArgs` alongside `net`, with every
+    literal above derived from it. Small and mostly deletion.
+
+    Three things decide whether it is worth doing, and they are not the code:
+
+    - **A flake input cannot be computed.** `inputs.<name>.url` must be a
+      literal, so the target's flake ref stays spelled in `flake.nix` no matter
+      how much else is parameterised. The honest version is *one* generically
+      named input — `target.url` — swapped by editing that line or by
+      `--override-input target path:…` at build time. Which means the win is
+      "this repo does not *name* doctrine", not "targets are data".
+    - **Per-target policy must not live in the target repo.** The tempting
+      version — `.capsule/egress-allow.txt` in the repo being worked on — hands
+      the allowlist to the thing being confined. Not directly (the host reads
+      the human's working tree, not the mirror) but one careless `capsule-sync`
+      after a `capsule/*` merge and the agent has widened its own egress. The
+      allowlist, the sizes and the ref policy are host-side config keyed by
+      target name; only the *tool set* comes from the target, because that is a
+      build input rather than a control. Keep that asymmetry explicit or the
+      whole perimeter argument leaks.
+    - **One target chosen ≠ several at once.** The parameterised single-target
+      version costs an afternoon and shrinks the tree. *Concurrent* capsules is
+      a different job: `net.nix` becomes per-instance (tap name, /30, MAC, two
+      ports each), the units become templates (`capsule-proxy@<target>`) with a
+      uid pair each, and the host's own config grows a per-tap nftables drop and
+      per-interface ports — i.e. it reaches into `~/flakes`, which is the part
+      this repo cannot install for itself (item 7). Don't buy the second while
+      pricing the first.
+
+    The contract a target must satisfy, if it is written down: *be a git repo on
+    this host, and expose one flake package for this system that is your
+    devshell's tool set* (doctrine: `packages.dev-tools`). Everything else about
+    the target is optional and host-side. A target with no flake still works —
+    it just gets whatever tool list `target.nix` names from this repo's nixpkgs,
+    and loses the no-drift property that made `dev-tools` worth threading.
