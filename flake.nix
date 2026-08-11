@@ -87,8 +87,11 @@
             sudo ip addr add ${net.host}/${toString net.prefix} dev "$tap"
             sudo ip link set "$tap" up
             echo "$tap up — host ${net.host} <-> guest ${net.guest}"
-            echo "if the guest cannot reach the host, the host firewall is dropping it;"
-            echo "durable fix: networking.firewall.trustedInterfaces = [ \"$tap\" ];"
+            echo "if the guest cannot reach the host, the host firewall is dropping it."
+            echo "durable fix, and NOT trustedInterfaces (which would expose every"
+            echo "0.0.0.0-bound host service to the guest):"
+            echo "  networking.firewall.interfaces.\"$tap\".allowedTCPPorts ="
+            echo "    [ ${toString net.proxyPort} ${toString net.gitPort} ];"
             ;;
           down)
             # Deleting a tap out from under a running VM silently kills its
@@ -194,6 +197,10 @@
         git -C "$mirror" fetch origin \
           '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
         install -m755 ${pushGuard} "$mirror/hooks/update"
+        # Two independent guards on what the daemon will serve, since it is
+        # unauthenticated and `receive-pack` is enabled: the per-repo marker
+        # (which replaces --export-all) and the explicit whitelist below.
+        touch "$mirror/git-daemon-export-ok"
 
         sed -e "s|@ALLOW@|$allow|" -e "s|@STATE@|$state|" \
           ${tinyproxyConf} > "$state/tinyproxy.conf"
@@ -202,10 +209,13 @@
         echo "capsule-host: git on ${net.host}:${toString net.gitPort} serving $state"
         tinyproxy -d -c "$state/tinyproxy.conf" &
         proxy=$!
+        # --strict-paths + an explicit repo whitelist: the guest may reach
+        # exactly this one path, spelled exactly, and no sibling under $state
+        # that happens to look like a repo.
         git daemon \
-          --base-path="$state" --export-all --enable=receive-pack \
+          --base-path="$state" --strict-paths --enable=receive-pack \
           --listen=${net.host} --port=${toString net.gitPort} \
-          --reuseaddr --verbose &
+          --reuseaddr --verbose "$mirror" &
         daemon=$!
         # INT/TERM as well as EXIT, and `wait -n` so that either child dying
         # tears the other down instead of leaving it holding a port.

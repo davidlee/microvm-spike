@@ -124,8 +124,10 @@ in {
   # The agent runs unprivileged. This is not the perimeter — egress and the
   # git ref restriction are enforced host-side, out of the guest's reach — it
   # just keeps a clumsy agent from wrecking the guest, and mirrors the uid
-  # separation of the bwrap jails. uid 1000 matches the host user, for the day
-  # you loop-mount the volume.
+  # separation of the bwrap jails. uid 1000 matches the host user so ownership
+  # reads correctly when the volume is inspected from outside — with fuse2fs or
+  # debugfs, never `mount`: it is guest-written ext4 and mounting it hands the
+  # metadata to the host kernel (NOTES.md).
   users.users.agent = {
     isNormalUser = true;
     uid = 1000;

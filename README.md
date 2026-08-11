@@ -10,8 +10,16 @@ how to drive it.
 ## Prerequisites
 
 - KVM (`/dev/kvm` is `crw-rw-rw-` here, so no group membership needed).
-- `networking.firewall.trustedInterfaces = [ "vm-capsule" ];` in the host's
-  NixOS config, so the guest can reach the host end of the link.
+- In the host's NixOS config, the two ports the guest is allowed to reach:
+
+  ```nix
+  networking.firewall.interfaces."vm-capsule".allowedTCPPorts = [3128 9418];
+  ```
+
+  Interface-scoped on purpose. `trustedInterfaces` would accept *everything*
+  arriving on the tap, which puts every `0.0.0.0`-bound host service inside the
+  jail's reach; plain `allowedTCPPorts` would open the proxy and the git daemon
+  on the LAN and the tailnet.
 - nix-direnv — `direnv allow` gets you the devshell and its commands.
 
 ## Quickstart
@@ -102,7 +110,7 @@ vm-stop capsule && vm capsule
 | `Cannot assign requested address` on start     | tap missing — `capsule-net up`                             |
 | `Address already in use` on start              | orphaned daemon from an earlier run; `capsule-host` names the pid |
 | `No route to host` to `10.99.0.2`              | tap was recreated under a running VM, or the VM is down    |
-| guest reaches nothing, host is up              | host firewall dropping the tap; `trustedInterfaces`        |
+| guest reaches nothing, host is up              | host firewall dropping the tap — see the `interfaces."vm-capsule"` rule above |
 | a hostname 403s through the proxy              | not in `net/egress-allow.txt`; `.vm/host/tinyproxy.log` names it |
 | a TUI (claude, etc.) renders but ignores Enter | serial console input quirk — run TUIs over ssh              |
 
@@ -110,3 +118,7 @@ State lives in `.vm/` (volume images, sockets, the mirror, proxy logs) and is
 gitignored. Deleting `.vm/capsule/capsule-work.img` resets the guest's
 workspace; deleting `.vm/host/` re-mirrors from scratch and **loses any
 `capsule/*` branches not yet fetched**.
+
+**Never loop-mount `capsule-work.img`.** It is guest-written ext4, and `mount`
+feeds its metadata to the host kernel. Read it with `fuse2fs`/`debugfs`, or
+just ask the guest over ssh. (NOTES.md has the reasoning.)
