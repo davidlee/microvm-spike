@@ -7,6 +7,9 @@
 }: let
   work = "/work";
   repo = "${work}/doctrine";
+  # $HOME lives on the volume, so ~/.claude, credentials and shell history
+  # survive reboots.
+  home = "${work}/home";
   remote = "git://${net.host}:${toString net.gitPort}/doctrine.git";
   proxy = "http://${net.host}:${toString net.proxyPort}";
 
@@ -36,7 +39,10 @@
     '';
   };
 in {
-  nixpkgs.overlays = [inputs.rust-overlay.overlays.default];
+  # claude-code is unfree; permit it by name rather than opening the whole
+  # guest closure to unfree packages.
+  nixpkgs.config.allowUnfreePredicate = pkg:
+    builtins.elem (lib.getName pkg) ["claude-code"];
 
   microvm = {
     vcpu = 8;
@@ -71,22 +77,18 @@ in {
 
   environment.systemPackages =
     [
-      pkgs.rust-bin.beta.latest.default
+      # The doctrine devshell's tool set — rust toolchain, bun, node, just,
+      # the doctrine binary itself. Built from doctrine's own nixpkgs pin, so
+      # the guest and that devshell cannot drift.
+      inputs.doctrine.packages.${pkgs.stdenv.hostPlatform.system}.dev-tools
       capsule-clone
       capsule-push
     ]
+    # Not in doctrine's list: it assumes a host that already has them.
     ++ (with pkgs; [
-      just
       git
-      bun
-      nodejs_latest
-      eslint
-      typescript
-      stdenv.cc # cc/ld — cargo's linker
       pkg-config
       openssl
-      shellcheck
-      procps
     ])
     # Only in nixpkgs on recent channels; skip rather than break eval.
     ++ lib.optional (pkgs ? claude-code) pkgs.claude-code;
@@ -115,6 +117,45 @@ in {
     };
   };
 
+  # The agent runs unprivileged. This is not the perimeter — egress and the
+  # git ref restriction are enforced host-side, out of the guest's reach — it
+  # just keeps a clumsy agent from wrecking the guest, and mirrors the uid
+  # separation of the bwrap jails. uid 1000 matches the host user, for the day
+  # you loop-mount the volume.
+  users.users.agent = {
+    isNormalUser = true;
+    uid = 1000;
+    group = "users";
+    home = home;
+    createHome = false; # on the volume, made by capsule-seed
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
+    ];
+  };
+
+  # A host->guest door, so the console isn't the only session. It widens
+  # nothing outbound: the guest still has no route past the proxy. The tap is
+  # point-to-point, so this is reachable from this host and nowhere else.
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      PermitRootLogin = "no";
+    };
+    # /etc is tmpfs here, so keys kept there would be regenerated every boot
+    # and your known_hosts would fight it. Park them on the volume.
+    hostKeys = [
+      {
+        path = "${work}/ssh/ssh_host_ed25519_key";
+        type = "ed25519";
+      }
+    ];
+  };
+  services.getty.autologinUser = lib.mkForce "agent";
+  # Console admin: `su -`, no password. Meaningless as a barrier inside a VM
+  # whose console is already a root shell by construction.
+  users.users.root.initialHashedPassword = "";
+
   # First boot: prepare the volume and pull the checkout. Non-fatal if the
   # host side isn't running yet — `capsule-clone` retries.
   systemd.services.capsule-seed = {
@@ -126,10 +167,18 @@ in {
       Type = "oneshot";
       RemainAfterExit = true;
     };
-    path = [pkgs.coreutils capsule-clone];
+    path = [pkgs.coreutils pkgs.util-linux capsule-clone];
     script = ''
-      mkdir -p ${work}/tmp ${work}/.cargo ${work}/.bun-cache
-      capsule-clone || echo "capsule-seed: clone failed — start capsule-host, then run capsule-clone"
+      mkdir -p ${work}/tmp ${work}/.cargo ${work}/.bun-cache ${home} ${work}/ssh
+      chmod 1777 ${work}/tmp
+      # One-time migration for volumes seeded before the agent user existed.
+      # Guarded on /work's owner so a populated target/ isn't walked each boot.
+      if [ "$(stat -c %u ${work})" != "1000" ]; then
+        chown -R agent:users ${work}
+      fi
+      chown agent:users ${work}/.cargo ${work}/.bun-cache ${home}
+      runuser -u agent -- capsule-clone \
+        || echo "capsule-seed: clone failed — start capsule-host, then run capsule-clone"
     '';
   };
 
@@ -144,6 +193,10 @@ in {
       capsule-clone         (re)fetch from the host mirror
       capsule-push <name>   push HEAD to capsule/<name> on the mirror
       just test / just web-build
+
+    running as `agent` (uid 1000). `su -` for root, no password.
+    ssh from the host: ssh agent@${net.guest}
+    $HOME is ${home} — on the volume, so ~/.claude survives reboots.
 
     egress: allowlist proxy at ${proxy} only — no default route.
     secrets: put `export ANTHROPIC_API_KEY=...` in ${work}/.env (sourced at login,

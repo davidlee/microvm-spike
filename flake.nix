@@ -16,10 +16,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # Source of the guest's tool set (`packages.dev-tools`) — one list, shared
+    # with doctrine's own devshell, so the capsule cannot drift from it.
+    # `git+file:` reads committed HEAD, so changes there need a commit before
+    # `nix flake update doctrine` will see them.
+    doctrine.url = "git+file:///home/david/dev/doctrine";
   };
 
   outputs = inputs @ {

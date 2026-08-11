@@ -25,6 +25,14 @@ capsule-host        # foreground: git daemon + egress proxy
 vm capsule          # another terminal
 ```
 
+`vm capsule` *is* the console — firecracker attaches its serial line to your
+terminal, and the guest autologins `agent` on it. Ctrl-C kills the VM, so give
+it its own tmux window. `poweroff` to leave.
+
+For further sessions: `ssh agent@10.99.0.2` from the host (key auth only,
+`id.pub`, root login refused). Host keys live on the volume so known_hosts
+stays stable across boots.
+
 `vm hello` first if you want to prove firecracker boots before debugging
 anything else. `capsule-net down` removes the tap.
 
@@ -93,6 +101,80 @@ microvm.nix has **no jailer support** — firecracker runs unwrapped, so the
 isolation floor is KVM plus whatever the host user can do, not the jailer's
 chroot/seccomp/cgroup setup.
 
+## Guest user model
+
+The agent runs as `agent` (uid 1000, matching the host user for the day the
+volume gets loop-mounted). `su -` gets root with no password.
+
+This is **not** the perimeter. Egress filtering and the `refs/heads/capsule/*`
+restriction are both enforced on the host, where the guest — root or not —
+cannot reach them. Guest uid separation buys protection from a clumsy agent,
+realistic file ownership, and parity with the bwrap jails' model.
+
+`$HOME` is `/work/home`, i.e. on the volume: `~/.claude`, credentials and shell
+history survive reboots. That is most of the answer to agent auth.
+
+## Tools: one list, two consumers
+
+doctrine's flake now splits its package list in two:
+
+- `devToolPkgs` — the tools, agent-free.
+- `projectPkgs = devToolPkgs ++ [codex claude]` — what its devshell uses.
+
+and exports `packages.dev-tools` (a `buildEnv` over `devToolPkgs`), which this
+flake drops straight into the guest's `systemPackages`. The capsule and that
+devshell therefore cannot drift, and the rust toolchain comes from doctrine's
+own pin — `rust-overlay` is no longer an input here.
+
+The jailed `claude` / `codex` wrappers are deliberately excluded: they are bwrap
+wrappers binding *host* paths, which mean nothing inside the VM. The capsule
+gets `pkgs.claude-code` instead, and its confinement is the VM.
+
+**`git+file:` reads committed HEAD.** Changes to doctrine's flake need a commit
+there before `nix flake update doctrine` will see them.
+
+## Getting secrets in — the bootstrap tarball
+
+Not built yet. There is no filesystem path into the guest (firecracker: no
+shares), so the options are the console or the p2p link.
+
+Plan: have `capsule-host` serve a bootstrap tarball over the existing link —
+an explicit, listed selection of `~/.claude` (OAuth credentials, settings,
+possibly `CLAUDE.md`), assembled on the host and fetched once by the guest into
+`/work/home`, where it persists. Explicit selection is the point: a whole-`~/.claude`
+mount would hand the agent every project's history and every credential in it.
+
+Open questions for when we build it: whether the tarball goes over the git
+daemon (a `bootstrap` repo) or a second port; how to avoid re-fetching a stale
+copy over a newer in-guest login; and whether OAuth tokens tolerate being used
+from two places at once, or whether the capsule needs its own credential.
+
+## nix inside the guest — considered, not done
+
+Running `nix develop` on doctrine's flake in the capsule needs three things:
+
+1. `microvm.writableStoreOverlay = "/nix/.rw-store"` plus its own volume — the
+   guest store is a read-only erofs image. microvm.nix's docs warn the Nix DB
+   forgets everything in the overlay across reboot, so it wants recreating
+   rather than trusting.
+2. `systemd.services.nix-daemon.environment` proxy vars. The daemon does the
+   fetching and does not inherit login-shell env (see open item 6).
+3. Allowlist: `cache.nixos.org`, `channels.nixos.org`, `api.github.com`.
+
+Then every overlay reset rebuilds `doctrine` via crane, plus `pub` /
+`llm-agents`, inside the VM.
+
+Preferred alternative: have doctrine's flake expose its tool list as a package
+(`packages.dev-tools = pkgs.buildEnv { paths = projectPkgs; }`, a few lines
+there), and have the capsule put
+`inputs.doctrine.packages.x86_64-linux.dev-tools` straight into
+`systemPackages`. One list, two consumers, no writable store, no drift. Cost is
+re-adding doctrine as an input, pulling its `pub` / `llm-agents` transitives
+into this lock.
+
+Worth doing the nix route only if the agent needs to *change* its own toolchain
+or run `nix build` checks.
+
 ## Open items
 
 1. **Nothing here has been run yet** — no eval, no build. Expect first-boot
@@ -102,15 +184,17 @@ chroot/seccomp/cgroup setup.
    (sourced at login, persists on the volume). OAuth login would need
    `claude.ai` + `console.anthropic.com`, both allowlisted, but the device flow
    wants a browser.
-3. **`pkgs.claude-code`** is included only via `lib.optional (pkgs ? claude-code)`
-   — unverified on this channel. Your `llm-agents.nix` / `pub` flake is the
-   fallback source, and would want adding as an input.
+3. **`pkgs.claude-code`** exists on this channel (confirmed by it failing the
+   unfree check, not the existence guard). It is unfree, so the guest carries
+   an `allowUnfreePredicate` naming just that package. Still guarded by
+   `lib.optional (pkgs ? claude-code)` for channel drift.
 4. **`just test` may want a live Postgres.** doctrine's flake sets
    `doCheck = false; # tests need a live Postgres`, though no `DATABASE_URL`
    appears anywhere in the tree. Not provisioned; `services.postgresql.enable`
    in `vm/capsule.nix` if it bites.
-5. **No `doctrine` binary in the guest**, so `just validate` / `just check`
-   won't run — only `test` and `web-build`.
+5. ~~No `doctrine` binary in the guest~~ — resolved: `dev-tools` carries it,
+   along with jujutsu, sccache, graphviz/d2/mermaid and the rest of the
+   devshell's list. Watch the store disk size.
 6. **Proxy env is login-shell scope** (`environment.variables` → `/etc/set-environment`).
    Anything run from a systemd unit in the guest won't inherit it.
 7. **Host firewall.** If the guest can't reach `10.99.0.1`, the host is
