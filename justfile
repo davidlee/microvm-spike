@@ -66,7 +66,7 @@ fmt-check:
 # capsule-baseline exists only while the target declares a `baseline`; a target
 # that omits it drops that line, and the build says so rather than skipping it.
 build:
-  nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' \
+  nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#capsule-halt' \
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \

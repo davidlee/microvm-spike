@@ -81,14 +81,24 @@
   # These were built for the lowest-indexed capsule until N=2 made that a bug:
   # four programs with one capsule's transport in their store paths, and no way
   # in to a second.
+  guestSsh = import ./guest-ssh.nix {inherit lib;};
+
   hostPrograms = import ./programs.nix {
     inherit pkgs net target;
-    transport = (import ./guest-ssh.nix {inherit lib;}).viaSocket {
+    transport = guestSsh.viaSocket {
       inherit (capsules) default;
       socat = "${pkgs.socat}/bin/socat";
       socket = capsules.socketOf ''"$capsule"'';
     };
   };
+
+  # The one program that runs at guest *root*, and the reason a stop on this
+  # path is not a power cut. No transport: it is an `ExecStop` on the VM's own
+  # unit, so it is already in that capsule's namespace and the guest is one hop
+  # away — which is also why it needs no capsule name. Its identity cannot be
+  # the human's: the unit runs as `microvm` with no agent and no access to her
+  # home, so the host keeps a key of its own (`stopKey`).
+  halt = import ./halt.nix {inherit pkgs net guestSsh;};
 
   proxyState = "/var/lib/capsule-proxy";
 
@@ -353,15 +363,37 @@
         wants = [(proxyUnit c) (relayUnit c)];
         serviceConfig = {
           NetworkNamespacePath = netns.nsPath c.ns;
+          # Refusing to start what it cannot stop cleanly. Runs as the unit's
+          # own user, which is the uid that will have to read the key at stop
+          # time — root being able to read it proves nothing. The alternative is
+          # discovering it during a host shutdown, which is the one moment
+          # nobody is watching and every capsule is mounted.
+          ExecStartPre = "${pkgs.bash}/bin/bash -c ${lib.escapeShellArg ''
+            test -r ${cfg.stopKey} || {
+              echo "no stop key at ${cfg.stopKey}: this capsule could only be power-cut. See README, 'Host requirements'." >&2
+              exit 1
+            }
+          ''}";
+          # A stop is two acts and microvm.nix only has the second. Its
+          # `ExecStop` is `microvm-shutdown`: `SendCtrlAltDel`, which this guest
+          # has no keyboard to receive (host/halt.nix), and then a `socat` on
+          # the API socket that blocks until firecracker exits. So the list is
+          # cleared and rebuilt with the request in front of the wait — ask the
+          # guest to reboot, then let their own command block until the VMM is
+          # gone. `-` because a guest that cannot answer must not skip the wait
+          # and the teardown behind it; the timeout is what covers that case.
+          ExecStop = [
+            ""
+            "-${lib.getExe halt} --identity ${cfg.stopKey}"
+            "/var/lib/microvms/${c.name}/booted/bin/microvm-shutdown"
+          ];
           # `Restart = always` is microvm.nix's default and it fights a
-          # deliberate stop. `ExecStop` is `microvm-shutdown`, i.e. the
-          # SendCtrlAltDel this guest ignores (NOTES item 11), so a stop waits
-          # out the timeout and then kills the VMM — power-cutting a mounted
-          # ext4 volume. Power off the guest first (`just admin <name>`, then
-          # `systemctl poweroff`) and stop the unit after; `vm-stop` is the
-          # devshell path's version and cannot reach a namespaced guest.
+          # deliberate stop.
           Restart = "no";
-          TimeoutStopSec = "30s";
+          # Generous on purpose: what the timeout produces is the power cut this
+          # whole path exists to avoid, and the guest is unmounting a volume
+          # that may be carrying a cold build.
+          TimeoutStopSec = "120s";
         };
       };
     });
@@ -397,6 +429,22 @@ in {
         Proxy hostname allowlist. Deliberately a plain file rather than a store
         path, so changing it needs a service restart and not a rebuild — it is
         bind-mounted read-only into the proxy's namespace.
+      '';
+    };
+
+    stopKey = lib.mkOption {
+      type = lib.types.path;
+      default = "/var/lib/capsule-stop/key";
+      description = ''
+        Private half of the key that asks a guest to shut down, read by the
+        `microvm` uid at `ExecStop`. Its own directory rather than `stateDir`,
+        which is the human's and closed to everyone else.
+
+        Not in the store, and not the human's key: a unit has no ssh agent, and
+        a key it holds should not be one whose passphrase or rotation is a
+        person's business. Generated once by hand (README, "Host requirements");
+        its public half is in the guest's closure, so replacing it is a guest
+        rebuild.
       '';
     };
 
@@ -444,6 +492,12 @@ in {
       # repository any more, which is the point of item 18.
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0750 ${cfg.owner} users -"
+        # The directory is made; the key is not. `z` only corrects what is
+        # already there, so a host that has not been given a stop key is refused
+        # at VM start with a message, rather than handed a generated key that
+        # no guest closure knows about.
+        "d ${builtins.dirOf cfg.stopKey} 0755 root root -"
+        "z ${cfg.stopKey} 0400 microvm kvm -"
       ];
 
       # Only the two that keep state need wrapping; `capsule-inject` and

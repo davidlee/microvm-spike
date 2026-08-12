@@ -64,8 +64,25 @@ security.sudo.extraRules = lib.mkAfter [{
 }];
 ```
 
-All of that belongs to the **devshell shape**, whose tap is in the host's own
-namespace. The module path does not use it: its taps are inside per-capsule
+The **module path** needs one thing of its own, out-of-band because it is a
+secret and this host's alone — the key a `microvm@<name>` unit presents to ask
+its guest to shut down. Generated once:
+
+```sh
+sudo install -d -m 0755 /var/lib/capsule-stop
+sudo ssh-keygen -t ed25519 -N "" -C "capsule stop key" -f /var/lib/capsule-stop/key
+sudo chown microvm:kvm /var/lib/capsule-stop/key && sudo chmod 0400 /var/lib/capsule-stop/key
+cp /var/lib/capsule-stop/key.pub vm/stop-key.pub    # committed: it is in the guest's closure
+```
+
+Not the human's key: an `ExecStop` has no ssh agent and no way into her home,
+and a unit should not hold a credential whose passphrase is a person's business.
+Replacing it is a guest rebuild, since the public half rides in the closure. A
+capsule whose stop key is missing or unreadable by the `microvm` uid refuses to
+start — see "Stopping" below for why that is the right end of the failure.
+
+All of that first block belongs to the **devshell shape**, whose tap is in the
+host's own namespace. The module path does not use it: its taps are inside per-capsule
 namespaces, where a forward drop written here would never see a packet, and its
 control is that namespace's own `ip_forward` instead. Leave this config in
 place — it is what keeps the devshell path honest — and note that the module
@@ -224,11 +241,14 @@ The units, per capsule and per host:
   a namespace is missing, forwarding, or missing a drop — and all of them stop
   when one does. It does not restart itself: a refusal stays a refusal until you
   fix the cause and start it again.
-- **Stopping.** `systemctl stop microvm@capsule` is a hard stop: the guest
-  ignores SendCtrlAltDel (NOTES item 11), so the VMM waits out
-  `TimeoutStopSec` and is killed with the volume's ext4 still mounted. Power the
-  guest off first — `just admin` then `systemctl poweroff` — and stop the unit
-  after. `Restart=no` is set for the same reason: microvm.nix's default would
+- **Stopping** is `systemctl stop microvm@capsule`, and it is clean because the
+  unit's `ExecStop` asks the guest to *reboot* over ssh first, with the host's
+  stop key (above). The guest unmounts and resets; `reboot=k` turns that reset
+  into a VMM exit, which is the one thing firecracker's i8042 stub does
+  implement — `SendCtrlAltDel`, the only signal microvm.nix has on its own, is
+  inert here because the guest's i8042 never attaches (NOTES item 11). Without a
+  readable stop key a capsule **refuses to start**, since the only stop left
+  would be a power cut. `Restart=no` is set so microvm.nix's default does not
   bring a deliberately stopped capsule straight back.
 - `capsule-netns-<name>` **refuses to stop while a VMM is in its namespace**,
   because deleting the namespace takes the tap and a tap cannot be swapped under
@@ -434,7 +454,7 @@ what the capsule supplies back, and the porting order — is
 | a hostname 403s through the proxy              | not in `perimeter/egress-allow.txt`; `.vm/host/tinyproxy.log` names it |
 | a download hangs mid-way, no error, no log line | proxy at `MaxClients` — `ss -lnt 'sport = :3128'` shows a non-zero `Recv-Q` (connections queued, never accepted). Cap the client (`bun install --network-concurrency 8`) or raise `MaxClients` in `perimeter/default.nix` |
 | the proxy log looks stale while egress works   | the unit path is serving, not `capsule-host` — its log is `/var/lib/capsule-proxy/tinyproxy.log`. `just proxy-log` picks the right one |
-| a TUI (claude, etc.) renders but ignores Enter | serial console input quirk — run TUIs over ssh              |
+| a TUI (claude, etc.) renders but ignores Enter | was the serial console's own quirk; loading `i8042`/`atkbd` in the guest fixed it (NOTES item 11) — if it returns, run TUIs over ssh |
 | `modprobe` fails in the guest                  | `security.lockKernelModules` — deliberate; NOTES has the trade |
 
 State lives in `.vm/` (volume images, sockets, proxy logs, quarantine repos) and

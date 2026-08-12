@@ -35,6 +35,21 @@
   adminKeys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
   ];
+
+  # The public half of the host's stop key: what a `microvm@<name>` unit's
+  # `ExecStop` presents to ask this guest to reboot, which is the only clean
+  # stop firecracker leaves available (host/halt.nix, NOTES item 11). Root's
+  # alone — an unprivileged session cannot reboot anything, so giving it to the
+  # agent would only widen what a key on the host reaches.
+  #
+  # Not the human's key, because the unit has no agent and no way into her home;
+  # not in the store, because the private half is a secret; and required rather
+  # than optional, because a guest that quietly omits it is one whose volume
+  # gets power-cut — and it would say so for the first time at host shutdown.
+  stopKey =
+    if builtins.pathExists ./stop-key.pub
+    then lib.removeSuffix "\n" (builtins.readFile ./stop-key.pub)
+    else throw "vm/stop-key.pub is missing: generate this host's capsule stop key and commit its public half (README, 'Host requirements').";
   proxy = "http://${net.host}:${toString net.proxyPort}";
 in {
   # claude-code is unfree; permit it by name rather than opening the whole
@@ -182,7 +197,7 @@ in {
 
   # Root is reachable by key from the host only — no password, no sudo, no su
   # for the agent. Admin is a thing you do from outside the jail.
-  users.users.root.openssh.authorizedKeys.keys = adminKeys;
+  users.users.root.openssh.authorizedKeys.keys = adminKeys ++ [stopKey];
 
   # First boot: prepare the volume and make an empty repository for the host to
   # push into. No clone, so no network and no host service has to be up — the

@@ -267,6 +267,13 @@
       inherit pkgs net target;
       transport = guestSsh.direct {inherit (capsules) default;};
     };
+
+    # Not one of those four: they run at the *agent*, over whichever transport
+    # reaches a capsule, and this one runs at guest root over the link itself —
+    # every capsule has the same one, since the namespace is what tells two of
+    # them apart. So it takes no capsule and no transport, only an identity, and
+    # both paths use the one store path.
+    capsule-halt = import ./host/halt.nix {inherit pkgs net guestSsh;};
     inherit (hostPrograms) guestHost guestRepo;
     capsule-provision = hostPrograms.provision;
     capsule-collect = hostPrograms.collect;
@@ -557,54 +564,23 @@
       ];
     };
 
-    # Clean shutdown without a console. The runner's own microvm-shutdown is
-    # SendCtrlAltDel over the API socket, which systemd maps to
-    # ctrl-alt-del.target (a *reboot*) and which the guest may ignore outright
-    # — observed doing nothing here. Ask the guest to power off over ssh
-    # instead, and keep the API route as the fallback.
+    # Stopping a VM is two jobs, and only the second one is this program's: get
+    # the guest down (`capsule-halt`, shared with the unit path), then account
+    # for the hypervisor. The API-socket fallback that used to sit here is gone
+    # — it was `SendCtrlAltDel`, which this guest has no keyboard to receive
+    # (host/halt.nix), so it only ever bought a wait and a `nix build`.
     vm-stop = pkgs.writeShellApplication {
       name = "vm-stop";
-      runtimeInputs = [pkgs.nix pkgs.openssh pkgs.procps pkgs.coreutils];
+      runtimeInputs = [capsule-halt pkgs.procps pkgs.coreutils];
       text = ''
         name="''${1:-capsule}"
-        root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
 
-        stopped=0
-        if [ "$name" = capsule ]; then
-          # Same relaxed host-key handling as the git channel, and for the same
-          # reason: a fresh capsule's new key would otherwise send this down the
-          # API-socket fallback, which is a worse shutdown than the ssh poweroff.
-          if ${guestSsh.command} -o BatchMode=yes -o ConnectTimeout=4 \
-               root@${net.guest} 'systemctl --no-block poweroff' 2>/dev/null; then
-            echo "vm-stop: poweroff requested over ssh"
-            stopped=1
-          fi
-        fi
-
-        if [ "$stopped" = 0 ]; then
-          echo "vm-stop: ssh unavailable, falling back to the API socket"
-          runner=$(nix build --no-link --print-out-paths "$root#$name")
-          (cd "$root/.vm/$name" && "$runner/bin/microvm-shutdown") || true
-        fi
-
-        # Firecracker does NOT exit when the guest powers off: a guest halt
-        # stops the vCPU and leaves the VMM sitting there holding the tap, so
-        # the next `vm capsule` dies with EBUSY. Once the guest is down the
-        # disks are flushed and terminating the VMM is safe.
-        #
-        # So what has to finish is the *guest* halting, and the thing to watch is
-        # the guest. Waiting for the VMM to exit is waiting for the one event
-        # this hypervisor is documented never to produce: this loop used to poll
-        # `pgrep` twenty times at one second, i.e. it always paid twenty seconds
-        # and then killed the VMM anyway. `probe/harness.sh`'s `halt_guest` had
-        # the identical bug and the fix is the same one — it is what turned a
-        # 22.68 s "teardown" figure into 3.63 s (docs/probes.md).
-        if [ "$stopped" = 1 ]; then
-          for _ in $(seq 50); do
-            ${guestSsh.command} -o BatchMode=yes -o ConnectTimeout=1 \
-              root@${net.guest} true >/dev/null 2>&1 || break
-            sleep 0.2
-          done
+        # One link, one guest: the devshell path runs a single capsule at
+        # ${net.guest}, so any other name is a VM this cannot talk to and is
+        # reaped rather than asked.
+        halted=0
+        if [ "$name" = capsule ] && capsule-halt; then
+          halted=1
         fi
 
         # Only VMMs this shell can prove are its own. Every capsule is
@@ -622,10 +598,25 @@
           done
         }
 
+        # A guest that took the reboot exits its own VMM — that is what
+        # `reboot=k` buys, measured (docs/probes.md) — so the one correct move
+        # here is to wait for it. Killing while it unmounts is precisely the
+        # power cut this program exists to avoid, and a volume carrying a cold
+        # build is where that costs something. Bounded, because a guest that
+        # took the request and then hung still has to be reaped.
+        if [ "$halted" = 1 ]; then
+          for _ in $(seq 300); do
+            mapfile -t pids < <(own_vms)
+            [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
+            sleep 0.2
+          done
+          echo "vm-stop: the guest took a reboot but its VMM outlived it" >&2
+        fi
+
         mapfile -t pids < <(own_vms)
         [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
 
-        echo "vm-stop: guest halted but the VMM is still up — terminating it"
+        echo "vm-stop: terminating the VMM"
         kill "''${pids[@]}" 2>/dev/null || true
         for _ in $(seq 50); do
           mapfile -t pids < <(own_vms)
@@ -655,7 +646,7 @@
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // baselinePackages
       // {
-        inherit vm vm-stop capsule-net capsule-host hostModuleUnits;
+        inherit vm vm-stop capsule-halt capsule-net capsule-host hostModuleUnits;
         inherit capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;
@@ -667,6 +658,7 @@
         [
           vm
           vm-stop
+          capsule-halt
           capsule-net
           capsule-host
           capsule-provision

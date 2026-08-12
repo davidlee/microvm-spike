@@ -326,15 +326,29 @@ capsule_boot() {
 # `pkill -f microvm@capsule` was correct only while exactly one capsule could
 # exist: with a sibling up it tears that one down too, and it looks like a clean
 # teardown while doing it.
+# A reboot, not a poweroff, and then a wait for the *VMM* rather than for the
+# guest to stop answering. This guest has no power button, so a poweroff halts
+# the vCPU and leaves the VMM holding the tap, while `reboot=k` turns the guest's
+# reset into a clean VMM exit; and the guest stops answering long before it
+# finishes unmounting, so killing on silence is the power cut a stop exists to
+# avoid. `host/halt.nix` is where that decision lives (NOTES item 11) — it cannot
+# be called from here, since entering the namespace is the caller's job and this
+# is the caller.
 halt_guest() {
-  local ns=$1 addr=$2 vm=$3
+  local ns=$1 addr=$2 vm=$3 requested=0
   vm_running "$ns" "$vm" || return 0
-  guest_ssh "$ns" "$addr" root 'systemctl --no-block poweroff' >/dev/null 2>&1 \
-    || echo "   ssh poweroff failed; terminating the VMM instead" >&2
-  for _ in $(seq 100); do
-    nsping "$ns" "$addr" >/dev/null 2>&1 || break
-    sleep 0.2
-  done
+  if guest_ssh "$ns" "$addr" root 'systemctl --no-block reboot' >/dev/null 2>&1; then
+    requested=1
+  else
+    echo "   ssh reboot failed; terminating the VMM instead" >&2
+  fi
+  if [ "$requested" = 1 ]; then
+    for _ in $(seq 300); do
+      vm_running "$ns" "$vm" || return 0
+      sleep 0.2
+    done
+    echo "   the guest took a reboot but its VMM outlived it" >&2
+  fi
   kill_vm "$ns" "$vm" -TERM && return 0
   kill_vm "$ns" "$vm" -KILL
 }

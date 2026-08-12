@@ -313,9 +313,10 @@ first boot rather than after:
   set, which this config does not, but anything added there later lands silently
   on the wrong side of the boundary.
 - **`Restart = "always"` with `RestartSec = 5s`**, and `ExecStop` is
-  `microvm-shutdown`, i.e. the `SendCtrlAltDel` this guest ignores (NOTES item
-  11). Both already need a drop-in; the namespace work is the natural time to
-  write it.
+  `microvm-shutdown`, i.e. a `SendCtrlAltDel` this guest cannot receive at all
+  (NOTES item 11). Both take a drop-in: `Restart = "no"`, and an `ExecStop` that
+  asks the guest to reboot over ssh before handing back to microvm.nix's own
+  command, whose `socat` is the wait for the VMM to exit.
 
 ### The last unknown — run, and it holds
 

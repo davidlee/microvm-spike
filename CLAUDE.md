@@ -182,22 +182,33 @@ which shape nearly every decision here:
 - **A tap cannot be swapped under a running VM.** Deleting it leaves firecracker
   holding a dead fd; recreating attaches to nothing and the guest goes silent
   with `No route to host`. `capsule-net down` now refuses while a VM runs.
-- **Firecracker does not exit when the guest powers off.** A guest `poweroff`
-  halts the vCPU; the VMM keeps running and keeps the tap open, so the next
-  `vm capsule` dies with `Device or resource busy` (EBUSY on TUNSETIFF — a
-  single-queue tap can only be attached once). microvm.nix's `microvm-shutdown`
-  works around this with `SendCtrlAltDel`, relying on `reboot=k` turning a
-  guest reset into a VMM exit — but this guest ignores ctrl-alt-del, so that
-  route is dead too. `vm-stop` therefore powers off over ssh (clean unmount),
-  waits, then terminates the VMM, which is safe once the guest has halted.
-  The `socat ... W address is opened in read-write mode` warning on the
-  fallback path is cosmetic, from microvm.nix's own shutdown command.
-- **TUIs do not take input on the serial console.** Claude Code renders fine
-  there (colours, layout, correct `stty size`) but ignores Enter; the same
-  binary over ssh works. Raw mode turns off the CR→NL translation, so the app
-  sees a bare `\r` and evidently drops it. `TERM=xterm-256color` on the serial
-  getty was tried and did not help — reverted. **Run agents over ssh**; the
-  console is for boot and admin.
+- **A guest poweroff does not exit the VMM; a guest reboot does.** `poweroff`
+  halts the vCPU — the guest even says so, `Power off not available: System
+  halted instead` — and the VMM keeps running and keeps the tap open, so the
+  next `vm capsule` dies with `Device or resource busy` (EBUSY on TUNSETIFF — a
+  single-queue tap can only be attached once). A `reboot` unmounts and then
+  resets, and `reboot=k` makes that reset a VMM exit, because CPU reset is the
+  one thing firecracker's i8042 stub implements. It logs that as `Unexpected
+  exit reason on vcpu run: Shutdown`, then `Killing vCPU threads`, then
+  `Firecracker exiting successfully. exit_code=0` — the first two read like a
+  crash and are the success path. So **ask for a
+  reboot, not a poweroff** — that is `capsule-halt`, used by `vm-stop` and by
+  the unit's `ExecStop`, and it is why a stop needs a key into the guest at all.
+  microvm.nix's own `microvm-shutdown` is `SendCtrlAltDel`, which is inert here:
+  the guest's i8042 driver refuses firecracker's stub outright (`probe with
+  driver i8042 failed with error -22`), so there is no keyboard to press it on.
+  It is still worth running *after* the request — its `socat` on the API socket
+  blocks until firecracker exits, which is exactly the wait a stop needs. The
+  `socat ... W address is opened in read-write mode` warning it prints is
+  cosmetic.
+- **The serial console's TUI input quirk is fixed, and nobody knows why.**
+  Claude Code used to render fine there but ignore Enter (the same binary over
+  ssh worked); `boot.kernelModules = ["i8042" "atkbd"]` in the guest fixes it,
+  A/B'd both ways with nothing else changed. Neither driver binds anything —
+  i8042 fails to probe, so atkbd has no port, and no input device appears — so
+  that is an observation, not an explanation. Don't build on the mechanism, and
+  don't drop those modules casually. ssh is still the documented way to run
+  agents.
 - **A dead guest does not mean a dead VM.** Check `pgrep -af 'microvm@'`, not
   whether the console returned or the guest answers ping.
 - **On the module path, a missing `microvm -c` fails as a dependency, not as

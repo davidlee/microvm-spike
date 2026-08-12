@@ -53,6 +53,27 @@ and `probe-two-capsules` re-ran 28/28 on it with one program set instead of two.
   ([probes.md](./probes.md)). [notes](./notes.md) item 20 has the decision and the
   CLI shape that follows. Unrun: the same programs on the *module* path, which
   needs a host rebuild.
+- **A stop is a reboot, and that makes it clean.** The thing standing between
+  N=1 and two capsules building at once was that `systemctl stop microvm@<name>`
+  is a power cut on a mounted volume. It is not a missing signal, it is the
+  wrong one: firecracker's only shutdown signal is an i8042 keystroke and this
+  guest's driver refuses its stub (`error -22`), while a guest *reboot* unmounts
+  and then resets — and `reboot=k` turns that reset into `Firecracker exiting
+  successfully. exit_code=0`, measured, with nothing killing it.
+  `host/halt.nix` is that request, one program for both paths, and the identity
+  is a host-owned stop key rather than the human's: an `ExecStop` has no ssh
+  agent, and the `+` prefix that would make it root would also drop it into the
+  root namespace where the guest is unroutable ([notes](./notes.md) item 11). A
+  capsule with no readable stop key now refuses to start. `vm-stop` lost its
+  `SendCtrlAltDel` fallback in the same change, since it was inert. **Run on the
+  devshell path; the unit's `ExecStop` is unrun** — it needs the host rebuild in
+  step 5.
+- **The serial console takes TUI input now**, which reverses a gotcha that has
+  stood since the beginning: `boot.kernelModules = ["i8042" "atkbd"]` makes
+  Enter work in claude on the console, A/B'd both ways. No input device appears
+  and i8042 does not even probe, so the mechanism is unknown and the fix is
+  recorded as an observation ([notes](./notes.md) item 11). ssh stays the
+  documented way to run an agent.
 - **The instances are declared.** `capsules.nix` — a value, and a short one:
   which capsules exist, each one's namespace, its way in
   (`/run/capsule/<name>/ssh.sock`) and its uplink /30 to the aggregator, plus
@@ -187,7 +208,9 @@ takes a fresh one to green and says what that cost. Next is Plan C:
 5. N=2 through the module — a second entry in `capsules.nix`, a rebuild, `sudo
    microvm -c <name> -f …`, `systemctl start` — and then two
    `capsule-baseline`s at once, which is the load question below and cannot be
-   asked before this.
+   asked before this. The stop that had to be settled first is settled (above);
+   what that rebuild verifies alongside N=2 is the unit's `ExecStop`, since a
+   power cut mid-cold-build is how a 109 s figure becomes a corrupted volume.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).

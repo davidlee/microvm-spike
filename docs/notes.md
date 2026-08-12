@@ -315,6 +315,44 @@ what stops it being proposed again.
     a drop-in overriding `ExecStop` with the ssh poweroff `vm-stop` already
     does, and a decision about `Restart`.
 
+    **Resolved, and "the guest ignores SendCtrlAltDel" was the wrong reading of
+    it.** The guest never *received* it. Firecracker's only shutdown signal is an
+    i8042 keystroke, nixpkgs builds `CONFIG_SERIO_I8042` and
+    `CONFIG_KEYBOARD_ATKBD` as modules, nothing autoloads a legacy port device,
+    and `security.lockKernelModules` makes the omission permanent — so there was
+    no keyboard to press the keys on. Loading them (`boot.kernelModules`, before
+    the lock) does *not* fix it either: firecracker's i8042 is a stub for CPU
+    reset and the driver refuses it outright, `probe with driver i8042 failed
+    with error -22`. That route is closed, not merely unused.
+
+    What is open instead: the guest has no ACPI power button, so a poweroff
+    halts the vCPU and leaves the VMM holding the tap (`Power off not available:
+    System halted instead` — the EBUSY trap), but a **reboot** unmounts and then
+    resets, and `reboot=k` makes that reset the one thing the i8042 stub *does*
+    implement. Measured: `Firecracker exiting successfully. exit_code=0`, with
+    nothing killing it. So the stop is a reboot asked for over ssh, which is
+    `host/halt.nix` — one program, both paths, since waiting for a hypervisor is
+    the caller's job and only the caller can see one.
+
+    That leaves the identity, which is the whole of what had to be decided. A
+    unit has no ssh agent and no way into the human's home, and the `+` prefix
+    that would make `ExecStop` root also drops it into the *root* namespace where
+    the guest is unroutable — the same prefix trap noted below. So the host keeps
+    a stop key of its own: private half readable by the `microvm` uid (which
+    already owns the guest's memory and disk, so it grants nothing new), public
+    half in the guest's closure. Rejected: the human's `~/.ssh/id`, which works
+    only while it has no passphrase and would fail first at a host shutdown, and
+    a `systemd-run --uid=` hop, which needs an agent that a shutting-down host
+    does not have. A capsule with no readable stop key refuses to *start*, since
+    the alternative is finding out at the only moment nobody is watching.
+
+    A side effect, measured A/B and unexplained: loading `i8042`/`atkbd` in the
+    guest also makes **Enter work in TUIs on the serial console**, which had been
+    a standing gotcha. Neither driver binds anything — i8042 fails to probe, so
+    atkbd has no port — and no input device appears, so the mechanism is not
+    known. Recorded because it reproduces both ways, not because it is
+    understood.
+
     **It also takes a network namespace, which PLAN_C needs and this was
     checked for at the same time.** `microvm@` and `microvm-tap-interfaces@` are
     ordinary `systemd.services` attributes, and the module already emits a
