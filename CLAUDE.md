@@ -220,6 +220,22 @@ which shape nearly every decision here:
   `ls /var/lib/microvms/<name>/current/bin` before anything else. Same trap when
   the state dir is stale rather than absent: the VM tracks that directory, not
   the flake, so a guest change needs `sudo microvm -u <name>`.
+- **A newline in a unit directive silently deletes the rest of the drop-in.**
+  systemd reads it as unbalanced quoting, ignores that directive, and does not
+  reliably resume — so a multi-line `ExecStartPre=${pkgs.bash}/bin/bash -c '…'`
+  took `NetworkNamespacePath`, `ExecStop` and `Restart=no` with it, and every
+  capsule started as microvm.nix's bare template: root namespace, no tap, EPERM,
+  restarting every 5 s. Nix will happily generate it and only a load says
+  otherwise. **Everything else looked fine** — both proxies and relays active,
+  both sockets present, `capsule-perimeter-guard: 2 capsule namespace(s)
+  verified` — because none of them can see inside a VMM's unit; the one witness
+  is `journalctl -u microvm@<name>`, and `systemctl show microvm@<name> -P
+  NetworkNamespacePath -P Restart` is the confirmation. Repeated `changed on
+  disk … run daemon-reload` warnings and a stuck `NeedDaemonReload=yes` are what
+  a drop-in that never parses looks like from outside; reloading is not the fix.
+  Put the script in the store and name it (`host/services.nix`'s
+  `stopKeyCheck`), and `just build` now refuses a newline in any of the module's
+  `serviceConfig` values.
 - **Inside the repo, the devshell's programs shadow the module's, and they carry
   different transports.** `capsule-provision` on `PATH` in the devshell ssh's
   straight to `net.guest`, which is unroutable from the root namespace once the

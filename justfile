@@ -125,7 +125,30 @@ up name="capsule":
     echo "{{name}}: never created on this host — creating"
     sudo microvm -c {{name}} -f "{{justfile_directory()}}"
   fi
-  sudo systemctl start microvm@{{name}}
+  # A host rebuild that changes this unit's drop-ins does not reach a unit that
+  # is already running or mid-restart: systemd keeps the loaded fragment and
+  # only records NeedDaemonReload, and a reload cannot swap it while a job is
+  # pending. What starts then is the *bare* microvm.nix template — Restart=always,
+  # no namespace, the old ExecStop — so firecracker runs in the root namespace,
+  # where its tap is not, and EPERMs in a five-second loop (CLAUDE.md: EPERM on
+  # the tap means no tap). Stop first, reload while it is stopped, then start.
+  if [ "$(systemctl show microvm@{{name}} -P NeedDaemonReload)" = yes ]; then
+    echo "{{name}}: unit changed on disk since it was loaded — reloading first"
+    sudo systemctl stop microvm@{{name}}
+    sudo systemctl daemon-reload
+  fi
+  # `|| true` because the assertion below is the better error: it reports what
+  # the VMM said rather than that a start returned nonzero.
+  sudo systemctl start microvm@{{name}} || true
+  # A start returns once the VMM is exec'd, and a VMM that cannot open its tap
+  # is gone again in milliseconds — which is how a crash loop reads as a
+  # successful `up`. So ask again, after long enough for that to have happened.
+  sleep 2
+  if [ "$(systemctl show microvm@{{name}} -P SubState)" != running ]; then
+    echo "just up: {{name}} did not stay up —" >&2
+    journalctl -u microvm@{{name}} -n 15 --no-pager -o cat >&2
+    exit 1
+  fi
   journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null || true
 
 # Not a power cut: `capsule-halt` asks the guest to reboot, it unmounts and then
@@ -148,11 +171,14 @@ down name="capsule":
 refresh name="capsule":
   #!/usr/bin/env bash
   set -euo pipefail
-  if systemctl is-active --quiet microvm@{{name}}; then
+  # Not `is-active`, which is false for a unit in `auto-restart` — the one state
+  # where updating under it is worst, because it is about to start again.
+  state=$(systemctl show microvm@{{name}} -P ActiveState)
+  if [ "$state" = inactive ] || [ "$state" = failed ]; then
+    running=no
+  else
     running=yes
     just down {{name}}
-  else
-    running=no
   fi
   sudo microvm -u {{name}}
   if [ "$running" = yes ]; then

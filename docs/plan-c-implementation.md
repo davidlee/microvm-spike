@@ -276,6 +276,18 @@ All of these are in CLAUDE.md; they cost time once and will cost it again at N.
   a connected route to the real guest and replies to the simulated one went to
   the running VM. Two results came back wrong in opposite directions. The probe
   now uses `10.98.0.0/30` and refuses to start on an overlapping route.
+- **A newline in a unit directive deletes the rest of the drop-in, and every
+  check but one still passes.** The stop-key `ExecStartPre` was a multi-line
+  `bash -c '…'`; systemd called it unbalanced quoting and dropped
+  `NetworkNamespacePath`, `ExecStop` and `Restart=no` behind it, so both capsules
+  ran as microvm.nix's bare template — root namespace, no tap, EPERM, restarting
+  every 5 s — while the guard reported two namespaces verified, both proxies and
+  relays were active, both sockets existed, and `just up` said nothing was wrong.
+  At N this is N chances to hit it and the aggregate view is what hides it: the
+  only witness is that VM's own journal. Two things came out of it —
+  `just up` asserts `SubState=running` after starting rather than trusting the
+  return, and `hostModuleUnits` refuses a newline in any `serviceConfig` value,
+  which is the check that would have caught it before the rebuild.
 
 ## Explicit non-goals
 

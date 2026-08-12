@@ -338,9 +338,31 @@
       units =
         lib.filter (n: lib.hasPrefix "capsule-" n || lib.hasPrefix "microvm" n)
         (lib.attrNames host.config.systemd.services);
+
+      # A newline in a unit directive is unbalanced quoting to systemd, which
+      # ignores that directive *and* the rest of the drop-in — so a unit loses
+      # its namespace and its `ExecStop` and says nothing about it. Nix will
+      # happily produce one, systemd only complains at load, and both paths
+      # around it look healthy: that is a whole rebuild and an evening
+      # (docs/plan-c-implementation.md, "Traps already paid for"). Asked here
+      # because this is the one thing that reads the module without a host.
+      literals = v:
+        if builtins.isList v
+        then lib.concatMap literals v
+        else if builtins.isString v
+        then [v]
+        else [];
+      newlined =
+        lib.filter (n:
+          lib.any (lib.hasInfix "\n")
+          (lib.concatMap literals
+            (lib.attrValues (host.config.systemd.services.${n}.serviceConfig or {}))))
+        units;
     in
       if failed != []
       then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"
+      else if newlined != []
+      then throw "capsule-perimeter: a newline in a serviceConfig value of ${lib.concatStringsSep ", " newlined} — systemd reads that as unbalanced quoting and drops the rest of the unit. Put the script in the store and name it."
       else pkgs.writeText "capsule-units.txt" (lib.concatStringsSep "\n" units + "\n");
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,

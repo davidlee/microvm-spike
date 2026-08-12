@@ -215,7 +215,14 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    ([notes](./notes.md) item 21). The same rebuild carries one small fix: the
    ssh relay declares `SuccessExitStatus=143`, since socat exits on SIGTERM
    itself and left the unit `failed` after every ordinary stop. What remains is
-   the host's, in order:
+   the host's, in order — and **the first attempt at it found that the
+   `microvm@<name>` drop-in had never parsed**: the stop-key `ExecStartPre` was
+   multi-line, which systemd reads as unbalanced quoting, so the namespace, the
+   `ExecStop` and `Restart=no` behind it were dropped and both capsules
+   crash-looped in the root namespace while every other unit reported health.
+   Fixed by naming a store script (`stopKeyCheck`), and `just build` refuses that
+   shape now — but it means the rebuild below has to happen twice, and nothing
+   after it has run yet:
    - rebuild, then **`just refresh capsule`** — which stops it, and that stop is
      the unit `ExecStop`'s only test. The journal it prints should show `reboot
      requested` and then microvm.nix's own command returning, not a 120 s

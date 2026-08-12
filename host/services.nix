@@ -100,6 +100,24 @@
   # home, so the host keeps a key of its own (`stopKey`).
   halt = import ./halt.nix {inherit pkgs net guestSsh;};
 
+  # A script rather than a `bash -c '…'` in the unit, and that is not a style
+  # choice: a **newline inside a unit directive is unbalanced quoting**, and
+  # systemd's answer is to ignore that directive *and* the rest of the drop-in
+  # with it. This one spent its whole first rebuild dropping the namespace, the
+  # `ExecStop` and `Restart=no` that follow it — so every capsule booted in the
+  # root namespace, found no tap and crash-looped, while every other unit and
+  # the guard said the perimeter was intact (CLAUDE.md). One store path is one
+  # token, and shellcheck reads it on the way past.
+  stopKeyCheck = pkgs.writeShellApplication {
+    name = "capsule-stop-key-check";
+    text = ''
+      test -r ${cfg.stopKey} || {
+        echo "no stop key at ${cfg.stopKey}: this capsule could only be power-cut. See README, 'Host requirements'." >&2
+        exit 1
+      }
+    '';
+  };
+
   proxyState = "/var/lib/capsule-proxy";
 
   # Wrapped, not bare: their defaults are relative to `CAPSULE_ROOT`, which is
@@ -372,12 +390,7 @@
           # time — root being able to read it proves nothing. The alternative is
           # discovering it during a host shutdown, which is the one moment
           # nobody is watching and every capsule is mounted.
-          ExecStartPre = "${pkgs.bash}/bin/bash -c ${lib.escapeShellArg ''
-            test -r ${cfg.stopKey} || {
-              echo "no stop key at ${cfg.stopKey}: this capsule could only be power-cut. See README, 'Host requirements'." >&2
-              exit 1
-            }
-          ''}";
+          ExecStartPre = lib.getExe stopKeyCheck;
           # A stop is two acts and microvm.nix only has the second. Its
           # `ExecStop` is `microvm-shutdown`: `SendCtrlAltDel`, which this guest
           # has no keyboard to receive (host/halt.nix), and then a `socat` on
