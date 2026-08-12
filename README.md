@@ -1,5 +1,9 @@
-# microvm-spike
-
+# Oubliette: Inhuman Confinement
+ 
+> An oubliette is a deep, medieval dungeon chamber, shaped like a bottle to make 
+> climbing out impossible. A solitary trapdoor in the ceiling is the only 
+> entry. There is no exit.
+ 
 A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM.nix](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. It holds a
 real git clone of one **target** repo — `target.nix`, here `~/dev/doctrine` —
 carries that project's tool set, and has exactly enough network to work and no
