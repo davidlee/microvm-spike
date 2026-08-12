@@ -84,9 +84,10 @@ firecracker JSON. Two things are in the closure and have to come out:
   it is an eval-time value and nothing has to be persisted on the volume. Only
   the address is left, which makes (4) below cheaper than it looked.
 
-**Measured, and it is not small.** `nix path-info -Sh .#capsule` is 11.9 GiB,
-but that is the runner's whole closure and ~99% of it is shared — the number that
-costs per instance is the erofs blob it names, and it does not dedupe:
+**Measured, and it is not small.** The whole closure is 11.9 GiB but ~99% of it
+is shared; the number that costs per instance is the erofs blob it names, which
+does not dedupe. Figures and how each was taken are in
+[probes.md](./probes.md#figures) — the split that matters here:
 
 | per instance | | shared across instances | |
 | --- | --- | --- | --- |
@@ -101,11 +102,11 @@ speculative, mechanism (4) is cheaper than the thing it replaces on both axes,
 and this section stops being a trade-off.
 
 **But the image is the smaller half, which was not obvious until it was
-measured.** The volume was 385 MiB before this capsule did any real work and
-**7.4 GiB after one `just web-build test`** — 6.9 GiB of it `/work/doctrine`,
-i.e. `target/` and `node_modules`. Firecracker's virtio-block has no discard
-(NOTES item 15), so that is a high-water mark: deleting the build tree in the
-guest returns nothing to the host. And 7.4 is a floor — cargo's `target/` keeps
+measured.** A capsule that has done no real work carries a few hundred MiB of
+volume, and one `just web-build test` took it to **7.4 GiB** — 6.9 GiB of it
+`/work/doctrine`, i.e. `target/` and `node_modules`. Firecracker's virtio-block
+has no discard (NOTES item 15), so that is a high-water mark: deleting the build
+tree in the guest returns nothing to the host. And 7.4 is a floor — cargo's `target/` keeps
 growing with every profile, feature set and toolchain change, so a worked-in
 capsule trends toward its 32 GiB cap. One image saves 3.0 GiB per capsule;
 nothing saves the volume, and the volume is what decides N. See
@@ -552,9 +553,10 @@ a 3.0 GiB guest image each
 ([measured](#the-cost-that-shapes-everything-else)).
 
 **One real number, and it is bigger than the image.** One `just web-build test`
-in the capsule took the volume from 385 MiB to **7.4 GiB** — 6.9 GiB of that
-`/work/doctrine` (`target/`, `node_modules`). No discard means it never comes
-back.
+in the capsule took the volume from a fresh capsule's few hundred MiB — nearly
+all of it empty filesystem — to **7.4 GiB**, 6.9 GiB of that `/work/doctrine`
+(`target/`, `node_modules`). No discard means it never comes back.
+[probes.md](./probes.md#figures) has both ends of that, and how each was taken.
 
 **Read that as a floor, not a figure.** It is n = 1, on one target, and cargo in
 particular does not level out after a build: `target/` keeps accreting across

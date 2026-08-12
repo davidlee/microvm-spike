@@ -362,14 +362,18 @@ what stops it being proposed again.
       is a high-water mark; the only reclaim is deleting it, which is also the
       documented way to reset the workspace.
 
-      **Measured, and it climbs fast.** 385 MiB after provisioning and some ssh
-      work; **7.4 GiB after a single `just web-build test`** — 6.9 GiB of that
-      is `/work/doctrine`, i.e. the checkout plus `target/` and `node_modules`.
-      One workload, 19× the volume. So the per-capsule disk figure is the
-      *volume*, not the 3.0 GiB guest image (PLAN_C), and the 32 GiB cap is a
-      few full builds away rather than theoretical. Nothing here is a leak: it
-      is the build tree, kept on purpose, on a filesystem that cannot return
-      blocks.
+      **Measured, and it climbs fast.** A pre-build capsule is a few hundred MiB,
+      and `probe-freshness` has since shown that nearly all of it is *empty
+      filesystem* — the ext4 a 32 GiB declaration costs before any content
+      exists, plus tens of MiB for the repository. So the starting point is not
+      what costs anything. One `just web-build test` took the volume to
+      **7.4 GiB**, 6.9 GiB of that `/work/doctrine`, i.e. the checkout plus
+      `target/` and `node_modules` — twenty-odd times, from one workload. So the
+      per-capsule disk figure is the *volume*, not the store image, and the
+      32 GiB cap is a few full builds away rather than theoretical. Nothing here
+      is a leak: it is the build tree, kept on purpose, on a filesystem that
+      cannot return blocks. Every figure, with how it was taken, is in
+      [probes.md](./probes.md).
 
       **Treat 7.4 GiB as a floor and as this target's number.** n = 1, on
       doctrine, and cargo does not settle after one build — `target/` accretes
@@ -460,14 +464,18 @@ what stops it being proposed again.
       one: the guest's address, and the **base commit**, which a capsule is
       usually pinned to and which `capsule-clone` baked in the same way it baked
       the remote. A kernel param does *not* work for either — it lands in
-      `toplevel` and so in the closure. Measure `nix path-info -Sh .#capsule`
-      before choosing, and see the netns option below, which makes the guest
-      bit-identical without any of it.
+      `toplevel` and so in the closure. See the netns option below, which makes
+      the guest bit-identical without any of it.
 
-      **The base commit half is done, as a side effect of item 18.** The guest
-      boots with an empty repository and `capsule-provision <ref>` is what puts
-      history in it, so the ref is an argument to a host command and never
-      reaches the closure. Only the address is left.
+      **Both halves are now closed, and the image is measured.** The base commit
+      went as a side effect of item 18: the guest boots with an empty repository
+      and `capsule-provision <ref>` is what puts history in it, so the ref is an
+      argument to a host command and never reaches the closure. The address goes
+      with netns. And the measurement that was supposed to decide this is in —
+      [probes.md](./probes.md) has the closure, the per-instance blob and what
+      each was taken with. It prices the N-blob design rather than forbidding it,
+      which is why the recommendation rests on netns being verified and not on
+      the disk number.
     - **No daemon, and the premise that suggests one is wrong.** Nix runs nothing
       at run time here: `vm` is build-then-exec. Everything a dispatcher would do
       is systemd's, and microvm.nix's host module already models it — which is
