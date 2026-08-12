@@ -388,11 +388,13 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    2. `nix flake update target`, `just build`, `just build-vm`. The last is where
       the one risk the port cannot argue away lands: panopticon's `.envrc` is
       `use flake . --impure`, and a flake input evaluates purely.
-   3. Stop the module path: `capsule capsule stop`, `capsule capsule-b stop`, then
-      confirm no `capsule-proxy-*` unit is active — `capsule-host` refuses while
-      one is, and that refusal is the only thing enforcing one shape at a time.
-      Check `/run/capsule/` is empty too: a lingering relay socket makes the
-      devshell's `capsule-provision` refuse as the wrong copy.
+   3. Stop the module path: `capsule capsule stop`, `capsule capsule-b stop`,
+      **then `sudo systemctl stop 'capsule-ssh-relay-*'`** — the relays do not come
+      down with their VMs on this host's installed build, and a live socket over a
+      dead guest makes the devshell's copies refuse and the module's copy hang
+      (above, and [notes](./notes.md) item 20). Confirm with
+      `systemctl list-units --all 'capsule-*' 'microvm@*'` that only the guard and
+      the namespaces are up, and that `/run/capsule/` is empty.
    4. `rm .vm/capsule/capsule-work.img` — a fresh volume, which is also what makes
       the baseline a cold build. The declared size drops 32768 → 8192 MiB, so
       reusing the old image would be a mismatch as well as a warm one.
@@ -463,6 +465,19 @@ Then the rest of Plan C's
   because `/work/home` is on the volume that freshness deletes, **setup is paid
   per fresh capsule**. `capsule-inject` being fast and idempotent is a
   requirement, not a nicety.
+- **This host's installed capsule-perimeter predates two fixes, and one of them
+  it found the hard way.** `~/flakes` takes `oubliette` from GitHub, so the
+  module's programs on this host are whatever `main` was at its last lock — and
+  that build has no `ConnectTimeout` in its ssh transport, which is why a
+  `capsule-provision` against a stopped capsule wedges instead of failing in
+  10 s. The other is new and in-tree, unshipped: `capsule-ssh-relay-<name>` bound
+  only to its namespace unit, which stays up, so **a stopped capsule kept a live
+  relay socket** — and that socket is the test both transports use to decide which
+  copy of a program to run ([notes](./notes.md) item 20, appended). Until a
+  rebuild, stopping the module path means
+  `sudo systemctl stop 'capsule-ssh-relay-*'` by hand as well: `capsule <name>
+  stop` leaves the relay up, the devshell's programs then refuse, and the
+  module's copy hangs.
 - **The second target has never run.** The port is written and reasoned
   ([notes](./notes.md) item 23) and `just check` is green on it, which makes the
   parameterisation claim a checkable diff rather than an argument — but no

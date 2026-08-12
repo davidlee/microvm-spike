@@ -1094,6 +1094,28 @@ what stops it being proposed again.
     one unit per capsule, so it fell through to the devshell path's log and reported
     "no proxy log yet" on a host with two of them.
 
+    **Correction, found while porting the second target (item 23): the socket
+    being the identity means its lifetime must be the capsule's, and it was
+    not.** `capsule-ssh-relay-<name>` bound only to its *namespace* unit, which
+    is `active exited` and stays up — correct for a namespace, wrong for the way
+    into a guest. So a stopped capsule kept a live listener, and because
+    `[ -S "$sock" ]` is the whole test both transports use, the consequences ran
+    in both directions at once: the devshell's copy **refused** on a module path
+    that owned nothing, and the module's copy **hung** — socat accepts the unix
+    connection immediately and then blocks forwarding to a guest that is not
+    there. Two capsules dead, two proxies dead, two relays `active running`, and
+    every program on the host convinced the module path was live.
+
+    The fix is one list: `bindsTo` the tap unit as well, which is what the proxy
+    already does and for the same reason — the tap is what a VM pulls up and takes
+    down, so both follow the guest instead of the namespace. `ConnectTimeout=10`
+    in `host/guest-ssh.nix` was already there and is the reason this reads as a
+    slow failure rather than a wedge, but it is the wrong layer to rely on: a
+    bounded lie is still a lie, and the honest state of a stopped capsule is no
+    socket. Note which of the two symptoms is the dangerous one — the refusal is
+    loud and names the copy to run, so it was the *hang* that cost the time, from
+    the copy the refusal recommends.
+
 21. **A declared capsule needs a flake attribute, and all of them are one
     value.** Declaring a second capsule in `capsules.nix` generated its
     namespace, proxy and relay units — and then `sudo microvm -c capsule-b -f .`
