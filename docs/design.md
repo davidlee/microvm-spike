@@ -179,13 +179,16 @@ declaratively and reboot the VM.
 (`initialHashedPassword = ""` was tried first and doesn't work: it only applies
 at account creation, and PAM rejects empty passwords for `su` without `nullok`.)
 
-This is **not** the perimeter. Egress filtering and the `refs/heads/capsule/*`
-restriction are both enforced on the host, where the guest — root or not —
-cannot reach them. Guest uid separation buys protection from a clumsy agent,
-realistic file ownership, and parity with the bwrap jails' model.
+This is **not** the perimeter. Egress filtering is enforced on the host, where
+the guest — root or not — cannot reach it, and the git tier is not a restriction
+at all any more but the absence of a channel ([notes](./notes.md) item 18).
+Guest uid separation buys protection from a clumsy agent, realistic file
+ownership, and parity with the bwrap jails' model.
 
 `$HOME` is `/work/home`, i.e. on the volume: `~/.claude`, credentials and shell
-history survive reboots. That is most of the answer to agent auth.
+history survive reboots. That is most of the answer to agent auth — the rest is
+[capsule-only setup](#capsule-only-setup--three-problems-one-name), which is
+where the credentials come from in the first place.
 
 **Do not loop-mount `capsule-work.img` on the host.** It is a filesystem the
 guest has had write access to, and `mount` hands its metadata to the host
@@ -213,21 +216,52 @@ gets `pkgs.claude-code` instead, and its confinement is the VM.
 **`git+file:` reads committed HEAD.** Changes to doctrine's flake need a commit
 there before `nix flake update doctrine` will see them.
 
-## Getting secrets in — the bootstrap tarball
+## Capsule-only setup — three problems, one name
 
-Not built yet. There is no filesystem path into the guest (firecracker: no
-shares), so the options are the console or the p2p link.
+A provisioned capsule is not yet a capsule you can work in. There is no
+filesystem path into the guest (firecracker: no shares), so anything that has to
+get there arrives over the link or is baked into the closure — and which of those
+it is depends on what it is. Not built yet; the decomposition is the part worth
+having written down, because the three parts have different mechanisms and
+different trust properties.
 
-Plan: have `capsule-host` serve a bootstrap tarball over the existing link —
-an explicit, listed selection of `~/.claude` (OAuth credentials, settings,
-possibly `CLAUDE.md`), assembled on the host and fetched once by the guest into
-`/work/home`, where it persists. Explicit selection is the point: a whole-`~/.claude`
-mount would hand the agent every project's history and every credential in it.
+| | what | mechanism | in the closure? |
+| --- | --- | --- | --- |
+| static config | build config, git config, shell rc, agent instructions | derived from `target.sizes`, guest-side | **yes** — config, not secret |
+| credentials | OAuth tokens, API key | host-initiated push over the ssh channel | **never** — `/nix/store` is world-readable |
+| baseline | a green `just web-build test`, caches seeded | a host-initiated *command* | n/a |
 
-Open questions for when we build it: whether the tarball goes over the git
-daemon (a `bootstrap` repo) or a second port; how to avoid re-fetching a stale
-copy over a newer in-guest login; and whether OAuth tokens tolerate being used
-from two places at once, or whether the capsule needs its own credential.
+**Static config is a function of `target.sizes`, not a copy of a human's
+dotfiles.** The tempting version — carry in `~/.cargo/config.toml` — imports a
+config tuned for the host's thread count and page cache into a guest that has
+neither, and a `jobs` count from a 32-thread machine inside a 4-vCPU guest is a
+worse default than none. So derive the sizing-shaped settings from the same
+`target.sizes` the VM is built from and keep them in the guest's config, where
+they cannot disagree with the machine they run on. This is the same asymmetry as
+[notes](./notes.md) item 16's: the *tool set* comes from the target because it is
+a build input, and policy does not.
+
+**Credentials are a push, not a fetch, and item 18 is why.** The earlier plan
+here had `capsule-host` *serve* a bootstrap tarball, with an open question about
+whether it went over the git daemon or a second port. Both halves of that
+question died with the inversion: the host initiates over ssh now, so a
+credential injection is one host-side program pushing an explicit list of paths
+into `/work/home`, with no service, no port and nothing for the guest to reach.
+Explicit selection is still the point — a whole-`~/.claude` copy hands the agent
+every project's history and every credential in it.
+
+Two open questions survive: whether OAuth tokens tolerate being live in two
+places at once or whether a capsule needs its own credential, and how to avoid
+overwriting a newer in-guest login with a stale host copy. The `/work/.env`
+API-key path in item 2 works today and needs none of this.
+
+**`$HOME` is on the volume, so setup is paid per fresh capsule.** Freshness is
+implemented by deleting volumes, and `/work/home` is on one — so setup and
+baseline are not one-time costs, they are part of what a fresh capsule costs.
+That also means the cold baseline build is the largest term in
+time-to-interactive, and it is the one figure [probes.md](./probes.md) cannot
+take: the freshness probe's namespace has no upstream. A host-initiated baseline
+command is where that number comes from.
 
 ## nix inside the guest — considered, not done
 
