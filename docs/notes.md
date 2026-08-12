@@ -403,7 +403,16 @@ what stops it being proposed again.
       cannot return blocks. Every figure, with how it was taken, is in
       [probes.md](./probes.md).
 
-      **Treat 7.4 GiB as a floor and as this target's number.** n = 1, on
+      **Most of that was the capsule not knowing what machine it was.** Those
+      figures predate `target.nix`'s `guestConfig`, so cargo's defaults applied:
+      full debuginfo and an incremental cache. With `debug = 0` and
+      `incremental = false` the same workload leaves **1.1 GiB** in
+      `/work/doctrine`. The shape of this item is unchanged — it still only
+      grows, and blocks still never come back — but the rate is roughly six
+      times lower, and the fix was config in the closure rather than any
+      machinery.
+
+      **Treat either number as a floor and as this target's.** n = 1, on
       doctrine, and cargo does not settle after one build — `target/` accretes
       across profiles, feature sets, dependency bumps and toolchain changes,
       and an agent iterating is the worst case for it. Expect a worked-in rust

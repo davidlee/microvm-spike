@@ -557,22 +557,28 @@ item 15), plus a duplicated cargo/bun cache each, and, under mechanism (1) only,
 a 3.0 GiB guest image each
 ([measured](#the-cost-that-shapes-everything-else)).
 
-**One real number, and it is bigger than the image.** One `just web-build test`
-in the capsule took the volume from a fresh capsule's few hundred MiB — nearly
-all of it empty filesystem — to **7.4 GiB**, 6.9 GiB of that `/work/doctrine`
-(`target/`, `node_modules`). No discard means it never comes back.
-[probes.md](./probes.md#figures) has both ends of that, and how each was taken.
+**One real number, and it moved once the capsule had build config.** One
+`just web-build test` used to take the volume from a fresh capsule's few hundred
+MiB — nearly all of it empty filesystem — to **7.4 GiB**, 6.9 GiB of that
+`/work/doctrine`. That was an *untuned* build: nothing had ever told the capsule
+what machine it was, so cargo's defaults applied. With `target.nix`'s
+`guestConfig` (`debug = 0`, `incremental = false`) the same workload leaves
+**1.1 GiB** in `/work/doctrine` and 144 MiB of crate cache — components summing
+to roughly **1.5 GiB** of volume, though the image itself has not been re-measured
+at that state. Either way, no discard means it never comes back.
+[probes.md](./probes.md#figures) has both ends and how each was taken.
 
 **Read that as a floor, not a figure.** It is n = 1, on one target, and cargo in
 particular does not level out after a build: `target/` keeps accreting across
 profiles, feature sets, dependency bumps and toolchain changes, and an agent
 iterating is the case that grows it fastest. A rust target repo's volume trends
-toward its 32 GiB cap rather than toward 7.4. What is target-independent is the
+toward its 32 GiB cap rather than toward its first build's size, whichever
+number that is. What is target-independent is the
 *shape* — the volume dominates the image, and nothing reclaims it — so:
 
 | | mechanism (1), N images | mechanism (4), one image |
 | --- | --- | --- |
-| per capsule, one build in | 7.4 GiB + 3.0 GiB | 7.4 GiB |
+| per capsule, one build in, tuned | ~1.5 GiB + 3.0 GiB | ~1.5 GiB |
 | per capsule, worked in | → 32 GiB + 3.0 GiB | → 32 GiB |
 
 Which makes the honest planning number the **cap**, not the sample: N capsules
@@ -584,9 +590,12 @@ Three consequences, none of them CPU: **freshness (REQ-450) is a disk policy**,
 because deleting capsules is the only reclaim there is; `target.sizes.volume`
 becomes a per-instance knob rather than one constant, since a capsule that only
 edits web assets needs nothing like 32 GiB; and cache sharing, if it ever
-happens, aims at the 6.9 GiB, which is where the duplication is — a read-only
-shared volume plus per-capsule overlay, real machinery, and a shared *writable*
-volume across two VMs is corruption, not a shortcut. Note it; don't build it.
+happens, aims at `/work/doctrine`, which is where the duplication is — a
+read-only shared volume plus per-capsule overlay, real machinery, and a shared
+*writable* volume across two VMs is corruption, not a shortcut. Note it; don't
+build it. **Weaker now than when it was written**: the duplicated term is 1.1 GiB
+per capsule rather than 6.9, so the config that costs nothing bought most of what
+the machinery would have.
 
 ## No daemon
 

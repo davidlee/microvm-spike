@@ -6,7 +6,7 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
 Last updated 2026-08-12, after the pair probe's first run, the static-config
-change, and the first capsule-inject.
+change, the first `capsule-inject`, and the sizing runs.
 
 ## Where it got to
 
@@ -52,7 +52,15 @@ change, and the first capsule-inject.
 - **The capsule has static build config**, rendered from `target.sizes` into the
   closure and linked onto the volume by the seed (`target.nix`'s `guestConfig`).
   Until now it built with full debuginfo and an incremental cache — the untuned
-  build every existing volume figure was taken against.
+  build every existing volume figure was taken against. **It cost one file and
+  took `/work/doctrine` from 6.9 GiB to 1.1 GiB** for the same workload.
+- **8 GiB is measured, not assumed.** Four scope runs at 4 vCPU / 8 GiB: an idle
+  agent is 344 MiB and flat, a warm build peaks at 3980 MiB, the two together at
+  4114, and a build from `cargo clean` at **4513 MiB** — with **zero pressure
+  events** in all four, so those are true high-water marks. ~3 GiB of headroom
+  stands. Figures and provenance in [probes.md](./probes.md); the sampling
+  method is part of the finding, since the first run's numbers died with the
+  terminal that printed them.
 - **Four of REQ-450's five axes are green; the fifth is not a row.** Checkout,
   repository and temporary state hold on a capsule nothing has used, and runtime
   now holds too. Process is deliberately unrowed: a capsule is a separate kernel,
@@ -76,26 +84,20 @@ change, and the first capsule-inject.
 The round in progress is *make one capsule usable interactively, then size it
 honestly*. Each step is there because the next is meaningless without it.
 
-Booting at 4 vCPU / 8 GiB with `guestConfig` on the volume and a signed-in
-agent in it is done — that was the precondition for all of the below.
+The capsule boots at 4 vCPU / 8 GiB with `guestConfig` on its volume and a
+signed-in agent in it, and the sizing runs are done — three of the round's four
+steps. What is left:
 
-1. **Measure the high-water mark**, harness and build resident together in one
-   `systemd-run --scope` (`MemoryMax=7G`, `AllowedCPUs=0-3`, `--uid=agent`,
-   `bash -lc` — proxy vars are login-shell scope) and read `memory.peak` plus
-   `memory.events`. Three outcomes, not two: `oom_kill 0` with a large `max`
-   count means it survived by thrashing reclaim. This is the figure that says
-   whether 8 GiB is the right declaration — and, per the withdrawal above, the
-   first memory number here that will have been measured at all.
-2. **`capsule-baseline`** — host-initiated `just web-build test` to green, which
+1. **`capsule-baseline`** — host-initiated `just web-build test` to green, which
    seeds the caches and yields the **cold build** figure. That figure is
    unmeasurable *by the freshness probe*, whose namespace has no upstream — not
    unmeasurable in general, and this is where it comes from.
 
 Then Plan C:
 
-3. `capsules.nix` — under netns it is a name list and little else.
+2. `capsules.nix` — under netns it is a name list and little else.
    [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
-4. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
+3. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
    before `microvm-tap-interfaces@%i`), `NetworkNamespacePath` drop-ins on both
    units, the ssh relay unit, `host/perimeter-check.nix` rewritten around the
    namespace's own `ip_forward`. Bookkeeping against a known-good result now.
@@ -119,7 +121,7 @@ Then the rest of Plan C's
 - **Quarantine retention** (doctrine has DEC-193 proposed).
 - **Throughput over the unix socket.** The tap did ~100 MiB/s each way.
 - **The cold build under freshness** is unmeasured and cannot be measured by that
-  probe — see [probes.md](./probes.md). Step 2 above is where it comes from.
+  probe — see [probes.md](./probes.md). Step 1 above is where it comes from.
 - **What N capsules cost under load.** The pair probe priced two *idle* capsules
   and that is cheap; two concurrent builds against their ceilings is the question
   it did not ask, and it is what replaced the withdrawn 16 GiB figure.

@@ -59,7 +59,8 @@ because two samples say more about the noise than either says alone.
 | volume, after boot before provision | 260 MiB | 260 | freshness | allocated blocks (`du -B1`). Empty ext4 for a 32 GiB declaration — this much exists before any content does |
 | volume, after provision | 296 MiB | 296 | freshness | so a provision costs **36 MiB** on disk, against a 32 MiB repository. The declared 32 GiB is sparse and is not a disk cost |
 | volume, provisioned plus some ssh work | 385 MiB | — | hand-measured, [notes](./notes.md) item 15 | same order — a pre-build capsule is ~300-400 MiB either way |
-| volume, one `just web-build test` in | 7.4 GiB | — | hand-measured, item 15 | 6.9 GiB of it `/work/doctrine`. A **floor**, not a plateau — no discard, and `target/` accretes. Taken when the capsule had no build config at all, so it is an *untuned* build — full debuginfo, incremental cache. `target.nix`'s `guestConfig` now turns both off, which is why nothing later should be compared to this |
+| volume, one `just web-build test` in, **untuned** | 7.4 GiB | — | hand-measured, item 15 | 6.9 GiB of it `/work/doctrine`. Taken when the capsule had no build config at all — full debuginfo, incremental cache. **Superseded**: with `guestConfig` the same workload leaves 1.1 GiB, below. Kept because the gap is the argument for the config existing |
+| `/work/doctrine`, same workload, **tuned** | **1.1 GiB** | — | hand-measured, below | `debug = 0`, `incremental = false`. A **floor**, not a plateau — no discard, and `target/` accretes |
 | cold boot to ssh | 6.41 s | 6.34 | freshness | volume created, mkfs and seed all inside it |
 | provision, 32 MiB of history | 1.90 s | 2.26 | freshness | the noisiest term here, ±16% |
 | time to a usable fresh capsule | 8.31 s | 8.60 | freshness | boot + provision; "usable" means provisioned, not merely answering ssh — and **not interactive**. An interactive capsule is this plus setup plus a cold baseline build, both of them paid per fresh capsule because `/work/home` is on the volume freshness deletes. Do not let the word widen quietly |
@@ -161,6 +162,48 @@ The asymmetry it exposes on the way past: `capsule-collect` takes its capsule's
 name as an argument, `capsule-provision` bakes its socket path into a store path.
 Two capsules therefore need two provision programs. Fine for a probe, not fine
 for N.
+
+## What a capsule costs to work in
+
+Hand-measured in the guest, not by a probe: a transient `systemd-run --scope`
+with `MemoryAccounting=yes` and `MemoryMax=7G` (7, not 8 — the kernel, systemd,
+sshd and the RAM-backed journal live outside the scope and inside the VM's
+budget), sampling `memory.peak` / `memory.current` / `memory.events` into
+`/work` every 5 s. The sampling is not incidental: the first attempt printed its
+figures after the agent exited, the agent was exited with Ctrl-C, and SIGINT
+killed the shell that was going to print them. **A figure whose only copy is
+terminal scrollback is not a figure.**
+
+Four runs, one each, at 4 vCPU / 8 GiB with `guestConfig` in place — so every
+number here is the `debug = 0`, `incremental = false`, `jobs = 4` build.
+
+| figure | value | note |
+| --- | --- | --- |
+| agent resident, no build | 344 MiB peak, ~230 MiB steady | flat: an idle agent is not a memory problem |
+| `just web-build test`, warm, alone | 3980 MiB | |
+| the same, agent resident | 4114 MiB | |
+| the same, after `cargo clean` | **4513 MiB** | the number the declaration has to cover |
+| sum of the parts vs measured together | 4324 vs 4114 MiB | they do not peak together — the agent is flat while the build spikes. Summing separate ceilings **overstates by ~5%**, which is at least the safe direction |
+| pressure events | **0**, all four runs | `low/high/max/oom/oom_kill` all zero against a 7 GiB ceiling, so every peak above is a true high-water mark and not a reclaim-suppressed one |
+| build duration, warm / from clean | ~35 s / ~50 s | warm crate cache both times |
+| `/work/doctrine` after a build | **1.1 GiB** | against **6.9 GiB** for the same workload before `guestConfig` existed |
+| `/work/.cargo` | 144 MiB | |
+
+**8 GiB holds.** Worst measured workload is 4513 MiB plus ~230 MiB of resident
+agent, leaving ~3 GiB for the guest's own overhead and for a build heavier than
+this one. Not cut to 6 GiB on n = 1: the peak depends on which crates codegen
+together, and memory is a ceiling rather than a charge (see the withdrawal
+above), so a generous declaration costs nothing until something touches it. That
+is the whole argument for declaring headroom instead of measuring it away.
+
+**The build is a spike, not a plateau** — 0 to 4 GiB in ~25 s, back under 500 MiB
+within 15 s of finishing. Two capsules building *simultaneously* is therefore
+still the open question the pair probe left, and it is a scheduling question, not
+an arithmetic one.
+
+**What this is not: a cold build.** The crate cache was already warm (144 MiB),
+so nothing was fetched. `cargo clean` empties `target/`, not `~/.cargo`. The cold
+figure is still `capsule-baseline`'s to take, on a fresh volume.
 
 ## What freshness.sh explicitly does not measure
 
