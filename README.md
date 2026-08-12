@@ -449,8 +449,10 @@ NAT, **no default route in the guest**, no resolver in the guest. Everything
 outbound goes through the host's proxy, which resolves names itself — so an
 unlisted host cannot be reached or even resolved.
 
-To let something new out, edit `perimeter/egress-allow.txt` (extended regex,
-one hostname per line) and restart `capsule-host`. No rebuild.
+To let something new out, edit the file `target.nix`'s `allowlist` names —
+`perimeter/egress-allow-<target>.txt`, one per target, since half of any such
+list is that target's dependency hosts — extended regex, one hostname per line,
+then restart `capsule-host`. No rebuild.
 
 `ssh` runs the other way — host to guest — and widens nothing.
 
@@ -510,7 +512,7 @@ what the capsule supplies back, and the porting order — is
 | egress dies mid-session, `Tearing down egress` | same, but it happened after start: docker/tailscale flipped forwarding |
 | `FORWARD drop ... cannot be verified`          | the sudo read rule is missing; safe only while `ip_forward` is 0 |
 | guest reaches nothing, host is up              | host firewall dropping the tap — see "Host requirements"    |
-| a hostname 403s through the proxy              | not in `perimeter/egress-allow.txt`; `.vm/host/tinyproxy.log` names it |
+| a hostname 403s through the proxy              | not in the target's `allowlist` file; `.vm/host/tinyproxy.log` names it |
 | a download hangs mid-way, no error, no log line | proxy at `MaxClients` — `ss -lnt 'sport = :3128'` shows a non-zero `Recv-Q` (connections queued, never accepted). Cap the client (`bun install --network-concurrency 8`) or raise `MaxClients` in `perimeter/default.nix` |
 | the proxy log looks stale while egress works   | the unit path is serving, not `capsule-host` — its log is `/var/lib/capsule-proxy/tinyproxy.log`. `just proxy-log` picks the right one |
 | a TUI (claude, etc.) renders but ignores Enter | was the serial console's own quirk; loading `i8042`/`atkbd` in the guest fixed it (NOTES item 11) — if it returns, run TUIs over ssh |

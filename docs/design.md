@@ -20,7 +20,7 @@ work — no more.
 | `capsules.nix`               | which capsules exist — namespace, socket, uplink, and the default name |
 | `justfile`                   | the gate (`just check`) + the multi-command questions |
 | `perimeter/default.nix`      | `proxy` + `capsule-host`. Jail-agnostic            |
-| `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild. Per target |
+| `perimeter/egress-allow*.txt` | proxy hostname allowlist — plain file, no rebuild. One per target, named by `target.nix`'s `allowlist` |
 | `host/programs.nix`          | the four programs the human runs at a capsule, built once per path |
 | `host/guest-ssh.nix`         | how the host reaches a guest, and which capsule it means (`--capsule`) |
 | `host/git-channel.nix`       | `capsule-provision` / `capsule-collect`. Host-initiated git |
@@ -79,7 +79,7 @@ guest**. The guest cannot originate traffic anywhere except the host end of
 the /30.
 
 **Egress.** tinyproxy on the host, `FilterDefaultDeny Yes` over
-`perimeter/egress-allow.txt` (hostnames, extended regex). The guest gets
+the target's `allowlist` file (hostnames, extended regex). The guest gets
 `HTTPS_PROXY` and no resolver at all — `services.resolved.enable = false`, since
 networkd otherwise leaves a stub on 127.0.0.53 that has no upstream it can reach
 and so answers nothing while still answering. DNS happens in the proxy, as the

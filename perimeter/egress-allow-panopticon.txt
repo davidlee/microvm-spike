@@ -1,0 +1,28 @@
+# Hostname allowlist for the capsule's egress proxy (tinyproxy, extended
+# regex, one per line, default-deny). Edited live — restart capsule-host to
+# apply; no nix rebuild.
+#
+# panopticon's. Half of any such list is the target's dependency hosts, which is
+# why it is a file per target and not an edit to doctrine's: this one says pypi
+# where that one says crates.io, and neither needs the other's.
+
+# Claude — the agent itself, not the target. Same in every capsule, because
+# which agent you sign in as is a property of you (setup.nix, docs/contract-target.md).
+^api\.anthropic\.com$
+^console\.anthropic\.com$
+^statsig\.anthropic\.com$
+^claude\.ai$
+^claude\.com$
+^platform\.claude\.com$
+
+# pypi — what `uv run --extra dev` resolves through. The interpreter is not on
+# this list on purpose: target.nix's guestConfig sets uv's python-downloads to
+# never, since the tool set already carries 3.12.
+^pypi\.org$
+^files\.pythonhosted\.org$
+
+# github — the agent's, for reading remotes and raw files. No build input of
+# this target resolves to a tarball here, unlike doctrine's npm/bun deps, so
+# this half is convenience and can be cut without breaking the baseline.
+^github\.com$
+^raw\.githubusercontent\.com$

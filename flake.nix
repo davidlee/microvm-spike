@@ -26,7 +26,7 @@
     #
     # `git+file:` reads committed HEAD, so changes there need a commit before
     # `nix flake update target` will see them.
-    target.url = "git+file:///home/david/dev/doctrine";
+    target.url = "git+file:///home/david/dev/panopticon";
   };
 
   outputs = inputs @ {

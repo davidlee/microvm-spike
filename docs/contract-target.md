@@ -43,20 +43,42 @@ spelled on both sides.
 | `path` | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host |
 | `volumePath` | both: the volume's mount point, and what `caches`/`guestConfig`/records resolve against | yes | — |
 | `guestPath` | both: the guest's checkout | derived | — |
-| `toolsPackage` | guest: `packages.<system>.<name>` from the target's own flake | no | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it |
+| `toolsPackage` | guest: `packages.<system>.<name>` from the target's own flake | no | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Only available to a target whose whole tool set is nixpkgs attr names** — see below |
 | `extraTools` | guest: nixpkgs attr names, resolved against the *guest's* pkgs | no | `[]` |
 | `allowlist` | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
 | `caches` | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
 | `cachePaths` | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
-| `defaultBranch` | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — |
+| `defaultBranch` | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — — and **the one field with no run-time override**, so switching targets costs a host rebuild before the module path can provision ([notes](./notes.md) item 23) |
 | `collectMaxPackBytes` | host: `capsule-collect`'s `ulimit -f` | yes | — |
 | `commands` | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
 | `sizes` | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
 | `guestConfig` | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
-Only `toolsPackage`'s absent path has been exercised. The rest are absent paths
-by construction — read the consumers, not this table, before relying on one.
+`toolsPackage`'s and `extraTools`' absent paths have been exercised. `baseline =
+null`, `caches = {}` and `guestConfig = {}` are absent paths by construction —
+read the consumers, not this table, before relying on one.
+
+### The tool set is the one place with no absent path
+
+`toolsPackage = null` reads like a general escape and is not one. `extraTools`
+resolves **bare nixpkgs attr names** (`map (name: pkgs.${name})`), so a tool set
+containing anything composed — a `python3.withPackages (…)`, a `buildEnv`, a
+wrapper, anything dotted — cannot be spelled in it at all. Such a target must
+export a package; `extraTools` is a supplement, never a substitute. That is what
+the floor means by *expose one flake package that is your devshell's tool set*,
+and porting the second target is where it stopped being a nicety ([notes](./notes.md)
+item 23).
+
+Two consequences worth knowing before a port:
+
+- **`packages.default` is usually the wrong attribute.** For most repos it is the
+  *application*, which carries none of the test or lint tooling a `baseline`
+  needs. The target wants a `dev-tools`-shaped `buildEnv` of whatever its devshell
+  and its jails already share — one list, so the capsule cannot drift from it.
+- **A flake input is evaluated purely.** A target whose tool set needs `--impure`
+  cannot be one. The fix belongs in that repo, as a pure attribute, because this
+  flake builds a confinement and an impure confinement cannot be pinned.
 
 ### What is deliberately not a target field
 
@@ -141,21 +163,30 @@ treats as its own records.
 
 ## Porting to a second target
 
-Untested, and the parameterisation is only *claimed* until one exists. In order:
+Done once — panopticon, on branch `second-target`, with the findings in
+[notes](./notes.md) item 23 and how far it has run in
+[status.md](./status.md). Nothing generic changed: this file's fields plus one
+allowlist plus the flake literal, and one export added *in the target*. In order:
 
 1. `inputs.target.url` in `flake.nix`, and `path` in `target.nix` — the two
    literals above. Check `~/flakes` if you renamed the input.
 2. `name`, `defaultBranch`, `commands`, `baseline`.
 3. Its own `allowlist` file. Half of any such list is that target's dependency
    hosts, so it is a new file rather than an edit to doctrine's.
-4. `toolsPackage`, or `null` and a filled-out `extraTools`.
+4. `toolsPackage`, or `null` and a filled-out `extraTools` — but read
+   [above](#the-tool-set-is-the-one-place-with-no-absent-path) first: most targets
+   have to export a package, and finding that out after `sizes` is wasted work.
+   And on the module path, (2)'s `defaultBranch` is a host rebuild.
 5. `sizes`, and `guestConfig` derived from them — not copied from a human's
    machine, which describes a machine the capsule is not.
 6. `caches` for its toolchain, `{}` if it has none.
 
-The likely friction is all in the last three: `extraTools`, `caches` and `sizes`
-are doctrine's toolchain wearing a general name. The review question, every time,
-is CLAUDE.md's: *would a different target need this code changed, or only a
+The friction was predicted to be in the last three — `extraTools`, `caches` and
+`sizes` as doctrine's toolchain wearing a general name — and that prediction was
+wrong in a useful way. Those three took new values without complaint
+(`UV_CACHE_DIR`, half the memory, a quarter of the volume). The friction was
+(4), and it was the target's to pay. The review question, every time, is
+CLAUDE.md's: *would a different target need this code changed, or only a
 different value?*
 
 Concurrent capsules on *different* targets is a much larger job than a different

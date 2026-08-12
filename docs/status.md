@@ -5,7 +5,9 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-13, after secrets at start — which closes Plan C item 7 —
+Last updated 2026-08-13, after the second target was written — Plan C item 8, on
+branch `second-target`, **written and unrun** — and before that secrets at start,
+which closes Plan C item 7,
 the `capsule` CLI, and the load figure before it,
 and before that 2026-08-12,
 when the units ran at N=1 and `probe-netns-egress`
@@ -22,6 +24,29 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
 
 ## Where it got to
 
+- **There is a second target, and the parameterisation cost a diff instead of an
+  argument.** Plan C item 8, on branch `second-target`: panopticon, a
+  Python/uv/pytest repo, confined by editing `target.nix`, adding one allowlist
+  file, and changing the one flake literal — and **nothing generic**, not
+  `perimeter/`, not `vm/capsule.nix`, not `host/`, not the justfile, not a
+  program. Branch is the switch, since two of the three are literals: `main`
+  holds doctrine, `second-target` holds panopticon, and neither is a second
+  implementation. Three findings, all in [notes](./notes.md) item 23:
+  **the floor held by forcing the target to move** — `extraTools` resolves bare
+  nixpkgs attr names, so a tool set containing a `python3.withPackages (…)`
+  cannot be spelled in it at all and `toolsPackage = null` is structurally
+  unavailable; panopticon grew the `dev-tools` export doctrine already had, which
+  is the cost landing where the contract says it belongs. **`defaultBranch` is
+  the one field with no run-time override** — `path` has `CAPSULE_REPO`,
+  `allowlist` has `CAPSULE_ALLOWLIST`, and this one is interpolated into
+  `capsule-provision`, so the module path's copies still say `edge` and a switch
+  costs a host rebuild. Recorded, not fixed. And **`guestConfig` already reached
+  `$HOME`** — its keys are paths under the volume and `$HOME` is
+  `<volumePath>/home`, so a user-level `uv.toml` needed no new field; both halves
+  of that field are exercised now, doctrine's derived from `sizes` and
+  panopticon's pure policy. `extraTools = []` is a second absent path exercised;
+  `baseline = null`, `caches = {}` and `guestConfig = {}` still are not.
+  **Unrun**, and the plan is below.
 - **A start now leaves a capsule you can work in, and it cost no mechanism.**
   Plan C item 7's last piece: `capsule <name> start` waits for the guest to answer
   and then pushes every payload `setup.nix` declares, so a `/work/.env` is no
@@ -346,9 +371,40 @@ takes a fresh one to green and says what that cost. Next is Plan C:
      list ([notes](./notes.md) item 22). Needs `just build` and a host rebuild
      before a start on this host does any of it.
 
-   **So item 7 is closed.** Next is Plan C's
-   [order of work](./plan-c-multi-capsule.md#order-of-work) item 8 — a second
-   target, if it is still wanted.
+   **So item 7 is closed.**
+
+8. **A second target — written, unrun.** panopticon, on branch `second-target`.
+   The port is above and in [notes](./notes.md) item 23; what is left is running
+   it, and the route matters because of that item's `defaultBranch` finding: the
+   module path cannot provision `main` until this host is rebuilt from a *pushed*
+   oubliette, so green happens on the **devshell path at N=1** first. That also
+   re-exercises the path nothing has run since the module path took this host,
+   which was already open.
+
+   In order, and none of it is done:
+
+   1. `cd ~/dev/panopticon && git commit flake.nix` — `git+file:` reads committed
+      HEAD, so the `dev-tools` export is invisible until then.
+   2. `nix flake update target`, `just build`, `just build-vm`. The last is where
+      the one risk the port cannot argue away lands: panopticon's `.envrc` is
+      `use flake . --impure`, and a flake input evaluates purely.
+   3. Stop the module path: `capsule capsule stop`, `capsule capsule-b stop`, then
+      confirm no `capsule-proxy-*` unit is active — `capsule-host` refuses while
+      one is, and that refusal is the only thing enforcing one shape at a time.
+      Check `/run/capsule/` is empty too: a lingering relay socket makes the
+      devshell's `capsule-provision` refuse as the wrong copy.
+   4. `rm .vm/capsule/capsule-work.img` — a fresh volume, which is also what makes
+      the baseline a cold build. The declared size drops 32768 → 8192 MiB, so
+      reusing the old image would be a mismatch as well as a warm one.
+   5. `capsule-net up && capsule-host`, then `vm capsule`, then
+      `capsule-provision main`, `capsule-inject`, `capsule-baseline`.
+
+   What the run has to answer, beyond going green: whether `just check` resolves
+   its dev extra through the allowlist at all (this baseline is network-bound
+   before it is CPU-bound, unlike doctrine's), whether `python-downloads = "never"`
+   holds so no interpreter is fetched, and what a cold Python baseline costs
+   against doctrine's 109 s. That last figure goes in
+   [probes.md](./probes.md) and nowhere else.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
@@ -407,6 +463,21 @@ Then the rest of Plan C's
   because `/work/home` is on the volume that freshness deletes, **setup is paid
   per fresh capsule**. `capsule-inject` being fast and idempotent is a
   requirement, not a nicety.
+- **The second target has never run.** The port is written and reasoned
+  ([notes](./notes.md) item 23) and `just check` is green on it, which makes the
+  parameterisation claim a checkable diff rather than an argument — but no
+  panopticon capsule has booted, so nothing is known about whether its baseline
+  reaches green, whether `just check` resolves its dev extra through the
+  allowlist, or what a cold Python baseline costs. And the port's one
+  unanswerable question stays open until `just build-vm`: panopticon's own
+  devshell is `use flake . --impure`, and a flake input evaluates purely.
+  `baseline = null`, `caches = {}` and `guestConfig = {}` are still absent paths
+  nothing has taken.
+- **The devshell path is what item 8 will run on, which puts a stopped module path
+  on this host.** "Two shapes, one at a time" is enforced only by `capsule-host`'s
+  refusal, so a half-finished switch leaves both doctrine capsules stopped and no
+  panopticon capsule up. That is reversible — their state dirs survive — but
+  nothing automates it.
 - `vm --help` creates `.vm/--help/`. Every argument is a VM name. Papercut.
 
 ## Do not re-derive these
