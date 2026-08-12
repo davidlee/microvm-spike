@@ -214,8 +214,12 @@ The units, per capsule and per host:
   to `$PWD/.vm/host` — the foreground path's — and would quarantine wherever you
   happened to be standing. The devshell's copies still shadow them inside this
   repo, so each path keeps its own state; both print the path they used, so read
-  that line rather than assuming. Their transport is the relay socket of the
-  lowest-indexed capsule; a second capsule needs that to become an argument.
+  that line rather than assuming.
+- **Which capsule** is an argument, not a build: `--capsule <name>` on any of the
+  four, else `CAPSULE_NAME`, else `capsule`. One store path serves every capsule,
+  because the only thing that differs between two of them is a relay socket and
+  that path is derived from the name. `export CAPSULE_NAME=edge` for a session's
+  worth of it.
 - **The guard is a start dependency (`BindsTo`)**, so no proxy can come up while
   a namespace is missing, forwarding, or missing a drop — and all of them stop
   when one does. It does not restart itself: a refusal stays a refusal until you
@@ -258,11 +262,11 @@ Push the declared payloads — `setup.nix` says what they are, and nothing not
 named there leaves this host:
 
 ```
-capsule-inject             # all of them; add a name to pick one
+capsule-inject             # all of them; add a payload name to pick one
 ```
 
 It refuses to replace anything already there: a capsule's copy of a credential
-drifts from this host's once the agent uses it. `capsule-inject NAME --force`
+drifts from this host's once the agent uses it. `capsule-inject PAYLOAD --force`
 when you mean it.
 
 A provisioned capsule still has empty caches, so the first build in it is the
@@ -306,9 +310,13 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-net verify`| report the perimeter's state without touching the link.      |
 | `capsule-host`      | tinyproxy + the perimeter watch. Foreground, unprivileged.   |
 | `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
-| `capsule-collect [NAME]` | fetch the guest's refs into a quarantine repo.          |
-| `capsule-inject [NAME...] [--force]` | push the payloads declared in `setup.nix` into `/work/home`. |
+| `capsule-collect`   | fetch the guest's refs into a quarantine repo named for it.  |
+| `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` into `/work/home`. |
 | `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
+
+Those four take `--capsule <name>` (or `CAPSULE_NAME`, or the default `capsule`)
+to say which capsule they mean. On the devshell path there is only one, and a
+second name is refused rather than quietly served.
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). Devshell shape. |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket. Devshell shape. |
 | `just ssh [name]`   | a shell in the guest — over the relay socket if the capsule has one. |
@@ -405,6 +413,10 @@ project's dependency hosts. And keep it here, host-side: an allowlist read out
 of the repo being worked on is an allowlist the agent can widen. NOTES item 16
 has the reasoning, and why *concurrent* capsules is a much bigger job than a
 different one.
+
+The field-by-field contract — what is required, what has a working absent path,
+what the capsule supplies back, and the porting order — is
+[docs/contract-target.md](./docs/contract-target.md).
 
 ## Troubleshooting
 

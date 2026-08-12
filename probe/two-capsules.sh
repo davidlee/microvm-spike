@@ -38,7 +38,9 @@
 #      `.vm/pair-*`, removed afterwards (CAPSULE_KEEP=1 to keep them).
 #   3. **One runner, deliberately.** Both capsules boot the same store path,
 #      because that is the shape being priced. It is also what makes the
-#      identity problem real instead of hypothetical.
+#      identity problem real instead of hypothetical — and what this probe found:
+#      the host programs were built per socket, so a second capsule had no way
+#      in. One set of them now, `--capsule <name>` per call.
 #
 # Run: sudo probe-two-capsules [REF_A] [REF_B]
 #
@@ -247,10 +249,10 @@ check "each capsule has its own volume image" ok \
 
 echo "== stage 3: different base commits, one guest image =="
 
-# The socket path is the capsule's identity on the host side — and it is the one
-# place that identity is currently *baked*: `capsule-provision` carries its
-# ProxyCommand in its store path, so two capsules need two programs. See the
-# note this probe ends with.
+# The socket path is the capsule's identity on the host side, and this probe is
+# what proved it had to be an *argument*: `capsule-provision` used to carry its
+# ProxyCommand in its store path, so two capsules needed two programs. One
+# program, `--capsule <name>` twice, is what that finding bought.
 mkdir -p "$SOCKDIR_A" "$SOCKDIR_B"
 chmod 0755 "$SOCKDIR_A" "$SOCKDIR_B"
 helper "$NS_A" socat \
@@ -270,8 +272,8 @@ wait_socks() {
 check "both relay sockets are up at their designed paths" ok wait_socks
 
 prov_t0=$(now)
-if as_human "$PROVISION_A" "$REF_A" >/dev/null 2>&1; then pa=1; else pa=0; fi
-if as_human "$PROVISION_B" "$REF_B" >/dev/null 2>&1; then pb=1; else pb=0; fi
+if as_human "$PROVISION" --capsule "$NAME_A" "$REF_A" >/dev/null 2>&1; then pa=1; else pa=0; fi
+if as_human "$PROVISION" --capsule "$NAME_B" "$REF_B" >/dev/null 2>&1; then pb=1; else pb=0; fi
 measure "both capsules provisioned, in series" "$(since "$prov_t0")" s
 check "capsule A provisions over its own socket" ok test "$pa" = 1
 check "capsule B provisions over its own socket" ok test "$pb" = 1
@@ -286,12 +288,13 @@ measure "volume, capsule A" "$(vol_mib "$DIR_A/capsule-work.img")" MiB
 measure "volume, capsule B" "$(vol_mib "$DIR_B/capsule-work.img")" MiB
 
 # Attribution: a result has to come back naming the capsule that produced it, or
-# a verifier's verdict cannot be told from the worker's claim. `capsule-collect`
-# already takes the name — the asymmetry with provision above is the finding.
+# a verifier's verdict cannot be told from the worker's claim. One program, one
+# argument, both directions — the asymmetry this probe found (provision baked its
+# transport, collect took a bare directory name) is what closed into `--capsule`.
 check "capsule A collects into its own quarantine" ok \
-  as_human env "CAPSULE_STATE=$STATE" "$COLLECT_A" "$NAME_A"
+  as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_A"
 check "capsule B collects into its own quarantine" ok \
-  as_human env "CAPSULE_STATE=$STATE" "$COLLECT_B" "$NAME_B"
+  as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_B"
 
 q_a=$(as_human git -C "$STATE/collect/$NAME_A.git" \
   rev-parse "refs/capsule/$NAME_A/$DEFAULT_BRANCH" 2>/dev/null)
@@ -318,7 +321,7 @@ check "A's tap survives its VMM" ok \
 check "and B's tap is still carrying B" ok \
   nsping "$NS_B" "$GUEST_ADDR"
 
-RESULTS+=("NOTE  provision bakes the socket path into a store path — two capsules, two programs")
+RESULTS+=("NOTE  one set of host programs, --capsule per call: the transport this probe found baked is an argument now")
 
 # ---------------------------------------------------------------------- report
 

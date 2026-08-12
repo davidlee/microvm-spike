@@ -8,6 +8,8 @@ architecture invariants and the gotchas that have already cost time, is
 | --- | --- |
 | where is this up to, what is next, what is still open? | [status.md](./status.md) |
 | why is it built like this? | [design.md](./design.md) |
+| what must a repo be, for this to confine it? | [contract-target.md](./contract-target.md) |
+| what does doctrine ask of this, and supply to it? | [contract-doctrine.md](./contract-doctrine.md) |
 | what does the confinement actually claim? | [threat-model.md](./threat-model.md) |
 | why was *that* decided, and what was tried first? | [notes.md](./notes.md) — the numbered ledger |
 | what has been measured, and what is the number? | [probes.md](./probes.md) |
@@ -16,7 +18,7 @@ architecture invariants and the gotchas that have already cost time, is
 | how would this work without firecracker, or on macOS? | [plan-b-other-jails.md](./plan-b-other-jails.md) |
 | which hypervisor, and why this one? | [eval-hypervisors.md](./eval-hypervisors.md) |
 | why doesn't the capsule port to macOS? | [eval-macos.md](./eval-macos.md) |
-| what does doctrine want from this spike? | [import-doctrine.md](./import-doctrine.md) |
+| what does doctrine want from *this round* of probes? | [import-doctrine.md](./import-doctrine.md) — disposable packet |
 
 ## Conventions
 

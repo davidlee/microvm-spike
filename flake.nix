@@ -264,8 +264,8 @@
     # relay socket instead — one construction, two transports, which is the only
     # thing that differs (host/programs.nix).
     hostPrograms = import ./host/programs.nix {
-      inherit pkgs lib net target;
-      sshArgs = guestSsh.args;
+      inherit pkgs net target;
+      transport = guestSsh.direct {inherit (capsules) default;};
     };
     inherit (hostPrograms) guestHost guestRepo;
     capsule-provision = hostPrograms.provision;
@@ -461,27 +461,24 @@
     #
     # The socket path is the designed one — `capsules.socketOf`, the same
     # convention a declared instance gets — rather than a mktemp, because
-    # `capsule-provision` has to be built with a ProxyCommand against it: the
-    # probe exercises the real program on the real seam, which is the whole
-    # point of `sshArgs` being injected.
+    # `capsule-provision` has to reach the guest through it: the probe exercises
+    # the real program on the real seam, which is the whole point of `transport`
+    # being injected.
     #
-    # A function over the socket, because the pair probe needs two of these and
-    # the socket is the only thing that differs. That it *has* to be two sets of
-    # programs rather than one program and an argument is the finding, not the
-    # plumbing: under netns a capsule's identity is its socket path, and here
-    # that path is baked into a store path. `capsule-collect` already takes its
-    # name as an argument; nothing takes its *transport* as one, and N capsules
-    # make that asymmetry cost something.
-    nsProgramsFor = sock:
-      import ./host/programs.nix {
-        inherit pkgs lib net target;
-        sshArgs = guestSsh.viaSocket {
-          socat = "socat";
-          socket = sock;
-        };
+    # One set for every capsule a probe invents, `--capsule <name>` choosing
+    # which. It used to be a function over the socket, because a socket path
+    # baked into a store path meant a program per capsule — the asymmetry
+    # `probe-two-capsules` was written to expose, and the reason the transport is
+    # a run-time argument now. `socat` is bare here: a probe has it in
+    # `runtimeInputs`, where a unit has no PATH to trust.
+    nsPrograms = import ./host/programs.nix {
+      inherit pkgs net target;
+      transport = guestSsh.viaSocket {
+        inherit (capsules) default;
+        socat = "socat";
+        socket = socketOf ''"$capsule"'';
       };
-    nsSocket = capsules.instances.capsule.socket;
-    nsGitChannel = nsProgramsFor nsSocket;
+    };
     probe-freshness = probe {
       name = "probe-freshness";
       script = ./probe/freshness.sh;
@@ -495,7 +492,8 @@
         TARGET_PATH="${target.path}"
         DEFAULT_BRANCH="${target.defaultBranch}"
         CACHES="${lib.concatStringsSep " " (lib.attrValues target.caches)}"
-        PROVISION="${nsGitChannel.provision}/bin/capsule-provision"
+        PROVISION="${nsPrograms.provision}/bin/capsule-provision"
+        SOCKDIR="${builtins.dirOf (socketOf capsules.default)}"
       '';
       runtimeInputs = [
         pkgs.iproute2
@@ -518,11 +516,10 @@
     # cost (doctrine IMP-426 P1b, REQ-454)? Two namespaces, two volumes, two base
     # commits — and deliberately *one* runner from one store path, because that
     # is the shape being priced and it is what makes instance identity a real
-    # problem rather than a hypothetical one.
+    # problem rather than a hypothetical one. One set of host programs too, now
+    # that the transport is an argument: this probe is what found that it was not.
     pairA = "pair-a";
     pairB = "pair-b";
-    pairChannelA = nsProgramsFor (socketOf pairA);
-    pairChannelB = nsProgramsFor (socketOf pairB);
     probe-two-capsules = probe {
       name = "probe-two-capsules";
       script = ./probe/two-capsules.sh;
@@ -536,10 +533,8 @@
         NAME_B="${pairB}"
         SOCKDIR_A="${builtins.dirOf (socketOf pairA)}"
         SOCKDIR_B="${builtins.dirOf (socketOf pairB)}"
-        PROVISION_A="${pairChannelA.provision}/bin/capsule-provision"
-        PROVISION_B="${pairChannelB.provision}/bin/capsule-provision"
-        COLLECT_A="${pairChannelA.collect}/bin/capsule-collect"
-        COLLECT_B="${pairChannelB.collect}/bin/capsule-collect"
+        PROVISION="${nsPrograms.provision}/bin/capsule-provision"
+        COLLECT="${nsPrograms.collect}/bin/capsule-collect"
         GUEST_PATH="${target.guestPath}"
         TARGET_PATH="${target.path}"
         DEFAULT_BRANCH="${target.defaultBranch}"

@@ -16,17 +16,19 @@
 #     NOTES item 18's inversion deleted the port this used to want.
 #
 # Jail-agnostic in the same sense as `perimeter/` and `git-channel.nix`: it knows
-# an ssh destination and the argv that reaches it, and nothing about taps,
-# namespaces or hypervisors. Under netns only `sshArgs` changes, at the call
+# an ssh destination and a fragment that reaches it, and nothing about taps,
+# namespaces or hypervisors. Under netns only `transport` changes, at the call
 # site.
 {
   pkgs,
   # Where to ssh, e.g. `agent@10.99.0.2`. Jail-shaped, so injected.
   guestHost,
-  # How to ssh, as argv — a list, not a string. The netns form carries a
-  # ProxyCommand with spaces inside it, and a string would have to be re-split
-  # by a shell that cannot know where the quoting was meant to go.
-  sshArgs ? ["ssh"],
+  # Which capsule, and how to reach it: a shell fragment that sets `$capsule` and
+  # the `ssh_cmd` argv, and consumes `--capsule` out of `"$@"` before the loop
+  # below sees it (host/guest-ssh.nix). Argv rather than a string because the
+  # netns form carries a ProxyCommand with spaces inside it. Jail-shaped, so
+  # injected — and required, since without it this program has no capsule.
+  transport,
   # [{name, dest, produce, tools}] — ./setup.nix, with `tools` already resolved
   # to packages by the call site.
   injections,
@@ -56,7 +58,7 @@ in
       # you and by nobody else, for the whole run.
       umask 077
 
-      ssh_cmd=(${lib.escapeShellArgs sshArgs})
+      ${transport}
       host=${lib.escapeShellArg guestHost}
 
       force=""
@@ -65,8 +67,8 @@ in
         case "$arg" in
           --force) force=1 ;;
           -*)
-            echo "usage: capsule-inject [name...] [--force]" >&2
-            echo "  no names: every declared payload (./setup.nix)." >&2
+            echo "usage: capsule-inject [--capsule <name>] [payload...] [--force]" >&2
+            echo "  no payload named: every declared one (./setup.nix)." >&2
             exit 1
             ;;
           *) selected+=("$arg") ;;

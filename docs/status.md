@@ -5,9 +5,10 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-12, after `capsule-baseline`'s first run — which took the
-cold build — then `probe-netns-egress`, and Plan C's first written code:
-`capsules.nix`.
+Last updated 2026-08-12, after the units ran at N=1 and `probe-netns-egress`
+re-ran 27/27 behind them — and then after the one bug that stood between N=1 and
+N=2: a host program's transport is an argument now ([notes](./notes.md) item 20),
+and `probe-two-capsules` re-ran 28/28 on it with one program set instead of two.
 
 ## Where it got to
 
@@ -42,6 +43,16 @@ cold build — then `probe-netns-egress`, and Plan C's first written code:
   guard is rewritten around the namespaces and holds all of them at once.
   **Unrun** — it is a NixOS module and this repo cannot rebuild a host; `just
   units` is the eval-level check that exists in its place.
+- **A host program takes its capsule as an argument, and two capsules have used
+  it.** `--capsule <name>`, `CAPSULE_NAME`, or `capsules.default` — one store path
+  for provision, collect, inject and baseline, serving every capsule, because the
+  relay socket is derived from the name rather than baked. This was the one bug
+  between the units at N=1 and N=2. **`sudo probe-two-capsules` re-ran 28/28** with
+  one program set instead of two, reproducing run 1's figures inside a tenth of a
+  second and strengthening the withdrawn-ceiling finding on the way past
+  ([probes.md](./probes.md)). [notes](./notes.md) item 20 has the decision and the
+  CLI shape that follows. Unrun: the same programs on the *module* path, which
+  needs a host rebuild.
 - **The instances are declared.** `capsules.nix` — a value, and a short one:
   which capsules exist, each one's namespace, its way in
   (`/run/capsule/<name>/ssh.sock`) and its uplink /30 to the aggregator, plus
@@ -63,7 +74,7 @@ cold build — then `probe-netns-egress`, and Plan C's first written code:
   runs, which is the strongest form that claim can take at n = 2 — one 12175 MiB
   image shared by every capsule, and ~296 MiB of volume per instance of which
   260 MiB is empty filesystem. All in [probes.md](./probes.md), the only copy.
-- **Two capsules run at once, 28/28.** One runner store path, two namespaces, two
+- **Two capsules run at once, 28/28, twice.** One runner store path, two namespaces, two
   volumes, two base commits; all four independences hold and the second capsule
   costs 0.18 s of boot. Figures in [probes.md](./probes.md).
 - **It withdrew a number this repo had been quoting.** "16 GiB per capsule is
@@ -160,15 +171,23 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    Nothing the units did invalidated a claim the probe had made by hand. Two traps
    the first start cost, both now in [CLAUDE.md](../CLAUDE.md): `microvm -c … -f`
    takes no fragment, and a missing create fails as an unrelated dependency error.
-4. N=2 through the module — and then two `capsule-baseline`s at once, which is
-   the load question below and cannot be asked before this. **One thing has to be
-   fixed first, and it is one bug rather than four:** all four host programs are
-   built with the transport of the lowest-indexed capsule baked into their store
-   path, so a second capsule has no way in for provision, collect, inject or
-   baseline. The socket path is derivable from the capsule's name, so the fix is
-   the transport becoming an argument — which forces the CLI shape Plan C's item 7
-   already wanted, since `capsule-provision` currently takes a ref and
-   `capsule-collect` a quarantine name and neither takes a capsule.
+4. ~~The transport is baked into a store path~~ **fixed, and run at N=2.** All four host
+   programs now take `--capsule <name>` (else `CAPSULE_NAME`, else
+   `capsules.default`) and derive the relay socket from it, so one store path
+   serves every capsule and `host/programs.nix` still knows no transport. The
+   seam widened rather than moved: `sshArgs`, a value, became `transport`, a shell
+   fragment injected at the same call sites. `capsule-collect`'s positional
+   quarantine name is gone — it was the capsule's name at every call site — so the
+   asymmetry closed by deleting half of it. The CLI question Plan C item 7 wanted
+   is decided in [notes](./notes.md) item 20, including what a `capsule <name>
+   <verb>` front end is left to do. **`sudo probe-two-capsules`, 28/28** — the
+   acceptance test is the probe that exposed the bug, and it now runs one set of
+   programs twice. What that run does *not* cover is the module path's copy of the
+   same programs, which needs a host rebuild.
+5. N=2 through the module — a second entry in `capsules.nix`, a rebuild, `sudo
+   microvm -c <name> -f …`, `systemctl start` — and then two
+   `capsule-baseline`s at once, which is the load question below and cannot be
+   asked before this.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).

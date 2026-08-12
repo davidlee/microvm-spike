@@ -17,11 +17,11 @@
 #     closure for a single guest image; the other is the address, which netns
 #     handles.
 #
-# Jail-agnostic in the same sense as perimeter/: it knows a git URL and,
-# optionally, the ssh command that reaches it. No tap, no namespace, no
-# hypervisor. Under netns the URL is unchanged and `sshCommand` grows a
-# `ProxyCommand` against the capsule's unix socket (NOTES item 17) — that is the
-# whole difference, and it is at the call site.
+# Jail-agnostic in the same sense as perimeter/: it knows a git URL and a shell
+# fragment that reaches it. No tap, no namespace, no hypervisor. Under netns the
+# URL is unchanged and the fragment grows a `ProxyCommand` against the capsule's
+# unix socket (NOTES item 17) — that is the whole difference, and it is at the
+# call site.
 {
   pkgs,
   # Which repo is confined: `path` to push from, `defaultBranch` to land on,
@@ -29,11 +29,12 @@
   target,
   # The guest's checkout as a git URL. Jail-shaped, so injected.
   guestRepo,
-  # Value for GIT_SSH_COMMAND, or null for plain ssh. Jail-shaped, so injected.
-  sshCommand ? null,
+  # Which capsule, and how to reach it: a shell fragment that sets `$capsule` and
+  # `ssh_cmd` and consumes `--capsule` out of `"$@"` (host/guest-ssh.nix).
+  # Jail-shaped, so injected — and required, because without it neither program
+  # knows which capsule it is for.
+  transport,
 }: let
-  inherit (pkgs) lib;
-
   # Same two variables `perimeter/default.nix` defines, deliberately spelled the
   # same way: `CAPSULE_ROOT` and `CAPSULE_STATE` mean one thing per capsule, and
   # both files document them. Change one, change the other.
@@ -42,8 +43,15 @@
     state="''${CAPSULE_STATE:-$root/.vm/host}"
   '';
 
-  ssh = lib.optionalString (sshCommand != null) ''
-    export GIT_SSH_COMMAND=${lib.escapeShellArg sshCommand}
+  # First thing in both programs, so `$capsule` is known and `--capsule` is gone
+  # from `"$@"` before either parses its own arguments. git wants a command line
+  # rather than argv, so the array is requoted here — `%q` because git runs
+  # `GIT_SSH_COMMAND` through a shell, and the netns form has a ProxyCommand with
+  # spaces in it that only quoting survives.
+  ssh = ''
+    ${transport}
+    GIT_SSH_COMMAND=$(printf '%q ' "''${ssh_cmd[@]}")
+    export GIT_SSH_COMMAND
   '';
 
   # `ulimit -f` counts 512-byte blocks. RLIMIT_FSIZE, so this bounds the size of
@@ -68,7 +76,7 @@
         case "$arg" in
           --force) force="+" ;;
           -*)
-            echo "usage: capsule-provision <ref> [--force]" >&2
+            echo "usage: capsule-provision [--capsule <name>] <ref> [--force]" >&2
             exit 1
             ;;
           *) ref="$arg" ;;
@@ -80,7 +88,7 @@
       # at every provision rather than inherited from whatever the branch happens
       # to be pointing at today.
       if [ -z "$ref" ]; then
-        echo "usage: capsule-provision <ref> [--force]" >&2
+        echo "usage: capsule-provision [--capsule <name>] <ref> [--force]" >&2
         echo "  <ref> is any commit-ish in $src — a branch, a tag or a sha." >&2
         exit 1
       fi
@@ -148,8 +156,17 @@
     text = ''
       ${ssh}
       ${statePaths}
-      name="''${1:-capsule}"
-      quarantine="$state/collect/$name.git"
+      # The capsule names its own quarantine, and that used to be a separate
+      # positional argument — so `capsule-collect faux` meant a directory while
+      # `capsule-provision` meant a ref and neither meant a capsule. One
+      # identity: whatever a capsule is called is what its refs and its
+      # quarantine are called, which is what every caller already passed.
+      if [ "$#" -gt 0 ]; then
+        echo "usage: capsule-collect [--capsule <name>]" >&2
+        echo "  the capsule names its own quarantine — refs/capsule/<name>/*." >&2
+        exit 1
+      fi
+      quarantine="$state/collect/$capsule.git"
 
       # Host-created, host-configured, and never writable by the guest: the
       # host's git must not run in a repository the guest could have put config
@@ -178,7 +195,7 @@
         ulimit -f ${toString maxBlocks}
         git -C "$quarantine" -c transfer.fsckObjects=true \
           fetch --no-tags "${guestRepo}" \
-          "+refs/heads/*:refs/capsule/$name/*"
+          "+refs/heads/*:refs/capsule/$capsule/*"
       ) || {
         echo "capsule-collect: fetch failed — a malformed object, or a packfile" >&2
         echo "  over ${toString target.collectMaxPackBytes} bytes (target.nix collectMaxPackBytes)." >&2
@@ -192,7 +209,7 @@
       git -C "$quarantine" for-each-ref \
         --sort=-committerdate \
         --format='  %(objectname:short)  %(refname:short)  %(committerdate:relative)  %(subject)' \
-        "refs/capsule/$name/"
+        "refs/capsule/$capsule/"
       echo "capsule-collect: $quarantine"
     '';
   };

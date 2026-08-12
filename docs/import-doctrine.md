@@ -5,6 +5,11 @@ direct a round of cheap probes in this repo so the requirements get *shaped and
 priced here* before doctrine's governance gears turn. Delete it when the round
 ends and its findings have landed as knowledge records.
 
+The durable half — which records this boundary answers to, how evidence leaves,
+and what doctrine supplies as a *target* — is
+[contract-doctrine.md](./contract-doctrine.md). Anything in here that outlives the
+round belongs there instead.
+
 Doctrine-side anchors: `RFC-025` § *The microVM turn*, `IMP-426` (the work item),
 `QUE-212` (the one blocking question), `CPT-002` (the threat ranking that sets
 the priorities below). Read via `doctrine <kind> show <ID>` in `/workspace/doctrine`

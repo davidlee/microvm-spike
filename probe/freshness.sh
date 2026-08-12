@@ -43,7 +43,6 @@
 
 PROG=probe-freshness
 NS="cap-$VM"
-SOCKDIR="/run/capsule/$VM"
 RUNNER=""
 LOG=""
 REF=${1:-$DEFAULT_BRANCH}
@@ -234,8 +233,9 @@ RESULTS+=("NOTE  process: no falsifying delta under a hypervisor — see DEC-189
 echo "== stage 3: what makes it usable — history, over the socket =="
 
 # The designed path rather than a mktemp: the socket path is the capsule's
-# identity under netns (docs/plan-c-multi-capsule.md, "Plumbing"), and
-# `capsule-provision` is built with a ProxyCommand against exactly this one, so
+# identity under netns (docs/plan-c-multi-capsule.md, "Plumbing"), it comes from
+# `capsules.socketOf` through the prelude rather than being spelled here, and
+# `capsule-provision` derives the same path from the capsule it is given — so
 # this is the real program on the real seam and not an approximation of it.
 mkdir -p "$SOCKDIR"
 chmod 0755 "$SOCKDIR"

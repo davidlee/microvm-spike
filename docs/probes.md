@@ -15,7 +15,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
 | `netns-egress.sh` | does the *perimeter* survive the move into one? | `sudo probe-netns-egress` | 27/27 green, run 1. The real capsule with the real proxy joined to its namespace; allowed **and** denied both asserted |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
-| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, run 1 (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
+| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, twice (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
 One figure here comes from something that is not a probe: `capsule-baseline` is a
 lifecycle command a human runs on a capsule they are about to work in, and it
@@ -176,19 +176,31 @@ that counts it as one is worse than a checklist that admits the gap.
 
 ## What two-capsules.sh established
 
-**28/28 green on run 1**, one runner store path serving both capsules. The four
-independences below all hold, and the pair costs this:
+**28/28 green, twice**, one runner store path serving both capsules — and on run 2
+one set of host programs serving both as well (see the asymmetry it found, below).
+The four independences hold in both runs, and the pair costs this:
 
-| figure | value | note |
-| --- | --- | --- |
-| A answers ssh, from launch | 6.94 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
-| both answer ssh, from launch | 7.12 s | the second capsule costs **0.18 s**, not a second boot |
-| declared guest RAM, per capsule | 16384 MiB | what `target.sizes.mem` said at the time of this run |
-| **MemAvailable, both booted and idle** | **1488 MiB** | against 32768 MiB declared between them. See the withdrawal below |
-| both provisioned, in series | 3.51 s | two 32 MiB histories, one after the other |
-| volume, A / B | 295 / 295 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
-| teardown, one down, sibling up | 3.56 s | matches the single-capsule 3.63 s: a sibling costs the teardown nothing |
-| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | see below |
+| figure | run 1 | run 2 | note |
+| --- | --- | --- | --- |
+| A answers ssh, from launch | 6.94 s | 6.92 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
+| both answer ssh, from launch | 7.12 s | 7.10 s | the second capsule costs **0.18 s** in both runs, not a second boot |
+| declared guest RAM, per capsule | 16384 MiB | 8192 MiB | `target.sizes.mem`, halved between the runs |
+| **MemAvailable, both booted and idle** | **1488 MiB** | **1393 MiB** | against 32768 / 16384 MiB declared between them. See the withdrawal below |
+| both provisioned, in series | 3.51 s | 3.86 s | two 32 MiB histories, one after the other |
+| volume, A / B | 295 / 295 MiB | 295 / 295 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
+| teardown, one down, sibling up | 3.56 s | 3.56 s | matches the single-capsule 3.63 s: a sibling costs the teardown nothing |
+| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | 2 / 1, 1 | see below |
+
+**Run 2 is the stronger version of the withdrawal below.** The declared ceiling
+was halved between the runs and the measured charge moved 95 MiB — 6% — which is
+what "a ceiling, not a charge" predicts and what a per-capsule charge could not
+produce. Everything else reproduced inside a tenth of a second, including the
+0.18 s cost of the second capsule to three significant figures.
+
+Provenance, since limits travel with claims: run 2 was taken on Sleipnir from the
+working tree, *before* the commit that carries the one-program change — the runner
+and the host programs were both built from a dirty tree, which the probe's own
+output says. Same host and same target as run 1.
 
 **A figure was withdrawn, and it is the more useful artefact.** Both this file
 and doctrine's EVD-019 carried "16 GiB per capsule" as the term that binds at N.
@@ -231,10 +243,14 @@ success* — it then asks "is a microvm running?" of a host that no longer has
 either. A VMM is now identified by its namespace (`ip netns pids`), never by its
 name. The probe reports both counts every run, so the day they agree is visible.
 
-The asymmetry it exposes on the way past: `capsule-collect` takes its capsule's
-name as an argument, `capsule-provision` bakes its socket path into a store path.
-Two capsules therefore need two provision programs. Fine for a probe, not fine
-for N.
+The asymmetry it exposed on the way past: `capsule-collect` took its capsule's
+name as an argument, `capsule-provision` baked its socket path into a store path.
+Two capsules therefore needed two provision programs — fine for a probe, not fine
+for N, and it was the finding that made the transport a run-time argument
+(`--capsule <name>`, [notes](./notes.md) item 20). **Run 2 is that fix under its
+own probe**: one program set, `--capsule` per call, and the four assertions that
+depend on it — each capsule provisioning over its own socket, each collecting into
+its own quarantine — green with the 28 unchanged.
 
 ## What a capsule costs to work in
 

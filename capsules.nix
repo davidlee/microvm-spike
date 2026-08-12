@@ -33,6 +33,14 @@ let
     capsule = {index = 0;};
   };
 
+  # The capsule a program means when nothing names one. Every host-side program
+  # takes `--capsule <name>` or `CAPSULE_NAME` and falls back to this, and every
+  # `just` recipe defaults to the same word — so it is a value here rather than a
+  # literal in five places. Declared rather than read off index zero: which
+  # capsule is the default and which carves the first /30 are two facts, and only
+  # the first one is a habit.
+  default = "capsule";
+
   # Carved into a /30 per capsule by index, so the aggregator's route and NAT
   # cover every capsule without enumerating them.
   uplinkNet = "10.100.0.0/16";
@@ -83,8 +91,9 @@ in
   assert rejected
   == []
   || throw "capsules.nix: '${builtins.head rejected}' cannot name a capsule — over 11 characters (IFNAMSIZ), or the aggregator's own name";
-  assert !reused || throw "capsules.nix: two capsules declare the same index, so they would share an uplink /30"; {
-    inherit uplinkNet socketOf;
+  assert !reused || throw "capsules.nix: two capsules declare the same index, so they would share an uplink /30";
+  assert builtins.hasAttr default declared || throw "capsules.nix: the default capsule '${default}' is not declared, so every program's default names nothing"; {
+    inherit uplinkNet socketOf default;
 
     instances = builtins.mapAttrs recordOf declared;
 

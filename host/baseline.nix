@@ -22,17 +22,18 @@
 #     nothing listens, and the guest cannot ask for any of it.
 #
 # Jail-agnostic in the same sense as `perimeter/` and `git-channel.nix`: it
-# knows an ssh destination, the argv that reaches it, and four guest paths. No
-# tap, no namespace, no hypervisor — under netns only `sshArgs` changes, at the
+# knows an ssh destination, a fragment that reaches it, and four guest paths. No
+# tap, no namespace, no hypervisor — under netns only `transport` changes, at the
 # call site. Target-agnostic too: `command` is a command line and this file has
 # no opinion about what is in it.
 {
   pkgs,
   # Where to ssh, e.g. `agent@10.99.0.2`. Jail-shaped, so injected.
   guestHost,
-  # How to ssh, as argv rather than a string, for the reason `host/inject.nix`
-  # gives: the netns form carries a ProxyCommand with spaces inside it.
-  sshArgs ? ["ssh"],
+  # Which capsule, and how to reach it: a shell fragment setting `$capsule` and
+  # the `ssh_cmd` argv, for the reason `host/inject.nix` gives. Jail-shaped, so
+  # injected — and required.
+  transport,
   # The target's own build-and-test, run by the guest's login shell in `workdir`.
   command,
   # Where to run it — the guest's checkout.
@@ -182,7 +183,7 @@ in
     name = "capsule-baseline";
     runtimeInputs = [pkgs.openssh pkgs.coreutils];
     text = ''
-      ssh_cmd=(${lib.escapeShellArgs sshArgs})
+      ${transport}
       host=${lib.escapeShellArg guestHost}
       dir=${lib.escapeShellArg recordDir}
 
@@ -191,7 +192,7 @@ in
         case "$arg" in
           --detach) detach=1 ;;
           *)
-            echo "usage: capsule-baseline [--detach]" >&2
+            echo "usage: capsule-baseline [--capsule <name>] [--detach]" >&2
             echo "  runs ${cmd} in the capsule's checkout and records it." >&2
             echo "  run it again while one is in flight to re-attach." >&2
             exit 1

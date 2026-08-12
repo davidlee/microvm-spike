@@ -30,6 +30,7 @@ what stops it being proposed again.
 | 17 | more than one capsule at a time | scoped — [Plan C](./plan-c-multi-capsule.md) |
 | 18 | which way the git channel points | measured, inverted, done |
 | 19 | the baseline build, and where a figure is allowed to live | built, run, measured |
+| 20 | which capsule a host program is talking to | decided, built, run at N=2 on the devshell path |
 
 1. **What has actually been run.** The guest boots and the agent works over ssh;
    the perimeter has been exercised in both shapes — `capsule-host` in the
@@ -895,3 +896,83 @@ what stops it being proposed again.
     Still open: the pair probe's question. Two capsules building at once is a
     scheduling question, and two `capsule-baseline`s are how it gets asked — each
     with its own record on its own volume, which is the attribution half.
+
+20. **Which capsule a host program is talking to.** One bug, in one line, and it
+    is the thing that stood between the units running at N=1 and running at N=2:
+    `host/services.nix` built `hostPrograms` once, with the lowest-indexed
+    capsule's relay socket in `sshArgs`. So `capsule-provision`,
+    `capsule-collect`, `capsule-inject` and `capsule-baseline` each carried one
+    capsule's transport in their store path, and a second capsule had no way in
+    for any of them. `probe/two-capsules.sh` is where it surfaced — it needed two
+    sets of programs to provision two capsules, and recorded that as a finding
+    rather than plumbing.
+
+    The one-image lever is what makes the fix small. Every capsule runs the same
+    guest from the same store path at the same address (item 17), so the *only*
+    thing that differs between two of them is the relay socket — and that path is
+    a pure function of the name (`capsules.socketOf`). N programs would be N store
+    paths differing in one string. So the name is a run-time value and the
+    transport is derived from it: one store path, every capsule.
+
+    **The seam was already right; it only had to widen.** `sshArgs` was injected
+    at the call site precisely so the two paths could differ (`host/programs.nix`).
+    It is now `transport`, a *shell fragment* rather than a value: spliced at the
+    top of each program, it resolves which capsule this invocation means, strips
+    that argument out of `"$@"` before the program's own flag loop sees it, and
+    sets `ssh_cmd`. The devshell injects the direct form, the units inject the
+    via-socket form, and neither `host/programs.nix` nor the three programs under
+    it learn anything about namespaces or sockets.
+
+    **The CLI question, decided rather than accreted.** Plan C item 7 wants a
+    `capsule <name> <verb>` front end; this needed an answer first, because
+    `capsule-provision <ref>` and `capsule-collect <quarantine-name>` took
+    different positionals and neither took a capsule. Three things settled it:
+
+    - **A flag, not a leading positional.** `capsule-collect faux` means a
+      quarantine today; making it mean a capsule tomorrow is a silent change of
+      meaning on a command that already exists. `--capsule <name>` (or
+      `--capsule=<name>`) collides with nothing, and every one of the four
+      already refuses an unrecognised `-*`.
+    - **`CAPSULE_NAME` as the session default**, joining `CAPSULE_ROOT`,
+      `CAPSULE_STATE` and `CAPSULE_REPO` — you work on one capsule for an hour,
+      not one command. Not the *only* form, because `VAR=x prog` is not
+      universal: nushell wants `with-env`, and this host's shell is nushell.
+    - **The default is `capsule`, and it is a value** (`capsules.default`), so the
+      single-capsule state this host already has keeps working untyped and the
+      `just` recipes' default is the same word by derivation rather than by
+      coincidence.
+
+    A `capsule` CLI on top of this is now thin: resolve the name, export it, exec.
+    That is the argument for doing it in this order.
+
+    **One argument fewer, not one more.** `capsule-collect`'s positional
+    quarantine name *was* the capsule name at every call site, so it is gone: a
+    capsule names its own refs and its own quarantine, at the same paths as
+    before. The asymmetry closed by deleting half of it.
+
+    Two smaller decisions worth freezing, both refusals:
+
+    - The devshell's fragment **refuses a name that is not its one capsule**
+      rather than ignoring it. Ignoring it is a silent success — "provisioned
+      `edge`" while the bytes went to the only capsule there is.
+    - The via-socket fragment **refuses when the socket is not there**, naming the
+      relay unit. Without it the failure is socat's, one layer down, and reads as
+      a dead guest.
+
+    Not done this way, deliberately: probing for the socket and falling back to
+    the direct address — which is what `just _guest-ssh` does. It would delete the
+    injection entirely, and with it the property that `host/programs.nix` knows no
+    transport: a program that can try both has both baked in. It also turns a
+    stopped relay into an unroutable-address timeout instead of a refusal.
+
+    **Run, and by the probe that found it: `sudo probe-two-capsules`, 28/28.** One
+    program set, `--capsule` per call, two capsules provisioning over their own
+    sockets and collecting into their own quarantines. The four assertions that
+    depend on the transport are the four that would have failed, and the figures
+    reproduced run 1 inside a tenth of a second ([probes.md](./probes.md)). The
+    `%q` requoting of `GIT_SSH_COMMAND` is exercised by that run — a provision and
+    a collect each go through it, over a ProxyCommand with spaces in it.
+
+    Still unrun: the *module* path. These programs are also built into
+    `host/services.nix`, and a host rebuild is the only thing that exercises the
+    via-socket form with an absolute `socat` and the `wrap`ped state directories.

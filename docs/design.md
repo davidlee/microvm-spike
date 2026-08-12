@@ -17,9 +17,12 @@ work — no more.
 | `flake.nix`                  | VMs, devshell, tap + runner scripts, module exports |
 | `net.nix`                    | tap name, both addresses, MAC, ports — single source |
 | `target.nix`                 | which repo is confined, and everything target-shaped |
+| `capsules.nix`               | which capsules exist — namespace, socket, uplink, and the default name |
 | `justfile`                   | the gate (`just check`) + the multi-command questions |
 | `perimeter/default.nix`      | `proxy` + `capsule-host`. Jail-agnostic            |
 | `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild. Per target |
+| `host/programs.nix`          | the four programs the human runs at a capsule, built once per path |
+| `host/guest-ssh.nix`         | how the host reaches a guest, and which capsule it means (`--capsule`) |
 | `host/git-channel.nix`       | `capsule-provision` / `capsule-collect`. Host-initiated git |
 | `host/perimeter-check.nix`   | is the host's nftables drop loaded? Linux-shaped, injected |
 | `host/services.nix`          | the same proxy as a unit under its own uid. Opt-in  |

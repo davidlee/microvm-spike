@@ -745,6 +745,11 @@ case, not before the dev-machine case.
    gitd to generate — the git channel is host-initiated and per-capsule only in
    which URL it is pointed at (NOTES item 18).
 7. The `capsule` CLI, per-capsule secret injection at start, and the aggregate
-   `just` recipes.
+   `just` recipes. **The naming half is settled ahead of the CLI**, because the
+   four host programs needed it before N=2 could work at all: `--capsule <name>`,
+   `CAPSULE_NAME`, else `capsules.default`, with the transport derived from the
+   name rather than baked into a store path (NOTES item 20). What is left for a
+   CLI is the systemctl verbs, the secret injection and the table — it resolves a
+   name and execs, rather than owning the name.
 8. Only then: a second target, if it is still wanted.
 

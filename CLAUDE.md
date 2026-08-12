@@ -84,8 +84,12 @@ Break these and the confinement stops meaning anything:
   or VM-based shape reuse it (docs/plan-b-other-jails.md). Anything
   platform-shaped belongs at
   the call site in `flake.nix` (`perimeterChecks`). `host/git-channel.nix` has
-  the same seam for the same reason: it knows a git URL and optionally an ssh
-  command, both injected, and nothing about taps or namespaces.
+  the same seam for the same reason: it knows a git URL and a `transport`
+  fragment, both injected, and nothing about taps or namespaces. That fragment is
+  also what lets one store path serve N capsules — it resolves `--capsule <name>`
+  at run time and sets `ssh_cmd`, so a capsule's socket is derived from its name
+  instead of built into four programs (NOTES item 20). Don't let a program probe
+  for which transport to use: that bakes both into it.
 - **Part of the perimeter is not in this repo.** The firewall port, the
   forward-chain drop on the tap, and the sudoers rule that makes the drop
   readable all live in the host's NixOS config (`~/flakes`) — README "Host
@@ -152,6 +156,13 @@ Break these and the confinement stops meaning anything:
   conventions and state) pointed the other way — the same discipline, with this
   repo as the platform and doctrine as the host.
 
+  The surface this rule produces is written down field by field:
+  [docs/contract-target.md](./docs/contract-target.md) is what any repo must
+  supply and may rely on, and [docs/contract-doctrine.md](./docs/contract-doctrine.md)
+  is doctrine's two roles — the client holding the requirements, and one instance
+  of that contract. Update them in the same commit as anything that moves the
+  boundary.
+
 ## Firecracker constraints (verified in microvm.nix source)
 
 `lib/runners/firecracker.nix` throws on: 9p/virtiofs **shares**, device
@@ -202,10 +213,11 @@ which shape nearly every decision here:
   different transports.** `capsule-provision` on `PATH` in the devshell ssh's
   straight to `net.guest`, which is unroutable from the root namespace once the
   tap is in a namespace; the module's copy of the same program goes through the
-  relay socket. Same name, same source, different `sshArgs`. On the module path
+  relay socket. Same name, same source, different `transport`. On the module path
   call it as `/run/current-system/sw/bin/capsule-provision`, or leave the
   devshell. The symptom is a timeout against `10.99.0.2`, which reads as a dead
-  guest.
+  guest — unless you named a second capsule, since the devshell's copy refuses a
+  `--capsule` it cannot be.
 - **`microvm -c … -f <flake>` takes no fragment.** The CLI appends
   `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
   `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error

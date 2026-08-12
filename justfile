@@ -27,7 +27,7 @@ _quarantine name="capsule":
     [ -n "$state" ] && [ -d "$state/collect/{{name}}.git" ] \
       && { echo "$state/collect/{{name}}.git"; exit 0; }
   done
-  echo "nothing collected yet — run capsule-collect {{name}}" >&2
+  echo "nothing collected yet — run capsule-collect --capsule {{name}}" >&2
   exit 1
 
 # same question for the proxy's log
@@ -114,7 +114,7 @@ status name="capsule":
   echo "== collected"
   q=$(just _quarantine {{name}} 2>/dev/null) \
     && echo "  $q ($(git --git-dir="$q" for-each-ref "refs/capsule/{{name}}/" | wc -l) refs)" \
-    || echo "  nothing — capsule-collect {{name}}"
+    || echo "  nothing — capsule-collect --capsule {{name}}"
 
 # what a capsule has produced, as collected
 branches name="capsule":

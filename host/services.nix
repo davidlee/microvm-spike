@@ -71,20 +71,22 @@
   };
 
   # The guest is not routable from the root namespace any more, so the human's
-  # git channel reaches it the way `just ssh` does: a ProxyCommand against the
-  # capsule's relay socket. Built for instance zero, which is what the
-  # unsuffixed program names mean here.
+  # programs reach it the way `just ssh` does: a ProxyCommand against the
+  # capsule's relay socket.
   #
-  # This is the asymmetry N=2 has to close: `capsule-collect` takes a capsule
-  # name as an argument while its *transport* is baked into a store path, so a
-  # second capsule needs a second program rather than a second argument.
-  # `host/baseline.nix` is the shape to copy — its guest paths are injected.
-  primary = lib.head (lib.sort (a: b: a.index < b.index) instances);
+  # One set of programs for every capsule, because the socket path is the only
+  # thing that differs between two of them and it is derivable from the name —
+  # `capsules.socketOf` applied to a shell expression, so the convention still
+  # has one definition and this file still learns nothing about namespaces.
+  # These were built for the lowest-indexed capsule until N=2 made that a bug:
+  # four programs with one capsule's transport in their store paths, and no way
+  # in to a second.
   hostPrograms = import ./programs.nix {
-    inherit pkgs lib net target;
-    sshArgs = (import ./guest-ssh.nix {inherit lib;}).viaSocket {
+    inherit pkgs net target;
+    transport = (import ./guest-ssh.nix {inherit lib;}).viaSocket {
+      inherit (capsules) default;
       socat = "${pkgs.socat}/bin/socat";
-      socket = primary.socket;
+      socket = capsules.socketOf ''"$capsule"'';
     };
   };
 
@@ -446,8 +448,9 @@ in {
 
       # Only the two that keep state need wrapping; `capsule-inject` and
       # `capsule-baseline` write nothing host-side, so they go on PATH as they
-      # are. All four reach the guest through the relay socket, which is the
-      # only way in on this path.
+      # are. All four reach the guest through a relay socket, which is the only
+      # way in on this path — `--capsule <name>` or `CAPSULE_NAME` picks whose,
+      # falling back to `capsules.default`.
       environment.systemPackages =
         [
           (wrap "capsule-provision" hostPrograms.provision)
