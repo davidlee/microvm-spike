@@ -596,19 +596,51 @@
         # stops the vCPU and leaves the VMM sitting there holding the tap, so
         # the next `vm capsule` dies with EBUSY. Once the guest is down the
         # disks are flushed and terminating the VMM is safe.
-        for _ in $(seq 20); do
-          pgrep -f "microvm@$name" >/dev/null || { echo "vm-stop: $name is down"; exit 0; }
-          sleep 1
-        done
+        #
+        # So what has to finish is the *guest* halting, and the thing to watch is
+        # the guest. Waiting for the VMM to exit is waiting for the one event
+        # this hypervisor is documented never to produce: this loop used to poll
+        # `pgrep` twenty times at one second, i.e. it always paid twenty seconds
+        # and then killed the VMM anyway. `probe/harness.sh`'s `halt_guest` had
+        # the identical bug and the fix is the same one — it is what turned a
+        # 22.68 s "teardown" figure into 3.63 s (docs/probes.md).
+        if [ "$stopped" = 1 ]; then
+          for _ in $(seq 50); do
+            ${guestSsh.command} -o BatchMode=yes -o ConnectTimeout=1 \
+              root@${net.guest} true >/dev/null 2>&1 || break
+            sleep 0.2
+          done
+        fi
+
+        # Only VMMs this shell can prove are its own. Every capsule is
+        # `microvm@capsule` in the process table, so a bare `pkill -f` is a power
+        # cut for any namespaced sibling the module path is running — and it
+        # reads as a clean teardown while doing it. A VMM in a namespace is
+        # root's and lives in another netns, so both tests exclude it: the
+        # readlink fails, or it does not match this shell's.
+        own_vms() {
+          local self pid
+          self=$(readlink /proc/self/ns/net)
+          for pid in $(pgrep -f "microvm@$name" || true); do
+            [ "$(readlink "/proc/$pid/ns/net" 2>/dev/null)" = "$self" ] \
+              && echo "$pid"
+          done
+        }
+
+        mapfile -t pids < <(own_vms)
+        [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
 
         echo "vm-stop: guest halted but the VMM is still up — terminating it"
-        pkill -f -- "microvm@$name" || true
-        sleep 2
-        if pgrep -f "microvm@$name" >/dev/null; then
-          pkill -9 -f -- "microvm@$name" || true
-          sleep 1
-        fi
-        pgrep -f "microvm@$name" >/dev/null && {
+        kill "''${pids[@]}" 2>/dev/null || true
+        for _ in $(seq 50); do
+          mapfile -t pids < <(own_vms)
+          [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
+          sleep 0.1
+        done
+        kill -9 "''${pids[@]}" 2>/dev/null || true
+        sleep 0.5
+        mapfile -t pids < <(own_vms)
+        [ "''${#pids[@]}" -gt 0 ] && {
           echo "vm-stop: $name will not die" >&2
           exit 1
         }
