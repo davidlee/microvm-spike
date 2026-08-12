@@ -305,6 +305,19 @@
       lib.optionalAttrs (hostPrograms.baseline != null)
       {capsule-baseline = hostPrograms.baseline;};
 
+    # The front end: resolve a name, pick the copy of a program that can reach
+    # that capsule, exec (host/cli.nix). Built once and installed by both paths,
+    # because unlike the four programs it carries no transport — so there is
+    # nothing for a second instantiation to differ in, and one store path is the
+    # honest statement of that. `capsule-cli` as an attribute, `capsule` as a
+    # program: `.#capsule` is the guest runner and has been all along.
+    capsule-cli = import ./host/cli.nix {
+      inherit pkgs lib net capsules;
+      programVerbs =
+        ["provision" "collect" "inject"]
+        ++ lib.optional (hostPrograms.baseline != null) "baseline";
+    };
+
     # The host module has no build of its own — it is a NixOS module, and this
     # repo cannot rebuild someone's host to try it. So *evaluate* it: a text
     # file naming the units it generates drags the whole module through the
@@ -688,7 +701,7 @@
       // baselinePackages
       // {
         inherit vm vm-stop capsule-halt capsule-net capsule-host hostModuleUnits;
-        inherit capsule-provision capsule-collect capsule-inject;
+        inherit capsule-cli capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;
         default = self.packages.${system}.capsule;
@@ -702,6 +715,7 @@
           capsule-halt
           capsule-net
           capsule-host
+          capsule-cli
           capsule-provision
           capsule-collect
           capsule-inject

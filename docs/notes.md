@@ -1012,9 +1012,46 @@ what stops it being proposed again.
     `%q` requoting of `GIT_SSH_COMMAND` is exercised by that run — a provision and
     a collect each go through it, over a ProxyCommand with spaces in it.
 
-    Still unrun: the *module* path. These programs are also built into
-    `host/services.nix`, and a host rebuild is the only thing that exercises the
-    via-socket form with an absolute `socat` and the `wrap`ped state directories.
+    ~~Still unrun: the *module* path.~~ Run — the module's copies of all four are
+    what provisioned, injected and baselined both capsules at N=2, so the
+    via-socket form with an absolute `socat` and the `wrap`ped state directories is
+    exercised.
+
+    **The CLI is built, and what it cost was a boundary rather than code.**
+    `host/cli.nix`: `capsule [<name>] <verb> [args…]`, name first, omitted meaning
+    `capsules.default`. It resolves a name, picks a copy, execs. Three things it
+    decided on the way:
+
+    - **Where the split falls.** `microvm -c <name>` resolves the instance's name
+      as a flake attribute (item 21), so *creating* a capsule cannot happen without
+      this checkout and *running* one has no business needing it — the units are on
+      the host and a human logged into it has no repo. So `just up` keeps the create
+      and the tap refusal, and every other run-time verb moved into the program.
+      The recipes that remain are one-line delegations kept for their defaults and
+      their comments; `_capsule` and `_guest-ssh` are gone rather than wrapped,
+      which is the whole reason to do this at all — the alternative was a second
+      implementation of the ssh door and the copy-picking.
+    - **Picking a copy is a front end's latitude; carrying two transports is not.**
+      The four programs still refuse rather than guess, which is this item's
+      decision and stands. What the front end does is choose between two *copies*
+      of one program — the same latitude `just _capsule` already took, now in one
+      place. It injects no transport and holds no socket path of its own:
+      `capsules.socketOf` applied to a shell expression, as everywhere else.
+    - **Two refusals, both of them ambiguity rather than failure.** A capsule whose
+      name is also a verb is an *eval* error, since `capsule <x> …` could then be
+      read either way and both lists are known at build time. And a `--capsule` in
+      the arguments of an already-named capsule is refused instead of resolved: the
+      programs' own parse takes the last one, so `capsule capsule-b provision
+      --capsule capsule` would have succeeded against the wrong capsule quietly.
+
+    One store path, installed by both paths, and that is the honest statement of
+    what it is: unlike the four programs it has no transport, so there is nothing
+    for a second instantiation to differ in. `.#capsule-cli` as an attribute,
+    `capsule` as the program — `.#capsule` has been the guest runner all along.
+
+    What it does *not* have yet is `status`: the table wants per-capsule truth from
+    inside a namespace this cannot see into, which is the next piece of Plan C item
+    7 and where `just status`'s blindness gets fixed.
 
 21. **A declared capsule needs a flake attribute, and all of them are one
     value.** Declaring a second capsule in `capsules.nix` generated its

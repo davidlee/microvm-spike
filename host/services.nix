@@ -92,6 +92,18 @@
     };
   };
 
+  # The front end the human on this host actually types: `capsule <name> <verb>`.
+  # It carries no transport — it resolves a name and execs the four programs and
+  # the systemctl verbs — so this is the *same store path* the devshell installs
+  # rather than a second instantiation, which is the honest way to say that this
+  # is the one thing about a capsule that does not differ between the two paths.
+  cli = import ./cli.nix {
+    inherit pkgs lib net capsules;
+    programVerbs =
+      ["provision" "collect" "inject"]
+      ++ lib.optional (hostPrograms.baseline != null) "baseline";
+  };
+
   # The one program that runs at guest *root*, and the reason a stop on this
   # path is not a power cut. No transport: it is an `ExecStop` on the VM's own
   # unit, so it is already in that capsule's namespace and the guest is one hop
@@ -524,6 +536,7 @@ in {
       # falling back to `capsules.default`.
       environment.systemPackages =
         [
+          cli
           (wrap "capsule-provision" hostPrograms.provision)
           (wrap "capsule-collect" hostPrograms.collect)
           hostPrograms.inject

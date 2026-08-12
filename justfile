@@ -4,8 +4,13 @@
 # the git channel's capsule-provision / capsule-collect) comes from the devshell
 # and is not wrapped here — each is already one command. What is here is the
 # stuff that has no home otherwise: the pre-commit gate, the questions that need
-# more than one command to answer, and the **module** path's lifecycle, which is
-# three commands with two traps in them (`up` / `down` / `refresh`).
+# more than one command to answer, and the **module** path's create step, which
+# is the one part of a capsule's life that needs this flake.
+#
+# Everything else about a running capsule is `capsule <name> <verb>`
+# (host/cli.nix) and the recipes below delegate to it, because a capsule outlives
+# this checkout: the units are on the host and a human logged into it has no repo.
+# Where a recipe still exists, it is for its default or its comment.
 
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
 nix_paths := "flake.nix net.nix target.nix capsules.nix setup.nix perimeter host vm"
@@ -18,22 +23,6 @@ _net key:
 # same for the repo under confinement — target.nix or it drifts
 _target key:
   @nix eval --json --file target.nix {{key}} | tr -d '"'
-
-# Run one of the four host programs at a capsule, with the copy that can reach
-# it. Two copies of each exist by design — the devshell's goes straight over a
-# tap, the module's crosses that capsule's relay socket — and inside the repo the
-# devshell's shadow the module's on PATH, which is a timeout that reads as a dead
-# guest (CLAUDE.md). The programs refuse rather than guess; a recipe is a human's
-# front end, so choosing here is the same latitude `_guest-ssh` already takes.
-_capsule prog name *args:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  bin={{prog}}
-  if [ -S "/run/capsule/{{name}}/ssh.sock" ] \
-     && [ -x "/run/current-system/sw/bin/{{prog}}" ]; then
-    bin="/run/current-system/sw/bin/{{prog}}"
-  fi
-  exec "$bin" --capsule {{name}} {{args}}
 
 # a capsule's quarantine, wherever this host keeps it: /var/lib/capsule (module
 # path) or .vm/host. Same search order as the programs' own defaults.
@@ -83,7 +72,8 @@ fmt-check:
 # capsule-baseline exists only while the target declares a `baseline`; a target
 # that omits it drops that line, and the build says so rather than skipping it.
 build:
-  nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#capsule-halt' \
+  nix build --no-link '.#capsule-cli' \
+    '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#capsule-halt' \
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
@@ -112,13 +102,12 @@ verify:
 # The devshell path has none of this and is unaffected — but run one shape or
 # the other, never both, which is what `up` refuses on.
 
-# where microvm.nix keeps a created VM. `tap-up` is what both microvm@<name> and
-# its tap unit are conditioned on, so its absence is what a missing create
-# actually looks like — reported as a dependency failure naming neither (README).
-microvms := "/var/lib/microvms"
-
-# Starting is the whole capsule: the drop-ins pull its namespace in first, and
-# the VM wants its proxy and its ssh relay.
+# Creating is the one part of a capsule's lifecycle that needs *this* flake:
+# `microvm -c <name>` resolves the instance's name as a flake attribute (notes
+# item 21), so it cannot be done from a host with no checkout. Everything after it
+# is `capsule <name> start` — the stay-up assertion, the reload trap and the
+# journal tail all live there now, where a human logged into the host can reach
+# them (host/cli.nix).
 #
 # create if this host has never seen this capsule, then start it (root)
 up name="capsule":
@@ -131,7 +120,7 @@ up name="capsule":
     echo "  perimeters over one guest is worse than one, not safer." >&2
     exit 1
   fi
-  if [ -x "{{microvms}}/{{name}}/current/bin/tap-up" ]; then
+  if capsule {{name}} created; then
     echo "{{name}}: created already"
   else
     # The flake ref carries no fragment: the CLI appends
@@ -141,43 +130,11 @@ up name="capsule":
     echo "{{name}}: never created on this host — creating"
     sudo microvm -c {{name}} -f "{{justfile_directory()}}"
   fi
-  # A host rebuild that changes this unit's drop-ins does not reach a unit that
-  # is already running or mid-restart: systemd keeps the loaded fragment and
-  # only records NeedDaemonReload, and a reload cannot swap it while a job is
-  # pending. What starts then is the *bare* microvm.nix template — Restart=always,
-  # no namespace, the old ExecStop — so firecracker runs in the root namespace,
-  # where its tap is not, and EPERMs in a five-second loop (CLAUDE.md: EPERM on
-  # the tap means no tap). Stop first, reload while it is stopped, then start.
-  if [ "$(systemctl show microvm@{{name}} -P NeedDaemonReload)" = yes ]; then
-    echo "{{name}}: unit changed on disk since it was loaded — reloading first"
-    sudo systemctl stop microvm@{{name}}
-    sudo systemctl daemon-reload
-  fi
-  # `|| true` because the assertion below is the better error: it reports what
-  # the VMM said rather than that a start returned nonzero.
-  sudo systemctl start microvm@{{name}} || true
-  # A start returns once the VMM is exec'd, and a VMM that cannot open its tap
-  # is gone again in milliseconds — which is how a crash loop reads as a
-  # successful `up`. So ask again, after long enough for that to have happened.
-  sleep 2
-  if [ "$(systemctl show microvm@{{name}} -P SubState)" != running ]; then
-    echo "just up: {{name}} did not stay up —" >&2
-    journalctl -u microvm@{{name}} -n 15 --no-pager -o cat >&2
-    exit 1
-  fi
-  journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null || true
+  capsule {{name}} start
 
-# Not a power cut: `capsule-halt` asks the guest to reboot, it unmounts and then
-# its reset exits the VMM (notes item 11), and microvm.nix's own ExecStop blocks
-# until that happens. The journal tail is the evidence — `reboot requested` and
-# then a return, rather than 120 s of TimeoutStopSec.
-#
 # stop it cleanly, and show what the stop actually did (root)
 down name="capsule":
-  #!/usr/bin/env bash
-  set -euo pipefail
-  sudo systemctl stop microvm@{{name}}
-  journalctl -u microvm@{{name}} -n 12 --no-pager -o cat 2>/dev/null || true
+  @capsule {{name}} stop
 
 # Nothing reaches a created VM until its state directory is rebuilt, because
 # that directory is what it tracks. Cleanly down first, so the update never
@@ -241,30 +198,23 @@ status name="capsule":
 #
 # push a ref into a capsule's checkout
 provision name="capsule" ref="" *flags:
-  @just _capsule capsule-provision {{name}} {{ref}} {{flags}}
+  @capsule {{name}} provision {{ref}} {{flags}}
 
 # the non-git half: credentials and anything else setup.nix declares
 inject name="capsule" *args:
-  @just _capsule capsule-inject {{name}} {{args}}
+  @capsule {{name}} inject {{args}}
 
 # the target's own build-and-test in the guest, with its record on the volume
 baseline name="capsule" *flags:
-  @just _capsule capsule-baseline {{name}} {{flags}}
+  @capsule {{name}} baseline {{flags}}
 
 # what the capsule has produced, into this host's quarantine
 collect name="capsule":
-  @just _capsule capsule-collect {{name}}
+  @capsule {{name}} collect
 
-# All three, in the only order they work in, which is also the order that makes
-# a fresh capsule usable (docs/design.md's three setup problems). Ends attached
-# to the baseline, so it finishes when the build does — Ctrl-C leaves that run
-# going in the guest and `just baseline <name>` re-attaches.
-#
 # a fresh capsule to green: provision, inject, baseline
 setup name="capsule" ref="":
-  @just provision {{name}} {{ref}}
-  @just inject {{name}}
-  @just baseline {{name}}
+  @capsule {{name}} setup {{ref}}
 
 # what a capsule has produced, as collected
 branches name="capsule":
@@ -388,54 +338,22 @@ proxy-log:
 allowed:
   @cat "${CAPSULE_ALLOWLIST:-$(just _target allowlist)}"
 
+# A trailing command is word-split rather than carried as argv: just hands a
+# recipe its arguments by interpolation, not on a command line, and ssh joins its
+# remote words with spaces anyway. Quote-sensitive commands want a heredoc into an
+# interactive session; this is a human's front end. Which door and which transport
+# is `capsule <name> ssh`'s question, not a recipe's (host/cli.nix).
+#
 # a shell in the guest as the agent — TUIs work here, not on the console. With a
 # command it runs that instead, which is the only way to ask a capsule something
 # without becoming a human reading a prompt: every capsule is the same image, so
 # every one of them says `agent@capsule` and the prompt identifies nothing.
 ssh name="capsule" *cmd:
-  @stty sane # in case echo got stuck on — silent, or it lands in a captured command
-  @just _guest-ssh agent {{name}} {{cmd}}
+  @capsule {{name}} ssh {{cmd}}
 
 # root in the guest — admin from outside the jail; the agent has no path to it
 admin name="capsule" *cmd:
-  @just _guest-ssh root {{name}} {{cmd}}
-
-# One door, two transports. On the module shape the guest is not routable from
-# here at all and the way in is the capsule's relay socket — which is also its
-# identity, so `HostKeyAlias` files each capsule's host key under its own name
-# instead of N capsules fighting over one address's entry. The interactive paths
-# keep strict host-key checking on purpose: a human is present to read it.
-#
-# A trailing command is word-split rather than carried as argv: just hands a
-# recipe its arguments by interpolation, not on a command line, and ssh joins its
-# remote words with spaces anyway. Quote-sensitive commands want a heredoc into
-# an interactive session; this is a human's front end.
-_guest-ssh user name *cmd:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  sock="/run/capsule/{{name}}/ssh.sock"
-  set -- {{cmd}}
-  if [ -S "$sock" ]; then
-    exec ssh -o HostKeyAlias="capsule-{{name}}" \
-      -o ProxyCommand="socat - UNIX-CONNECT:$sock" \
-      "{{user}}@$(just _net guest)" ${1+"$@"}
-  fi
-  # No socket for this capsule, but one for another, means the module path owns
-  # this host and the named capsule is simply not up. Going direct from here
-  # reaches for a `net.guest` whose tap is inside somebody's namespace, and that
-  # is a timeout that reads as a dead guest — the failure the four programs were
-  # taught to refuse (NOTES item 20). Refuse it here too, and name the capsules
-  # that do have a door.
-  shopt -s nullglob
-  doors=()
-  for s in /run/capsule/*/ssh.sock; do s=${s%/ssh.sock}; doors+=("${s##*/}"); done
-  if [ ${#doors[@]} -gt 0 ]; then
-    echo "no relay socket for '{{name}}', and the module path owns this host." >&2
-    echo "  capsules with a door: ${doors[*]}" >&2
-    echo "  'just up {{name}}' if it should be running." >&2
-    exit 1
-  fi
-  exec ssh "{{user}}@$(just _net guest)" ${1+"$@"}
+  @capsule {{name}} admin {{cmd}}
 
 # a fresh capsule has fresh host keys at the same address, because they live on
 # its volume — so the interactive paths above refuse. The programs don't: they

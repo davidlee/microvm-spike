@@ -5,7 +5,8 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-13, after the load figure, and before that 2026-08-12,
+Last updated 2026-08-13, after the `capsule` CLI and the load figure before it,
+and before that 2026-08-12,
 when the units ran at N=1 and `probe-netns-egress`
 re-ran 27/27 behind them — and then after the one bug that stood between N=1 and
 N=2: a host program's transport is an argument now ([notes](./notes.md) item 20),
@@ -20,6 +21,21 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
 
 ## Where it got to
 
+- **There is a `capsule` CLI, and the justfile got smaller rather than larger.**
+  `host/cli.nix` — `capsule [<name>] <verb> [args…]`, name first, omitted meaning
+  `capsules.default`: `start`, `stop`, `created`, `ssh`, `admin`, `setup`, and the
+  four programs by name. The split it draws is the one that matters: `microvm -c`
+  resolves an instance name as a flake attribute, so **creating** a capsule needs
+  this checkout and **running** one must not — the units are on the host and a
+  human logged into it has no repo. `just up` keeps the create and the tap
+  refusal; `_capsule` and `_guest-ssh` are deleted rather than wrapped, and the
+  recipes that remain are one-line delegations. One store path, installed by both
+  paths, because unlike the four programs it carries no transport
+  ([notes](./notes.md) item 20). **Not run yet** — it needs `just build` for
+  shellcheck and a host rebuild to reach `/run/current-system/sw/bin`; the
+  rendered script is shellchecked clean and its argument parsing exercised by
+  hand. `status` is deliberately not a verb yet: that is the next piece, with the
+  namespace blindness below.
 - **The netns boot is verified.** `sudo probe-netns-boot`, 9/9 — firecracker comes
   up with its tap created inside a namespace, the guest boots and answers ssh in
   there, and the tap, the guest and its ssh port are all unreachable from the root
@@ -124,10 +140,10 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
   being theoretical: one image means every guest is `agent@capsule`, so the two
   `history.tsv` rows were indistinguishable by prompt and the differing durations
   were the evidence. The price is [notes](./notes.md) item 21's, knowingly paid.
-  What was missing was a way to *ask*: `just ssh <name> <cmd>` and `just admin
-  <name> <cmd>` now pass a command through, and `_guest-ssh` refuses instead of
-  falling through to an unroutable `net.guest` when the named capsule has no relay
-  socket but another capsule does — the timeout-that-reads-as-a-dead-guest the
+  What was missing was a way to *ask*: `capsule <name> ssh <cmd>` and `capsule
+  <name> admin <cmd>` pass a command through (`just ssh`/`just admin` delegate),
+  and the door refuses instead of falling through to an unroutable `net.guest`
+  when the named capsule has no relay socket but another capsule does — the timeout-that-reads-as-a-dead-guest the
   four programs were already taught to refuse ([notes](./notes.md) item 20).
 - **Two capsules run at once, 28/28, twice.** One runner store path, two namespaces, two
   volumes, two base commits; all four independences hold and the second capsule
@@ -280,11 +296,17 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    peaks it actually set. No `.vm/load.tsv` was taken, so **cpu and io pressure
    under concurrent load are still unmeasured**; the durations and the kernel's
    peaks are the whole result.
-7. **What is left of Plan C item 7**, and it is now the front of the queue: the
-   `capsule` CLI (naming decided in [notes](./notes.md) item 20 — resolve a name
-   and exec), per-capsule secret injection at start, and `just
-   status`/`fetch`/`branches` aggregating. `just status` is still blind inside a
-   namespace it does not own, which is the path that has more than one capsule.
+7. **What is left of Plan C item 7.** Three pieces, and the first is written:
+   - ~~the `capsule` CLI~~ **written, unrun** — see above and
+     [notes](./notes.md) item 20. Wants `just build` (shellcheck) and a host
+     rebuild before it can be believed on the module path.
+   - **`capsule <name> status` and the aggregates.** `just status` is still blind
+     inside a namespace it does not own, which is exactly the path that has more
+     than one capsule — fix that first or the aggregate lies. `just
+     fetch`/`branches` aggregating comes with it.
+   - **Per-capsule secret injection at start**, so a capsule is usable without a
+     separate `capsule-inject` step ([plan C](./plan-c-multi-capsule.md#secrets-and-home-at-n)
+     has the two shapes and the one interface).
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).

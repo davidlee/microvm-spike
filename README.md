@@ -180,6 +180,14 @@ capsule and refuses while the devshell shape holds the tap, `down` shows what
 the stop actually did, and `refresh` takes it cleanly down before rebuilding the
 state directory. The commands above are what they run.
 
+**Only the create needs this checkout.** `microvm -c <name>` resolves the
+instance's name as a flake attribute, so it is the one part of a capsule's life
+that cannot happen without the flake — which is why `just up` still exists.
+Everything after it is `capsule <name> start | stop | ssh | admin | provision |
+inject | baseline | collect | setup`, installed on the host by the module, so a
+human logged in with no repo has the whole lifecycle. The recipes delegate to it
+rather than keeping a second copy.
+
 **A second capsule is a name and a create, not a second image.** Declare it in
 `capsules.nix` (its own index; at most 11 characters), rebuild the host so its
 namespace, proxy and relay units exist, then create and start it exactly as
@@ -191,8 +199,8 @@ one does not say which one you are in.
 
 ```
 sudo microvm -c capsule-b -f /home/david/dev/microvm-spike
-sudo systemctl start microvm@capsule-b
-capsule-provision --capsule capsule-b   # and inject / baseline / collect alike
+capsule capsule-b start
+capsule capsule-b setup main            # provision, inject, baseline
 ```
 
 The cost of imperative is that the state directory is not derived from anything:
@@ -357,10 +365,17 @@ just fetch                 # second step: quarantine -> the repo you work in
 
 Those four take `--capsule <name>` (or `CAPSULE_NAME`, or the default `capsule`)
 to say which capsule they mean. On the devshell path there is only one, and a
-second name is refused rather than quietly served.
+second name is refused rather than quietly served. `capsule <name> <verb>` is the
+front end that supplies the flag and picks the copy of each that can reach the
+capsule named — the programs refuse rather than guess, so choosing is a front
+end's job.
+
+| command             | what                                                       |
+| ------------------- | ---------------------------------------------------------- |
+| `capsule [name] <verb>` | resolve a capsule and run a verb at it: `start`, `stop`, `created`, `ssh`, `admin`, `setup`, or any of the four above. |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). Devshell shape. |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket. Devshell shape. |
-| `just ssh [name]`   | a shell in the guest — over the relay socket if the capsule has one. |
+| `just ssh [name]`   | `capsule <name> ssh`, from the checkout — over the relay socket if the capsule has one. |
 | `just units`        | the units the host module generates, without rebuilding a host. |
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |
 | `sudo probe-netns-boot` | evidence: does the capsule boot with its tap in one?     |
@@ -375,8 +390,9 @@ The probes are answers kept runnable, not tools — see [docs/probes.md](./docs/
 again, so it refuses to start beside `capsule-net up` or a running VM; run it
 from the repo, since `$PWD/.vm` is where the VM's state lives.
 
-Those are the lifecycle; `just` has everything that needs more than one command
-to answer, and does not wrap them. `just check` is the gate (every nix file
+Those are the lifecycle; `just` has the gate, the create, and everything that
+needs more than one command to answer — the run-time verbs are `capsule`'s and the
+recipes delegate. `just check` is the gate (every nix file
 parses and is alejandra-clean — no eval, so it can't trigger a VM build).
 `just status` puts the VM, the tap, the listener, the perimeter's verdict, the
 units and what has been collected on one screen. Then `just verify`,
