@@ -31,6 +31,7 @@ let
   # single-capsule state this host already has survives becoming instance zero.
   declared = {
     capsule = {index = 0;};
+    capsule-b = {index = 1;};
   };
 
   # The capsule a program means when nothing names one. Every host-side program

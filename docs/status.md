@@ -9,6 +9,8 @@ Last updated 2026-08-12, after the units ran at N=1 and `probe-netns-egress`
 re-ran 27/27 behind them — and then after the one bug that stood between N=1 and
 N=2: a host program's transport is an argument now ([notes](./notes.md) item 20),
 and `probe-two-capsules` re-ran 28/28 on it with one program set instead of two.
+A second capsule is declared and wired since ([notes](./notes.md) item 21); the
+host rebuild that runs it is step 5 below and has not happened.
 
 ## Where it got to
 
@@ -205,12 +207,33 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    acceptance test is the probe that exposed the bug, and it now runs one set of
    programs twice. What that run does *not* cover is the module path's copy of the
    same programs, which needs a host rebuild.
-5. N=2 through the module — a second entry in `capsules.nix`, a rebuild, `sudo
-   microvm -c <name> -f …`, `systemctl start` — and then two
-   `capsule-baseline`s at once, which is the load question below and cannot be
-   asked before this. The stop that had to be settled first is settled (above);
-   what that rebuild verifies alongside N=2 is the unit's `ExecStop`, since a
-   power cut mid-cold-build is how a 109 s figure becomes a corrupted volume.
+5. N=2 through the module. **Declared and wired; unrun** — `capsule-b` is index
+   1 in `capsules.nix`, and every declared capsule is now an attribute of
+   `nixosConfigurations` bound to *one* value, because `microvm -c <name>`
+   resolves the instance's name as a flake attribute and the per-instance
+   `mkVm` that would satisfy it is a second guest image
+   ([notes](./notes.md) item 21). The same rebuild carries one small fix: the
+   ssh relay declares `SuccessExitStatus=143`, since socat exits on SIGTERM
+   itself and left the unit `failed` after every ordinary stop. What remains is
+   the host's, in order:
+   - rebuild, then **`just refresh capsule`** — which stops it, and that stop is
+     the unit `ExecStop`'s only test. The journal it prints should show `reboot
+     requested` and then microvm.nix's own command returning, not a 120 s
+     timeout. A timeout means the guest never took the request: check
+     `/var/lib/capsule-stop/key` first (0400 `microvm:kvm`, present on Sleipnir).
+   - **`just up capsule-b`** — it creates on first sight and starts. Expect
+     `capsule-perimeter-guard` to report 2 namespaces verified, and the same
+     runner store path under both state directories, which is the claim the
+     one-value mapping makes.
+   - provision, inject and baseline the second one **through the module's
+     copies** (`/run/current-system/sw/bin/capsule-provision`, or leave the
+     devshell — CLAUDE.md), which is also what closes item 20's unrun half.
+   - then two `capsule-baseline`s at once, which is the load question below and
+     cannot be asked before this.
+
+   The stop that had to be settled first is settled (above); a power cut
+   mid-cold-build is how a 109 s figure becomes a corrupted volume, which is why
+   the `ExecStop` is tested before anything is asked to build.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).

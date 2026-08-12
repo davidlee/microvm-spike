@@ -298,6 +298,10 @@
         SystemCallArchitectures = "native";
         SystemCallFilter = ["@system-service" "~@privileged"];
         RestrictAddressFamilies = ["AF_INET" "AF_UNIX"];
+        # socat catches SIGTERM and exits 143 itself rather than dying of it, so
+        # every ordinary stop left this unit `failed` — which spends the one
+        # signal that is supposed to mean the perimeter is wrong.
+        SuccessExitStatus = "143";
         IPAddressAllow = ["${net.guest}/32"];
         IPAddressDeny = "any";
         MemoryMax = "64M";

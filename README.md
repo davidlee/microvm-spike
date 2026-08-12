@@ -174,6 +174,27 @@ sudo systemctl start microvm@capsule                       # every time
 sudo microvm -u capsule                                    # after a guest change
 ```
 
+Those three, with their traps, are `just up <name>` / `just down <name>` /
+`just refresh <name>` — `up` creates only if this host has never seen the
+capsule and refuses while the devshell shape holds the tap, `down` shows what
+the stop actually did, and `refresh` takes it cleanly down before rebuilding the
+state directory. The commands above are what they run.
+
+**A second capsule is a name and a create, not a second image.** Declare it in
+`capsules.nix` (its own index; at most 11 characters), rebuild the host so its
+namespace, proxy and relay units exist, then create and start it exactly as
+above under its own name. Every declared capsule is the *same*
+`nixosConfigurations` value, so they share one runner store path and one 12 GiB
+image — what differs is the namespace, the volume and the state directory. The
+hostname is `capsule` in all of them for that reason, so the shell prompt inside
+one does not say which one you are in.
+
+```
+sudo microvm -c capsule-b -f /home/david/dev/microvm-spike
+sudo systemctl start microvm@capsule-b
+capsule-provision --capsule capsule-b   # and inject / baseline / collect alike
+```
+
 The cost of imperative is that the state directory is not derived from anything:
 a guest closure edit reaches the VM when `microvm -u` rebuilds
 `/var/lib/microvms/<name>/current`, and not before. A rebuild of the *host* moves

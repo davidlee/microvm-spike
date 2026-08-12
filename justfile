@@ -1,10 +1,11 @@
 # capsule — firecracker agent jail. README.md is usage, docs/ is everything else.
 #
-# The lifecycle commands (capsule-net, capsule-host, vm, vm-stop, and the git
-# channel's capsule-provision / capsule-collect) come from the devshell and are
-# not wrapped here. What is here is the stuff
-# that has no home otherwise: the pre-commit gate, and the questions that need
-# more than one command to answer.
+# The **devshell** path's lifecycle (capsule-net, capsule-host, vm, vm-stop, and
+# the git channel's capsule-provision / capsule-collect) comes from the devshell
+# and is not wrapped here — each is already one command. What is here is the
+# stuff that has no home otherwise: the pre-commit gate, the questions that need
+# more than one command to answer, and the **module** path's lifecycle, which is
+# three commands with two traps in them (`up` / `down` / `refresh`).
 
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
 nix_paths := "flake.nix net.nix target.nix capsules.nix setup.nix perimeter host vm"
@@ -84,6 +85,81 @@ build-vm:
 # is the host-side perimeter loaded? dropped / latent / open
 verify:
   capsule-net verify
+
+# --------------------------------------------------------- the module path
+#
+# Three commands because a capsule under systemd is not one: it has to be
+# created before it can start, its state directory tracks that directory rather
+# than the flake, and a stop is a request the *guest* carries out. Each recipe
+# below is one of those three with the trap that goes with it.
+#
+# The devshell path has none of this and is unaffected — but run one shape or
+# the other, never both, which is what `up` refuses on.
+
+# where microvm.nix keeps a created VM. `tap-up` is what both microvm@<name> and
+# its tap unit are conditioned on, so its absence is what a missing create
+# actually looks like — reported as a dependency failure naming neither (README).
+microvms := "/var/lib/microvms"
+
+# Starting is the whole capsule: the drop-ins pull its namespace in first, and
+# the VM wants its proxy and its ssh relay.
+#
+# create if this host has never seen this capsule, then start it (root)
+up name="capsule":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  tap=$(just _net tap)
+  if ip link show "$tap" >/dev/null 2>&1; then
+    echo "just up: refusing — $tap is in the root namespace, so the devshell" >&2
+    echo "  shape is up. 'vm-stop' then 'capsule-net down' first: two" >&2
+    echo "  perimeters over one guest is worse than one, not safer." >&2
+    exit 1
+  fi
+  if [ -x "{{microvms}}/{{name}}/current/bin/tap-up" ]; then
+    echo "{{name}}: created already"
+  else
+    # The flake ref carries no fragment: the CLI appends
+    # #nixosConfigurations.<name>.config.microvm.declaredRunner itself, so a
+    # fragment asks for that attribute *of* a package and reads as a missing
+    # output. Root, for /var/lib/microvms and the gcroots.
+    echo "{{name}}: never created on this host — creating"
+    sudo microvm -c {{name}} -f "{{justfile_directory()}}"
+  fi
+  sudo systemctl start microvm@{{name}}
+  journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null || true
+
+# Not a power cut: `capsule-halt` asks the guest to reboot, it unmounts and then
+# its reset exits the VMM (notes item 11), and microvm.nix's own ExecStop blocks
+# until that happens. The journal tail is the evidence — `reboot requested` and
+# then a return, rather than 120 s of TimeoutStopSec.
+#
+# stop it cleanly, and show what the stop actually did (root)
+down name="capsule":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  sudo systemctl stop microvm@{{name}}
+  journalctl -u microvm@{{name}} -n 12 --no-pager -o cat 2>/dev/null || true
+
+# Nothing reaches a created VM until its state directory is rebuilt, because
+# that directory is what it tracks. Cleanly down first, so the update never
+# lands under a mounted volume, and back up only if it was up.
+#
+# after a guest change: rebuild its state directory, restart if it was running
+refresh name="capsule":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if systemctl is-active --quiet microvm@{{name}}; then
+    running=yes
+    just down {{name}}
+  else
+    running=no
+  fi
+  sudo microvm -u {{name}}
+  if [ "$running" = yes ]; then
+    just up {{name}}
+  else
+    echo "{{name}}: updated, and it was not running — 'just up {{name}}'"
+  fi
 
 # VM, tap, listener, perimeter, quarantine, units — one screen
 #

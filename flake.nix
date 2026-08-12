@@ -55,7 +55,9 @@
     # are not instances, and must not spell that path a second time.
     inherit (capsules) socketOf;
 
-    mkVm = name: module:
+    # `hostName`, not the instance's name: the hostname is in the closure, so a
+    # per-instance one is a per-instance image (docs/plan-c-implementation.md).
+    mkVm = hostName: module:
       lib.nixosSystem {
         inherit system;
         specialArgs = {inherit inputs net target;};
@@ -63,16 +65,28 @@
           microvm.nixosModules.microvm
           ./vm/common.nix
           module
-          {networking.hostName = name;}
+          {networking.hostName = hostName;}
         ];
       };
 
-    vms = {
-      # Smoke test: does firecracker boot at all on this host. No network.
-      hello = mkVm "hello" ./vm/hello.nix;
-      # The agent jail.
-      capsule = mkVm "capsule" ./vm/capsule.nix;
-    };
+    # The agent jail. One value, however many capsules run it.
+    capsuleVm = mkVm "capsule" ./vm/capsule.nix;
+
+    vms =
+      {
+        # Smoke test: does firecracker boot at all on this host. No network.
+        hello = mkVm "hello" ./vm/hello.nix;
+      }
+      # An attribute per declared capsule, because `microvm -c <name> -f .` is
+      # what creates one and it resolves `nixosConfigurations.<name>` (CLAUDE.md
+      # — the CLI appends that itself and takes no fragment). Every one of them
+      # is the *same* value rather than a rebuild of it, so identical modules
+      # make an identical derivation and "one image, N capsules" is structural
+      # instead of a claim: nothing has to remember to keep two guests in step,
+      # because there are not two. The cost is that the prompt no longer says
+      # which capsule you are in — priced in plan-c-implementation.md, not
+      # solved.
+      // lib.mapAttrs (_: _: capsuleVm) capsules.instances;
 
     # Is the host-side half of the perimeter loaded? Injected into the
     # jail-agnostic perimeter as `preflight` + `watch` and shared verbatim with

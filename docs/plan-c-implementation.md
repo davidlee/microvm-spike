@@ -12,8 +12,8 @@ Read this before touching anything; it is the whole surface.
 | file | what it hardcodes | becomes |
 | --- | --- | --- |
 | `net.nix` | one tap, one /30, one MAC, one port | **unchanged** — under netns every capsule has that same link; what differs is in `capsules.nix` |
-| `flake.nix` `mkVm` | `specialArgs = {inputs, net, target}` | plus the instance record |
-| `flake.nix` `vms` | `hello`, `capsule` | `capsule-<name>` per instance, `hello` unchanged |
+| `flake.nix` `mkVm` | `specialArgs = {inputs, net, target}` | **unchanged, deliberately** — an instance record in here is a closure per instance (notes item 21) |
+| `flake.nix` `vms` | `hello`, `capsule` | **done** — an attribute per declared capsule, every one of them bound to the same `capsuleVm` value; `hello` unchanged |
 | `flake.nix` `perimeter` | one import, one bind/client | one per instance, or one taking the set |
 | `flake.nix` `capsule-net` | `tap=${net.tap}`, one address | takes an instance, or is retired by the host module |
 | `flake.nix` `vm` | `nix run "$root#$name"`, cwd `.vm/$name` | unchanged if instances are attr names |
@@ -192,10 +192,12 @@ so the host end is derivable from the guest's own address** — `10.99.i.2` impl
 and it is also the point where option 2 stops being obviously cheaper than option
 1. Cost it properly before committing.
 
-`hostname` is in the closure too (`networking.hostName = name` in `mkVm`), so
-one-image sharing means the hostname is generic and the *prompt* stops telling
-you which capsule you are in. That is a usability regression worth pricing:
-`systemd.hostname=` on the kernel cmdline may cover it — verify, don't assume.
+`hostname` is in the closure too, so one-image sharing means the hostname is
+generic and the *prompt* stops telling you which capsule you are in. **Paid:**
+`mkVm` takes a `hostName` rather than the instance's name, and every capsule is
+`capsule` (notes item 21). It is a usability regression, not a solved problem —
+and `systemd.hostname=` on the kernel cmdline does not fix it, since a
+per-instance cmdline is a per-instance closure by another route.
 
 ## Verification checklist
 
