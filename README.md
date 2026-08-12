@@ -3,7 +3,10 @@
 > An oubliette is a deep, medieval dungeon chamber, shaped like a bottle to make 
 > climbing out impossible. A solitary trapdoor in the ceiling is the only 
 > entry. There is no exit.
- 
+
+![oubliette](./oubliette.png)
+
+
 A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM.nix](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. It holds a
 real git clone of one **target** repo — `target.nix`, here `~/dev/doctrine` —
 carries that project's tool set, and has exactly enough network to work and no
@@ -143,8 +146,11 @@ host's config is fetchable from darwin only because it does not (the `git+file:`
 target path exists on one machine). So:
 
 ```
-microvm -c capsule -f /home/david/dev/microvm-spike#capsule   # once
-systemctl start microvm@capsule                              # every time
+# the flake ref carries no fragment: `microvm` appends
+# #nixosConfigurations.<name>.config.microvm.declaredRunner itself, and needs
+# root for /var/lib/microvms and the gcroots.
+sudo microvm -c capsule -f /home/david/dev/microvm-spike   # once
+sudo systemctl start microvm@capsule                       # every time
 ```
 
 Wired in on Sleipnir: `~/flakes/modules/nixos/capsule.nix`, imported from
