@@ -424,6 +424,44 @@
       ];
     };
 
+    # The claim neither of those two makes: does the *perimeter* survive the move
+    # into a namespace (docs/status.md, "Egress under netns is unproven")? Boots
+    # the real capsule, joins the real proxy to its namespace, and asks the guest
+    # to get out — to a host the allowlist permits and to one it does not. Takes
+    # the proxy as a store path rather than rebuilding one, because a probe
+    # against a lookalike proves nothing about the program that ships.
+    probe-netns-egress = probe {
+      name = "probe-netns-egress";
+      script = ./probe/netns-egress.sh;
+      prelude = ''
+        TAP="${net.tap}"
+        HOST_ADDR="${net.host}"
+        GUEST_ADDR="${net.guest}"
+        PREFIX="${toString net.prefix}"
+        PROXY_PORT="${toString net.proxyPort}"
+        VM="capsule"
+        PROXY="${perimeter.proxy}/bin/capsule-proxy"
+        ALLOWLIST="${target.allowlist}"
+      '';
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.iputils
+        pkgs.nftables
+        pkgs.procps
+        pkgs.coreutils
+        pkgs.gnugrep
+        pkgs.gnused # the allowed host comes out of the allowlist, not the probe
+        pkgs.gawk
+        pkgs.util-linux # runuser: enter the namespace as root, boot the VM as you
+        pkgs.glibc.bin # getent, for the human's home directory
+        pkgs.bash # /dev/tcp, host-side and (over ssh) guest-side
+        pkgs.socat
+        pkgs.openssh
+        pkgs.bind.dnsutils
+        pkgs.nix # builds the runner, as the human
+      ];
+    };
+
     # What does a fresh capsule cost, and which of REQ-450's five freshness axes
     # does a microVM actually satisfy (doctrine IMP-426 P1a)? Boots the real
     # guest image, twice, against its *own* state directory — freshness means
@@ -598,7 +636,8 @@
       // {
         inherit vm vm-stop capsule-net capsule-host;
         inherit capsule-provision capsule-collect capsule-inject;
-        inherit probe-netns probe-netns-boot probe-freshness probe-two-capsules;
+        inherit probe-netns probe-netns-boot probe-netns-egress;
+        inherit probe-freshness probe-two-capsules;
         default = self.packages.${system}.capsule;
       };
 
@@ -614,6 +653,7 @@
           capsule-inject
           probe-netns
           probe-netns-boot
+          probe-netns-egress
           probe-freshness
           probe-two-capsules
           pkgs.firecracker

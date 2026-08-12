@@ -78,7 +78,52 @@ sources of truth.
 
 ## Per-instance units, not templates
 
-`host/services.nix` grows from three units to `2N + 1`:
+First, what the namespace itself costs, because an earlier reading of this — "one
+oneshot unit and two drop-ins" — is the namespace and not the perimeter.
+`probe-netns-egress` built the whole thing by hand and it holds
+([results](./probes.md)); this is that run, translated into units:
+
+```
+capsule-netns@<name>       root oneshot, RemainAfterExit: ip netns add/del,
+                           net.ipv4.ip_forward=0 inside it, before
+                           microvm-tap-interfaces@<name>
+capsule-egress-ns          root oneshot, one of them: the aggregating namespace
+                           every capsule's proxy leaves through — forwarding on,
+                           and the two drops below
+capsule-egress-link@<name> root oneshot: the veth pair from the capsule's
+                           namespace to the aggregator, and the capsule's default
+                           route through it
+```
+
+plus, host-side and not in any namespace, NAT for the capsule networks and
+`ip_forward` on the host — for the *proxy's* egress, with nothing about the
+guest's confinement resting on it (which is the inversion
+[here](./plan-c-multi-capsule.md#what-it-does-to-the-host-config-dependency)).
+
+Three rules, and each was verified by deleting it and watching the wall fall
+over:
+
+```
+# in the capsule namespace: the proxy's way out is a local address there, so a
+# guest packet to it is INPUT and no forwarding switch touches it
+iifname "<tap>" ip daddr != <tap address> drop
+# in the aggregator: capsule to capsule. A clean wildcard — it matches links,
+# not addresses, so adding a capsule needs no edit
+iifname "cap-*" oifname "cap-*" drop
+# in the aggregator: and capsule to the host's own networks, with the resolver
+# allowed narrowly ahead of it
+ip daddr <resolver> udp dport 53 accept
+ip saddr <capsule nets> ip daddr { 10/8, 172.16/12, 192.168/16 } drop
+```
+
+And one host-config edit, which is not optional and is not a follow-up:
+`services.resolved.extraConfig` with `DNSStubListenerExtra=` on the
+capsule-facing address, plus an input allow for port 53 on that link. Without it
+a capsule namespace has no resolver at all — `127.0.0.53` is the *root*
+namespace's loopback — and the tempting fix (a public resolver in
+`/etc/netns/<ns>/resolv.conf`) silently drops the host's DoT chain.
+
+Then `host/services.nix` grows from three units to `2N + 1`:
 
 ```
 capsule-perimeter-guard.service      one, root, verifies the table (not the taps)
@@ -171,6 +216,20 @@ exist once N > 1:
    some of them is worse than no guard, because the survivors look healthy.
 5. The guard's rule match understands the wildcard. Test by renaming a tap
    outside the pattern and confirming the check refuses rather than passing.
+
+Most of 1 and 2 already have an answer under netns — `probe-netns-egress` asserts
+them of one capsule and a VM-less sibling, controls included, and it runs in a
+couple of minutes. So the unit-side verification is *that probe's list against
+units*, not a fresh design: if a claim it makes stops holding once systemd owns
+the namespace, the units are wrong. Re-run it after the wiring lands, and treat a
+divergence as a bug in the units rather than as a new question.
+
+One claim it cannot make and the units must: **DNS through the host's own
+chain.** The probe fell back to a public resolver because this host has no stub
+on the capsule-facing address, so "the guest's lookups inherit the host's DoT
+chain" is currently true of the tap shape and unproven of the netns one. Assert
+it explicitly once the `~/flakes` edit is in — a resolver that answers is not
+evidence that the right resolver answered.
 
 ## Traps already paid for
 

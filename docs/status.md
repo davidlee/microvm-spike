@@ -18,6 +18,18 @@ first run — which took the cold build.
   closed item 18's unmeasured `ProxyCommand`. It needed no host config: the boot
   was never systemd's question. **Nothing in the netns shape is unverified now** —
   see [probes.md](./probes.md).
+- **The perimeter survives the move into a namespace.** `sudo
+  probe-netns-egress`, 27/27 on the first run — the real capsule, the real
+  `capsule-proxy` joined to its namespace, the guest getting a 200 for an
+  allowlisted host and a 403 for one off the list, and getting nowhere at all by
+  any other route even holding the default route guest root can add. The
+  ip_forward control flips it both ways, and the two drops the earlier probes
+  called for (the tap's input drop, the aggregator's interface-pair drop) are
+  each verified by removing them and watching the wall fall over. **This was the
+  last unverified claim in the netns shape.** It also found what the plan's unit
+  inventory had left out, and that this host needs a `~/flakes` DNS edit before a
+  capsule can resolve through its own chain — both in
+  [probes.md](./probes.md).
 - **Probes grew a shared harness.** `probe/harness.sh` carries check / observe /
   measure / report *and* the whole capsule-in-a-namespace boot, because
   `netns-boot.sh` asserts and `freshness.sh` measures the same shape. `flake.nix`'s
@@ -104,21 +116,33 @@ honestly*. Each step was there because the next was meaningless without it.
 its volume and a signed-in agent in it, it is sized honestly, and one command
 takes a fresh one to green and says what that cost. Next is Plan C:
 
-1. `capsules.nix` — under netns it is a name list and little else.
+1. ~~`sudo probe-netns-egress`~~ **done, 27/27** — see above. The shape it proved
+   is what the next two steps assemble out of units, so they are bookkeeping
+   against a known-good result rather than experiments on a live host.
+2. `capsules.nix` — under netns it is a name list and little else.
    [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
-2. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
-   before `microvm-tap-interfaces@%i`), `NetworkNamespacePath` drop-ins on both
-   units, the ssh relay unit, `host/perimeter-check.nix` rewritten around the
-   namespace's own `ip_forward`. Bookkeeping against a known-good result now.
+3. Host-module netns wiring at N=1, instance zero: `capsule-netns@` (root
+   oneshot, `ip netns add/del`, before `microvm-tap-interfaces@%i`),
+   `NetworkNamespacePath` drop-ins on both units, the `ExecStop`/`Restart`
+   drop-in ([notes](./notes.md) item 11), the ssh relay unit, and
+   `host/perimeter-check.nix` rewritten around the namespace's own `ip_forward`.
+   Plus what the probe found the plan had left out of that list: the aggregating
+   namespace, a veth per capsule, host NAT and forwarding, the tap input drop and
+   the interface-pair drop. The `~/flakes` DNS edit is part of this step, not a
+   follow-up — without it a capsule resolves outside the host's DoT chain.
+4. N=2 through the module — and then two `capsule-baseline`s at once, which is
+   the load question below and cannot be asked before this.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
 
 ## Open, and nothing should claim these closed
 
-- **Egress under netns is unproven.** `probe-netns-boot` has no upstream in its
-  namespace on purpose, so it asserts nothing about it; that needs stage 2 of
-  `probe/netns.sh` plus a proxy joined to the namespace.
+- ~~**Egress under netns is unproven.**~~ Proven, 27/27
+  ([probes.md](./probes.md)). What replaces it is narrower: the same perimeter
+  built out of systemd units rather than a probe's `ip`/`nft` calls, and DNS
+  through the host's own chain — the probe had to fall back to a public
+  resolver, so that half is unproven until `~/flakes` grows the stub address.
 - **The byte/disk bound on collect.** `ulimit -f` bounds one packfile, not the
   transfer — many small objects or a delta bomb go past it. A quota or a dedicated
   filesystem for the quarantine is the host-shaped answer.

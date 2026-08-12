@@ -13,6 +13,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | --- | --- | --- | --- |
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
+| `netns-egress.sh` | does the *perimeter* survive the move into one? | `sudo probe-netns-egress` | 27/27 green, run 1. The real capsule with the real proxy joined to its namespace; allowed **and** denied both asserted |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
 | `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, run 1 (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
@@ -48,6 +49,65 @@ It is the deliberate exception to the never-borrow-live-addressing rule, and its
 header says why: the guest image has `net.nix` baked in, so the real capsule is
 the subject. Hence its refusals — it will not start beside the devshell tap or a
 running VM.
+
+## What netns-egress.sh established
+
+The last unverified claim in the netns shape, and the only remaining one that was
+security-shaped: **the perimeter survives the move into a namespace.** 27
+assertions, green on the first run. `netns.sh` had modelled the confinement with
+veths and `netns-boot.sh` had booted the real guest, but neither ever had a proxy
+in it — netns.sh's stage 2 reached the internet with a bare connect, and
+netns-boot's namespace has no upstream at all on purpose.
+
+What is now measured rather than reasoned:
+
+- **The allowlist still works from inside a namespace, in both directions.** The
+  real `capsule-proxy`, joined to the capsule's namespace and bound to the tap
+  address, gave the guest `HTTP/1.1 200 Connection established` for an
+  allowlisted host and `HTTP/1.1 403 Filtered` for one off it. The client is the
+  real guest over ssh, using bash's `/dev/tcp` rather than curl — the guest's
+  tool set comes from the target's flake and a probe may not assume what is in
+  it.
+- **Guest root cannot get out any other way, and the namespace's `ip_forward` is
+  what stops it.** The route the design assumes guest root can add was added, and
+  the guest still reached neither the internet nor the aggregator its own proxy
+  leaves through. Flip the namespace's `ip_forward` to 1 and both work; flip it
+  back and both stop.
+- **The weak-host-model cost netns.sh found is fixable and is fixed.** With the
+  proxy's egress veth address local to the capsule namespace, a guest packet to
+  it is INPUT there and no forwarding switch touches it. An input drop on the tap
+  for any destination but the tap address closes it, verified by removing the
+  drop, watching the guest reach it, and putting it back.
+- **The aggregator is a capsule-to-capsule path, and one interface-pair rule
+  closes it.** `iifname "eg-wan*" oifname "eg-wan*" drop` plus an RFC1918 drop
+  from capsule sources stops a capsule reaching its sibling *or* the host's own
+  networks; both come back when the table is deleted, which is what makes the
+  denial evidence.
+- **Nothing outside reaches the guest**, including an aggregator holding a route
+  to it and a host that will masquerade for it — the most permissive upstream
+  there could be, so the denials cannot be a missing return path.
+
+Two things it settled that were not the question:
+
+- **The unit inventory is bigger than "one oneshot unit and two drop-ins."** A
+  working perimeter under netns also needs, per capsule, a veth to an aggregating
+  namespace, that namespace's own forwarding and rules, NAT and forwarding on the
+  host, and the two drops above. All of it is host-side and none of it is in the
+  guest.
+- **DNS needs a `~/flakes` edit, and this host does not have it.** Loopback is
+  per-namespace, so the host's stub on `127.0.0.53` is not reachable from a
+  capsule namespace — asserted, and it is the trap to design around rather than
+  discover. The probe writes `/etc/netns/<ns>/resolv.conf` itself and detects
+  whether the host answers on the capsule-facing address; it did not, so the run
+  fell back to a public resolver, **which loses the host's DoT hop**. The shipped
+  shape wants `DNSStubListenerExtra=` on that address *and* an input allow for
+  port 53 on that link, since the host firewall covers every interface including
+  one this repo created.
+
+Like `netns-boot.sh` it borrows the live tap, /30 and volume, for the same
+reason: the guest image has `net.nix` in it, so the real capsule is the subject.
+Everything it adds is on its own addressing (10.100/16, 10.101/30) and it refuses
+to start on an overlap.
 
 ## Figures
 
@@ -264,7 +324,12 @@ and the two should not be conflated.
 
 ## Still unproven
 
-- **Egress under netns.** `probe-netns-boot` has no upstream in its namespace on
-  purpose, so it asserts nothing about it. Needs stage 2 of `probe/netns.sh` plus
-  a proxy joined to the namespace.
+- ~~**Egress under netns.**~~ Proven: `probe-netns-egress`, 27/27, above. What
+  is *not* proven is the same perimeter assembled out of systemd units rather
+  than out of a probe's `ip` and `nft` commands — the shape is settled, the
+  wiring is not.
+- **DNS through the host's own chain, under netns.** The probe fell back to a
+  public resolver because this host has no stub on the capsule-facing address.
+  Until that edit lands in `~/flakes`, the claim "guest lookups inherit the
+  host's DoT chain" is true of the tap shape and unproven of the netns one.
 - Throughput over the unix socket. The tap did ~100 MiB/s each way.

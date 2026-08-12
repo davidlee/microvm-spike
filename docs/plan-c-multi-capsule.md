@@ -22,11 +22,13 @@ figures this plan reasons from are [probes.md](./probes.md) — neither is repea
 here. What is specific to this plan:
 
 **Settled, with evidence.** The netns shape holds, in the model
-(`probe/netns.sh`) and in a real boot (`probe/netns-boot.sh`,
-[the boot](#the-last-unknown--run-and-it-holds)). Both probes are kept rather
-than thrown away: they are the evidence behind the addressing and isolation
-decisions below, and they are what to point at when this shape is proposed
-somewhere else. Re-run both after any change to the netns machinery.
+(`probe/netns.sh`), in a real boot (`probe/netns-boot.sh`,
+[the boot](#the-last-unknown--run-and-it-holds)) and now with the real perimeter
+in it (`probe/netns-egress.sh`, [egress](#egress-under-netns--run-and-it-holds)).
+All three are kept rather than thrown away: they are the evidence behind the
+addressing and isolation decisions below, and they are what to point at when this
+shape is proposed somewhere else. Re-run them after any change to the netns
+machinery.
 
 **Decided.** Per-capsule proxy. Netns on the host-module path only, with the
 foreground path staying at N=1. Units generated per instance rather than
@@ -352,9 +354,10 @@ What it asserts, both directions:
   is still unmeasured; the tap did 100 MiB/s each way.
 
 What it deliberately does not assert is egress: there is no upstream in the
-namespace at all, so a denial there would pass for the wrong reason. That half is
-stage 2 of `probe/netns.sh` plus a proxy joined to the namespace, and it belongs
-with the module that creates the namespace for real.
+namespace at all, so a denial there would pass for the wrong reason. That half
+is [below](#egress-under-netns--run-and-it-holds), and it did **not** wait for
+the module — same mistake as the paragraph above, caught before it cost anything
+this time.
 
 **One host-side fact it cost a run to find, and the probe now encodes:** a
 root-side program cannot borrow your ssh agent. `sudo` strips `SSH_AUTH_SOCK`,
@@ -373,6 +376,37 @@ Two consequences to handle in the same pass, neither of them unknowns:
   evaluated in that unit's namespace, so the units keep working while the human's
   status command does not.
 - `vm-stop`'s ssh poweroff moves onto the unix socket, same as `just ssh`.
+
+### Egress under netns — run, and it holds
+
+`sudo probe-netns-egress` (`probe/netns-egress.sh`), 27 assertions, green on the
+first run — the results are in [probes.md](./probes.md). It is the same real
+capsule in the same real namespace as the boot probe, with the real
+`capsule-proxy` joined to it and an aggregating namespace behind that. The
+allowlist answers 200 for a host on it and 403 for one off it; guest root holding
+the default route it can always add reaches nothing; each denial is paired with a
+control that deletes the rule or flips the sysctl and watches the wall fall over.
+
+**So nothing about the guest's confinement is unverified under netns any more.**
+What the order of work has left is assembling this out of systemd units instead
+of a probe's `ip` and `nft` calls.
+
+Two corrections it makes to this document, both cheap now and expensive later:
+
+- **The addition is not "one oneshot unit and two drop-ins."** That is the
+  namespace. The perimeter also needs a veth per capsule into an aggregating
+  namespace, that namespace's own forwarding plus the interface-pair drop and an
+  RFC1918 drop, NAT and forwarding on the host, and an input drop on each
+  capsule's tap for any destination but the tap address. Every one of them is
+  host-side and none is in the guest image, so the one-image claim is untouched —
+  but the host module is a module, not a unit.
+- **DNS is a `~/flakes` edit, and it is load-bearing.** The three costs above
+  called `DNSStubListenerExtra=` a two-line fix; the probe found this host has
+  neither the stub address nor the firewall allow that a namespaced client would
+  need on it, and fell back to a public resolver to finish the run. A capsule
+  resolving outside the host's resolved → stubby → ControlD chain is a quiet
+  weakening of exactly what NOTES item 7 built, so it lands with the units rather
+  than after them.
 
 ### Where netns applies, and where it does not
 
@@ -683,13 +717,16 @@ case, not before the dev-machine case.
 
 ## Order of work
 
-1. ~~Spike the netns.~~ ~~One boot with a real guest.~~ **Both done — it holds**:
+1. ~~Spike the netns.~~ ~~One boot with a real guest.~~ ~~The perimeter in one.~~
+   **All three done — it holds**:
    the namespace, the tap and the unix-socket way in
    ([results](#probed-it-holds)), the host module taking the namespace without a
    patch ([from source](#the-host-module-question-answered-from-source)), and
    firecracker booting with its tap inside one, 9/9
-   ([the boot](#the-last-unknown--run-and-it-holds)). Nothing in the shape is
-   unverified now.
+   ([the boot](#the-last-unknown--run-and-it-holds)), and the real proxy serving
+   the real guest in one, 27/27
+   ([egress](#egress-under-netns--run-and-it-holds)). Nothing in the shape is
+   unverified now, and that is a measured statement rather than a hopeful one.
 2. ~~Make the base commit a runtime value.~~ **Done, as a side effect of NOTES
    item 18.** The guest boots with an empty repository and
    `capsule-provision <ref>` puts history in it, so the ref never reaches the

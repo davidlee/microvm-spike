@@ -576,6 +576,33 @@ what stops it being proposed again.
       `DNSStubListenerExtra=` plus `/etc/netns/<ns>/resolv.conf`, since loopback
       is per-namespace and `127.0.0.53` is not in it.
 
+      **All three now have their fix verified, and so does the thing none of
+      those probes had in it: the perimeter.** `probe/netns-egress.sh`
+      (`sudo probe-netns-egress`) joins the real `capsule-proxy` to the real
+      capsule's namespace and asks the real guest to get out — 27 assertions,
+      green on the first run, [probes.md](./probes.md). The allowlist answers
+      200 for a host on it and 403 for one off it; guest root holding the route
+      it can always add reaches neither the internet nor the aggregator; each
+      denial is paired with the control that removes the thing supposedly doing
+      the work and watches it fall over. Egress under netns was the last
+      unverified claim in this shape and is no longer one.
+
+      Two findings from it that change what the next step is, rather than
+      confirming what was expected:
+
+      - **The unit inventory in Plan C undercounted.** "One oneshot unit and two
+        drop-ins" is the *namespace*; a working perimeter also needs a veth per
+        capsule to an aggregating namespace, that namespace's forwarding and its
+        two drops, and NAT plus forwarding on the host. All host-side, none of
+        it in the guest — but it is the difference between one unit and a
+        module.
+      - **The DNS fix is a `~/flakes` edit this host does not have**, and the
+        probe fell back to a public resolver rather than pretending otherwise.
+        That fallback silently loses the DoT hop, which is precisely the
+        property item 7's chain exists for. So the netns path's DNS claim is
+        *unproven*, not merely unwired, until the stub address and its port-53
+        input allow land. Do it in the same change as the units, not after.
+
       The consequence worth reading this item for: it largely retires the
       "part of the perimeter is not in this repo" problem in item 7. The control
       becomes a sysctl inside a namespace this repo creates, the host's input

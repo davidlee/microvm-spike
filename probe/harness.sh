@@ -89,6 +89,18 @@ helper() {
   HELPERS+=("$!")
 }
 
+# The same, for a helper that must not run as root: `capsule-proxy` writes its
+# state as whoever starts it, and a probe that left it root-owned would leave
+# the devshell path unable to clean up after a run. Extra `VAR=value` arguments
+# ahead of the command go to `env`, which is what `human_env` already is.
+helper_as_human() {
+  local ns=$1
+  shift
+  ip netns exec "$ns" runuser -u "$HUMAN" -- "${human_env[@]}" "$@" \
+    >/dev/null 2>&1 &
+  HELPERS+=("$!")
+}
+
 kill_helpers() {
   local pid
   for pid in "${HELPERS[@]}"; do
