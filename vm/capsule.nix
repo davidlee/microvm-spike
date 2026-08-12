@@ -136,7 +136,7 @@ in {
   # separation of the bwrap jails. uid 1000 matches the host user so ownership
   # reads correctly when the volume is inspected from outside — with fuse2fs or
   # debugfs, never `mount`: it is guest-written ext4 and mounting it hands the
-  # metadata to the host kernel (NOTES.md).
+  # metadata to the host kernel (docs/design.md).
   users.users.agent = {
     isNormalUser = true;
     uid = 1000;

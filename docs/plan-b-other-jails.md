@@ -97,7 +97,7 @@ daemon, `agent` user with no sudo, `/work` on a disk.
 
 **Lima and anything vfkit-backed are disqualified** — user-mode NAT only, no
 `restrict` knob exposed, so the guest gets a default route and the perimeter
-evaporates (see [MACOS.md](./MACOS.md)).
+evaporates (see [eval-macos.md](./eval-macos.md)).
 
 ### The guest image
 

@@ -6,7 +6,7 @@ carries that project's tool set, and has exactly enough network to work and no
 more. Nothing below is doctrine-specific: `target.nix` is the only file that
 names it, and `net.nix` is the only file that holds an address.
 
-Design rationale and known gaps live in [NOTES.md](./NOTES.md). This file is
+Design rationale and known gaps live in [docs/](./docs/index.md). This file is
 how to drive it.
 
 ## Prerequisites
@@ -157,7 +157,7 @@ systemctl start capsule-proxy      # pulls in the guard first
 - Adding this repo as an input to the host config means host rebuilds read its
   committed HEAD, same as the `git+file:` gotcha for doctrine.
 
-Still as you: the VMM. NOTES.md open item 11 has the microvm.nix host-module
+Still as you: the VMM. NOTES item 11 has the microvm.nix host-module
 option and what it does and doesn't fix.
 
 ## Quickstart
@@ -321,4 +321,4 @@ keeping into the real repo first.
 
 **Never loop-mount `capsule-work.img`.** It is guest-written ext4, and `mount`
 feeds its metadata to the host kernel. Read it with `fuse2fs`/`debugfs`, or
-just ask the guest over ssh. (NOTES.md has the reasoning.)
+just ask the guest over ssh. (docs/design.md has the reasoning.)

@@ -19,5 +19,5 @@ Silver lining if you ever port it: vfkit does virtio-fs (--device virtio-fs,shar
 
 Verdict: microvm.nix on macOS is real and boots NixOS guests. The capsule doesn't port — its security comes from tap + no route + host-side proxy, and vfkit gives you none of the three. Keeping the agent host on Linux is the right call.
 
-What to do instead: PLAN_B.md. Two shapes — a plain qemu/UTM Linux VM with the perimeter on the macOS side (hardened tier), and seatbelt with the perimeter reused verbatim (the low-barrier tier, and the one to ship as the macOS default).
+What to do instead: plan-b-other-jails.md. Two shapes — a plain qemu/UTM Linux VM with the perimeter on the macOS side (hardened tier), and seatbelt with the perimeter reused verbatim (the low-barrier tier, and the one to ship as the macOS default).
 

@@ -1,4 +1,4 @@
-# capsule — firecracker agent jail. README.md is usage, NOTES.md is rationale.
+# capsule — firecracker agent jail. README.md is usage, docs/ is everything else.
 #
 # The lifecycle commands (capsule-net, capsule-host, vm, vm-stop, and the git
 # channel's capsule-provision / capsule-collect) come from the devshell and are

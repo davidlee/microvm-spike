@@ -191,7 +191,7 @@ human_ssh_identity() {
 # sysctl the current perimeter has to read back out of the kernel is docker's
 # and tailscale's too. The tap is created inside rather than moved in, because
 # `tap-up` is namespace-agnostic: the host module can put the namespace on that
-# unit and then no tap ever moves (PLAN_C, "Plumbing").
+# unit and then no tap ever moves (docs/plan-c-multi-capsule.md, "Plumbing").
 ns_up() {
   local ns=$1 tap=$2 addr=$3 prefix=$4
   ip netns add "$ns" || return 1

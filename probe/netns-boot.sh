@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Probe: does firecracker come up with its tap inside a network namespace?
-# (PLAN_C.md, "The last unknown — run, and it holds")
+# (docs/plan-c-multi-capsule.md, "The last unknown — run, and it holds")
 #
 # It was the last unknown in the netns shape, and everything downstream of it —
 # one guest image (REQ-450's freshness, REQ-454's two concurrent capsules), the
@@ -134,7 +134,7 @@ echo "== stage 3: the way in — a unix socket, no privilege =="
 
 # The filesystem is not namespaced, which is what makes this work: the relay
 # lives in the namespace, the socket does not, and `just ssh` becomes a
-# ProxyCommand rather than a sudo (PLAN_C, "Plumbing").
+# ProxyCommand rather than a sudo (docs/plan-c-multi-capsule.md, "Plumbing").
 SOCKDIR=$(mktemp -d)
 chmod 0755 "$SOCKDIR"
 helper "$NS" socat \

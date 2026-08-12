@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Probe: does "a netns per capsule" hold? (PLAN_C.md, "Netns per capsule")
+# Probe: does "a netns per capsule" hold? (docs/plan-c-multi-capsule.md, "Netns per capsule")
 #
 # Kept, not thrown away. It is the evidence behind PLAN_C's addressing and
 # isolation decisions, and it re-runs in seconds — which matters when this shape

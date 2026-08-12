@@ -320,7 +320,7 @@
           + builtins.readFile script;
       };
 
-    # Does a network namespace per capsule hold up (PLAN_C.md, "Netns per
+    # Does a network namespace per capsule hold up (docs/plan-c-multi-capsule.md, "Netns per
     # capsule")? Models two capsules with identical addressing and no VM, on
     # addressing deliberately unlike the live capsule's.
     probe-netns = probe {
@@ -340,7 +340,7 @@
     };
 
     # The one thing that probe cannot answer, because it has no VM in it: does
-    # firecracker come up with its tap inside a namespace (PLAN_C.md, "The one
+    # firecracker come up with its tap inside a namespace (docs/plan-c-multi-capsule.md, "The one
     # thing still unverified")? Boots the real capsule, so it takes the real
     # values — and refuses to run beside the devshell shape.
     probe-netns-boot = probe {

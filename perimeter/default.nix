@@ -1,6 +1,6 @@
 # The perimeter: an allowlist egress proxy. This is where the policy value
 # lives, and none of it knows what kind of jail is on the other end of the link
-# — see PLAN_B.md.
+# — see docs/plan-b-other-jails.md.
 #
 # It used to be two services. The other was a git mirror served to the guest,
 # with an update hook confining pushes to `refs/heads/capsule/*` — all of it

@@ -2,11 +2,18 @@
 
 Firecracker microVM used to confine a coding agent working on one target repo
 (`target.nix`; here `~/dev/doctrine`).
-[README.md](./README.md) is usage; [NOTES.md](./NOTES.md) is rationale, gaps and
-things deliberately not built. Read NOTES before proposing changes — several
-obvious-looking ideas are already recorded there as considered-and-rejected.
-[PLAN_B.md](./PLAN_B.md) is the non-firecracker shapes; [PLAN_C.md](./PLAN_C.md)
-is what N capsules on one host would cost, and is scoping, not a commitment.
+[README.md](./README.md) is usage; everything else is [docs/](./docs/index.md),
+which maps question to file. Three of them before proposing changes:
+[docs/status.md](./docs/status.md) is where the work is up to,
+[docs/notes.md](./docs/notes.md) is the numbered ledger of rationale and gaps —
+**several obvious-looking ideas are already recorded there as
+considered-and-rejected**, and it is cited from source as `NOTES item N`, so those
+numbers are frozen — and [docs/probes.md](./docs/probes.md) owns every measured
+figure, so link to it rather than copying a number out.
+
+Plans are scoping, not commitments: `plan-b-other-jails.md` is the
+non-firecracker shapes, `plan-c-multi-capsule.md` is what N capsules on one host
+would cost. Do not put present-tense state in a plan; that is `status.md`'s job.
 
 ## Working here
 
@@ -64,7 +71,8 @@ Break these and the confinement stops meaning anything:
   `preflight` (once, before anything binds) and `watch` (supervised child; exits
   nonzero when the perimeter is gone, which tears the proxy down). No tap name,
   no hypervisor, no Linux-only tool goes in there — that is what lets a seatbelt
-  or VM-based shape reuse it (PLAN_B.md). Anything platform-shaped belongs at
+  or VM-based shape reuse it (docs/plan-b-other-jails.md). Anything
+  platform-shaped belongs at
   the call site in `flake.nix` (`perimeterChecks`). `host/git-channel.nix` has
   the same seam for the same reason: it knows a git URL and optionally an ssh
   command, both injected, and nothing about taps or namespaces.

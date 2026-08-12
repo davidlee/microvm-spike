@@ -1,294 +1,34 @@
-# microvm.nix spike — notes
+# Notes — the item ledger
 
-A **capsule**: a firecracker microVM used as an agent jail. It holds a real
-git clone of one target repo (`target.nix`; here `~/dev/doctrine`), can run that
-project's build and tests, and has exactly enough network for a coding agent to
-work — no more.
+One numbered item per question the design has had to answer. **Cited from source
+and from the other docs as `NOTES item N`**, so the numbers are frozen and
+append-only: a resolved item is struck or annotated in place, never deleted and
+never renumbered. Add at the end.
 
-## Layout
+Resolved items are kept because the reasoning is the value — several of them
+record a wrong first answer next to the measurement that corrected it, which is
+what stops it being proposed again.
 
-| path                         | what                                               |
-| ---------------------------- | -------------------------------------------------- |
-| `flake.nix`                  | VMs, devshell, tap + runner scripts, module exports |
-| `net.nix`                    | tap name, both addresses, MAC, ports — single source |
-| `target.nix`                 | which repo is confined, and everything target-shaped |
-| `justfile`                   | the gate (`just check`) + the multi-command questions |
-| `perimeter/default.nix`      | `proxy` + `capsule-host`. Jail-agnostic            |
-| `perimeter/egress-allow.txt` | proxy hostname allowlist — plain file, no rebuild. Per target |
-| `host/git-channel.nix`       | `capsule-provision` / `capsule-collect`. Host-initiated git |
-| `host/perimeter-check.nix`   | is the host's nftables drop loaded? Linux-shaped, injected |
-| `host/services.nix`          | the same proxy as a unit under its own uid. Opt-in  |
-| `vm/common.nix`              | shared guest config (firecracker, serial console)   |
-| `vm/hello.nix`               | smoke test VM, no network                           |
-| `vm/capsule.nix`             | the agent jail                                      |
-| `.vm/<name>/`                | per-VM state: volume images, API socket (gitignored)|
-| `.vm/host/`                  | proxy config + logs, `collect/` quarantines (gitignored) |
-| `probe/harness.sh`           | check/observe/measure/report + the capsule-in-a-namespace boot, prepended to each probe at build |
-| `probe/netns.sh`             | is a netns per capsule sound? kept as evidence — `sudo probe-netns` |
-| `probe/netns-boot.sh`        | does firecracker boot with its tap in one? (yes) — `sudo probe-netns-boot` |
-| `probe/freshness.sh`         | what does a *fresh* capsule cost, and which axes hold? — `sudo probe-freshness` |
-| `PLAN_B.md`                  | the same perimeter, a different jail (macOS, non-NixOS) |
-| `PLAN_C.md`                  | what N capsules on one host would cost (item 17)    |
-
-The split is load-bearing, not tidiness: the perimeter is where nearly all the
-policy lives and it is the only part that ports to a non-firecracker jail
-(PLAN_B.md). It takes addresses and ports as arguments and one injected
-`preflight` fragment — on firecracker, the tap-address check — so nothing
-hypervisor- or platform-shaped leaks into it. Runtime paths are environment
-(`CAPSULE_ROOT`, `CAPSULE_STATE`, `CAPSULE_ALLOWLIST`, `CAPSULE_REPO`), which
-is what keeps the allowlist an editable file rather than a store path. Which
-repo is confined reaches it the same way as the addresses do — as a value from
-the call site, from `target.nix` (item 16).
-
-## Running
-
-```
-direnv allow
-capsule-net up      # one sudo: creates the tap, owned by you
-capsule-host        # foreground: the egress proxy
-vm capsule          # another terminal
-capsule-provision edge   # the guest boots empty; this gives it history
-```
-
-`vm capsule` *is* the console — firecracker attaches its serial line to your
-terminal, and the guest autologins `agent` on it. Ctrl-C kills the VM, so give
-it its own tmux window. `poweroff` to leave.
-
-For further sessions: `ssh agent@10.99.0.2` from the host (key auth only,
-`id.pub`, root login refused). Host keys live on the volume so known_hosts
-stays stable across boots.
-
-`vm hello` first if you want to prove firecracker boots before debugging
-anything else. `capsule-net down` removes the tap.
-
-## The confinement shape
-
-**Link.** One point-to-point tap, `10.99.0.1/30` (host) ↔ `10.99.0.2/30`
-(guest). No bridge, no LAN exposure, **no NAT and no default route in the
-guest**. The guest cannot originate traffic anywhere except the host end of
-the /30.
-
-**Egress.** tinyproxy on the host, `FilterDefaultDeny Yes` over
-`perimeter/egress-allow.txt` (hostnames, extended regex). The guest gets
-`HTTPS_PROXY` and no resolver at all — `services.resolved.enable = false`, since
-networkd otherwise leaves a stub on 127.0.0.53 that has no upstream it can reach
-and so answers nothing while still answering. DNS happens in the proxy, as the
-host, which means guest lookups inherit the host's resolver chain (here resolved
--> stubby -> ControlD over DoT) and nothing guest-side can route around it. So a
-name
-that is not on the list cannot even be resolved, let alone reached. IP-level
-allowlisting was rejected: `api.anthropic.com` is CDN-fronted with rotating
-addresses.
-
-**What the allowlist is not.** It is a *destination* control, not an exfil
-control, and the difference is structural: filtering happens on the CONNECT
-hostname, and everything after that is TLS the proxy cannot read. `github.com`
-and `api.anthropic.com` are both full-duplex channels, so anything on the list
-is a way out for data as well as a way in for code. What the allowlist buys is
-the elimination of accidents and casual beaconing — a typo'd domain, a
-postinstall script phoning home, a dependency's telemetry — plus a log of
-every attempt. Going further would mean MITM (own CA in the guest,
-mitmproxy-style), which trades a small gain for a large amount of machinery
-and a guest that trusts a host-held signing key. Not worth it.
-
-**Git.** Host-initiated, both directions, over the ssh channel — no service,
-no mirror, nothing for the guest to reach. `capsule-provision <ref>` pushes any
-commit-ish from `~/dev/doctrine` onto the guest's working branch;
-`capsule-collect` fetches the guest's refs into a quarantine repo under
-`.vm/host/collect/`. NOTES item 18 is the measurement and the reasoning.
-
-- The guest boots with an **empty repository** and no history until you provision
-  it, which is what makes the base commit an argument rather than a value in the
-  guest's closure.
-- `receive.denyCurrentBranch=updateInstead` in the guest is what turns the push
-  into a checkout. It governs only the branch the guest's HEAD names, so the
-  seed sets `--initial-branch` and provision verifies the advertised symref
-  before pushing — otherwise a push lands history and leaves the worktree alone,
-  silently.
-- A provision is refused rather than forced when it would discard the guest's
-  commits, and refused by the guest while its worktree is dirty.
-- Collection is `--no-tags` into `refs/capsule/<name>/*` with
-  `transfer.fsckObjects`: the host names the destination namespace, and tag
-  auto-following is the one way the guest could otherwise choose where its refs
-  land. Then `just fetch` is the second step into the repo you work in.
-  Which lines up with SPEC-012's merge-safety-by-absence: the agent has no path
-  to the coordination tier, physically — and now no channel to it either.
-
-**State.** One 32 GiB sparse volume at `/work`: the checkout, `target/`,
-`TMPDIR`, cargo + bun caches. Survives reboots. Deliberately not on the
-rootfs — microvm.nix roots are tmpfs, i.e. guest RAM.
-
-## Why firecracker forces this
-
-`lib/runners/firecracker.nix:86` in microvm.nix:
-
-```
-else if shares != []
-then throw "9p/virtiofs shares not implemented for Firecracker"
-```
-
-Same for device passthrough, balloon, hotplug memory. Firecracker also has no
-user-mode networking — tap only, which is why `capsule-net` needs one sudo.
-(qemu and kvmtool do have user-net *and* virtiofs, which would remove the host
-setup entirely at the cost of the isolation story and of any real egress
-control.) Consequences: guest `/nix/store` is a generated disk image, nothing
-host-side can be mounted in, and the only channels into the VM are the tap and
-the volume.
-
-microvm.nix has **no jailer support** — firecracker runs unwrapped. What that
-does and does not cost is worth being exact about, because the obvious reading
-overstates it:
-
-- **Seccomp is still on.** Firecracker installs its default filter in-process
-  at startup; losing it needs an explicit `--no-seccomp`, which nothing here
-  passes. (`firecracker --help`: "allows starting and using a microVM without
-  seccomp filtering. Not recommended.")
-- **What the jailer would add** is chroot/pivot_root, a network namespace,
-  cgroup limits, and a uid drop.
-- **Consequence, and it is the real one:** firecracker runs as *you*, uid 1000,
-  with ambient access to `~/.ssh`, `~/.claude`, every repo and every shell rc.
-  A VMM escape lands directly on the assets the capsule exists to protect.
-  Second consequence: no `MemoryMax`/`CPUQuota`/`TasksMax`, so 16 GiB and 8
-  vCPU are the guest's to abuse. See open items 11–12.
-
-Also note microvm.nix appends **`--enable-pci`** unconditionally for
-firecracker ≥ 1.13 (`lib/runners/firecracker.nix`), and `firecracker.extraArgs`
-can only append, so there is no opting out short of pinning
-`microvm.firecracker.package` to an older release. PCIe is the newest device
-code in firecracker and is opt-in at its CLI; this config therefore takes the
-less-exercised transport by default rather than the long-fuzzed MMIO one.
-
-## Guest user model
-
-The agent runs as `agent` (uid 1000, matching the host user so ownership reads
-correctly if the volume is ever inspected from outside — see the warning below
-about *how*), with **no sudo and no su**. Root is reachable only
-by key over ssh from the host (`PermitRootLogin = "prohibit-password"`), so
-administration happens from outside the jail and the agent has no escalation
-path. The trade: if sshd or the tap breaks, there is no root at all — fix it
-declaratively and reboot the VM.
-
-(`initialHashedPassword = ""` was tried first and doesn't work: it only applies
-at account creation, and PAM rejects empty passwords for `su` without `nullok`.)
-
-This is **not** the perimeter. Egress filtering and the `refs/heads/capsule/*`
-restriction are both enforced on the host, where the guest — root or not —
-cannot reach them. Guest uid separation buys protection from a clumsy agent,
-realistic file ownership, and parity with the bwrap jails' model.
-
-`$HOME` is `/work/home`, i.e. on the volume: `~/.claude`, credentials and shell
-history survive reboots. That is most of the answer to agent auth.
-
-**Do not loop-mount `capsule-work.img` on the host.** It is a filesystem the
-guest has had write access to, and `mount` hands its metadata to the host
-kernel's ext4 implementation — historically one of the softest targets
-reachable from untrusted data, and it would undo the containment in one
-command. If you need to read the volume from outside, use a userspace reader
-(`fuse2fs`, `debugfs`), or ask the guest for it over ssh.
-
-## Tools: one list, two consumers
-
-doctrine's flake now splits its package list in two:
-
-- `devToolPkgs` — the tools, agent-free.
-- `projectPkgs = devToolPkgs ++ [codex claude]` — what its devshell uses.
-
-and exports `packages.dev-tools` (a `buildEnv` over `devToolPkgs`), which this
-flake drops straight into the guest's `systemPackages`. The capsule and that
-devshell therefore cannot drift, and the rust toolchain comes from doctrine's
-own pin — `rust-overlay` is no longer an input here.
-
-The jailed `claude` / `codex` wrappers are deliberately excluded: they are bwrap
-wrappers binding *host* paths, which mean nothing inside the VM. The capsule
-gets `pkgs.claude-code` instead, and its confinement is the VM.
-
-**`git+file:` reads committed HEAD.** Changes to doctrine's flake need a commit
-there before `nix flake update doctrine` will see them.
-
-## Getting secrets in — the bootstrap tarball
-
-Not built yet. There is no filesystem path into the guest (firecracker: no
-shares), so the options are the console or the p2p link.
-
-Plan: have `capsule-host` serve a bootstrap tarball over the existing link —
-an explicit, listed selection of `~/.claude` (OAuth credentials, settings,
-possibly `CLAUDE.md`), assembled on the host and fetched once by the guest into
-`/work/home`, where it persists. Explicit selection is the point: a whole-`~/.claude`
-mount would hand the agent every project's history and every credential in it.
-
-Open questions for when we build it: whether the tarball goes over the git
-daemon (a `bootstrap` repo) or a second port; how to avoid re-fetching a stale
-copy over a newer in-guest login; and whether OAuth tokens tolerate being used
-from two places at once, or whether the capsule needs its own credential.
-
-## nix inside the guest — considered, not done
-
-Running `nix develop` on doctrine's flake in the capsule needs three things:
-
-1. `microvm.writableStoreOverlay = "/nix/.rw-store"` plus its own volume — the
-   guest store is a read-only erofs image. microvm.nix's docs warn the Nix DB
-   forgets everything in the overlay across reboot, so it wants recreating
-   rather than trusting.
-2. `systemd.services.nix-daemon.environment` proxy vars. The daemon does the
-   fetching and does not inherit login-shell env (see open item 6).
-3. Allowlist: `cache.nixos.org`, `channels.nixos.org`, `api.github.com`.
-
-Then every overlay reset rebuilds `doctrine` via crane, plus `pub` /
-`llm-agents`, inside the VM.
-
-Preferred alternative: have doctrine's flake expose its tool list as a package
-(`packages.dev-tools = pkgs.buildEnv { paths = projectPkgs; }`, a few lines
-there), and have the capsule put
-`inputs.doctrine.packages.x86_64-linux.dev-tools` straight into
-`systemPackages`. One list, two consumers, no writable store, no drift. Cost is
-re-adding doctrine as an input, pulling its `pub` / `llm-agents` transitives
-into this lock.
-
-Worth doing the nix route only if the agent needs to *change* its own toolchain
-or run `nix build` checks.
-
-## Security posture — what the boundary actually is
-
-Guest ring-0 to host, largest surface first:
-
-1. **KVM.** MSR/CPUID/paging/instruction-emulation surface in the host kernel,
-   reachable from guest ring 0. Irreducible in any VM, and still the reason the
-   VM is worth having: the bwrap jails' equivalent boundary is the whole host
-   syscall table.
-2. **Firecracker's device model.** virtio-net, two virtio-block, serial, an
-   i8042 stub, PCIe config space. No vsock, no balloon, no MMDS, no vhost-user,
-   no virtiofsd — the generated config has `"vsock": null` and nothing else
-   attached. Rust, small, seccomp-filtered (above).
-3. **The host IP stack, via the tap.** The guest emits arbitrary L2 frames and
-   the host kernel parses them. This is surface the bwrap jails do *not* have —
-   a bwrap process holds no effective `CAP_NET_RAW`, because the host netns is
-   owned by the initial user namespace. Which is why none of the host config in
-   README "Host requirements" is optional (open item 7).
-4. **The one host service on the /30.** tinyproxy — C, parsing guest-authored
-   HTTP. There were two; the second was a git daemon running `receive-pack` as
-   the host user on a repo whose objects then flowed into the real tree, and it
-   is gone rather than hardened (item 18). What remains of that surface is
-   `index-pack` inside a host-initiated fetch, which no longer listens and which
-   the guest cannot start.
-
-**Raising the price of (1).** Guest ring-0 is the *input* to the KVM surface,
-and loading a kernel module is the cheap way to get there once something has
-root in the guest. `security.lockKernelModules` + `security.protectKernelImage`
-turn that into a guest kernel LPE instead. This is not the perimeter moving
-inward — the perimeter stays host-side, and a guest that is already ring-0 can
-undo anything in the guest. It buys the interval between "agent escalates to
-guest root" and "agent is in a position to attack the hypervisor", which is
-where the expensive surface begins. The device set is fixed and fully loaded by
-the time the lock lands; anything wanting a module on demand (fuse, loop,
-`nf_tables`) will fail, and the switch is two lines in `vm/capsule.nix`.
-
-And the channel no hypervisor closes: **the commits**. `capsule/*` gets fetched
-and built on the host, so agent-authored code executes outside the jail by
-design. That is the largest practical risk here and everything above is
-second-order to it. The confinement's job is to bound what the agent can reach
-*while* working, not to make its output safe to run unread.
-
-## Open items
+| # | item | state |
+| --- | --- | --- |
+| 1 | what has actually been run, versus reviewed | standing caveat |
+| 2 | agent credentials into a guest with no shares | open |
+| 3 | `pkgs.claude-code` is unfree, and guarded for channel drift | resolved |
+| 4 | `just test` may want a live Postgres | open, unhit |
+| 5 | ~~no `doctrine` binary in the guest~~ | resolved — `dev-tools` |
+| 6 | proxy env is login-shell scope, so units don't inherit it | accepted |
+| 7 | ~~host config~~ — the accept, the forward drop, and checking the drop | resolved, plus one host edit outstanding (item 18) |
+| 8 | ~~git-daemon is unauthenticated~~ | resolved by deletion (item 18) |
+| 9 | egress allowlist unproven; and the `MaxClients` hang that was not it | half — slots fixed, list still unproven |
+| 10 | vendored crates and pre-seeded `node_modules`, dropped | decision |
+| 11 | everything host-side runs as you | services half done, VMM half open |
+| 12 | no resource ceiling on the VM | open |
+| 13 | host SMT is on | accepted, not fixed |
+| 14 | hypervisor choice — firecracker's floor is what shapes half this list | open option |
+| 15 | two things that only grow: the volume, and the proxy log | measured, accepted |
+| 16 | target-agnostic | done for one target; a second is untested |
+| 17 | more than one capsule at a time | scoped — [Plan C](./plan-c-multi-capsule.md) |
+| 18 | which way the git channel points | measured, inverted, done |
 
 1. **What has actually been run.** The guest boots and the agent works over ssh;
    the perimeter has been exercised in both shapes — `capsule-host` in the
@@ -621,6 +361,23 @@ second-order to it. The confinement's job is to bound what the agent can reach
       `target/` in the guest frees guest space and nothing host-side. The image
       is a high-water mark; the only reclaim is deleting it, which is also the
       documented way to reset the workspace.
+
+      **Measured, and it climbs fast.** 385 MiB after provisioning and some ssh
+      work; **7.4 GiB after a single `just web-build test`** — 6.9 GiB of that
+      is `/work/doctrine`, i.e. the checkout plus `target/` and `node_modules`.
+      One workload, 19× the volume. So the per-capsule disk figure is the
+      *volume*, not the 3.0 GiB guest image (PLAN_C), and the 32 GiB cap is a
+      few full builds away rather than theoretical. Nothing here is a leak: it
+      is the build tree, kept on purpose, on a filesystem that cannot return
+      blocks.
+
+      **Treat 7.4 GiB as a floor and as this target's number.** n = 1, on
+      doctrine, and cargo does not settle after one build — `target/` accretes
+      across profiles, feature sets, dependency bumps and toolchain changes,
+      and an agent iterating is the worst case for it. Expect a worked-in rust
+      capsule to approach its cap. A target whose build is not rust would look
+      nothing like this, which is an argument for `target.sizes.volume` being
+      the per-target knob it already is.
     - `.vm/host/tinyproxy.log` has no rotation on the foreground path. Small,
       but it is the record of every egress attempt, so truncating it on start
       would be the wrong fix. Rotated (weekly, `copytruncate`) on the unit path
@@ -669,7 +426,7 @@ second-order to it. The confinement's job is to bound what the agent can reach
       whole perimeter argument leaks.
     - **One target chosen ≠ several at once.** The parameterised single-target
       version is what got built, and it is an afternoon. What the other one costs
-      is now written down — [PLAN_C.md](./PLAN_C.md), which starts from the
+      is now written down — [Plan C](./plan-c-multi-capsule.md), which starts from the
       observation that the guest's address lives in its *closure*, so N capsules
       naively means N store images. *Concurrent* capsules is
       a different job: `net.nix` becomes per-instance (tap name, /30, MAC, two
@@ -691,7 +448,7 @@ second-order to it. The confinement's job is to bound what the agent can reach
     set, and the sizes are all this target's toolchain wearing a general name.
 
 17. **More than one capsule at a time — scoped, not started.**
-    [PLAN_C.md](./PLAN_C.md) is the list of what a plan has to settle, with the
+    [Plan C](./plan-c-multi-capsule.md) is the list of what a plan has to settle, with the
     costs attached. The three things worth knowing without reading it:
 
     - **The deciding cost is the guest image, not the plumbing.** Tap, MAC and

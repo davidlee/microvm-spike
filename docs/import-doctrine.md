@@ -131,7 +131,7 @@ cost per instance under one-image-plus-runners versus N blobs; which of the five
 axes are actually satisfied versus merely plausible; teardown — does the VMM
 exit, is the tap released, is state genuinely gone.
 
-`NOTES.md` item 17 has done this scoping already. The deciding cost is the guest
+[NOTES item 17](./notes.md) has done this scoping already. The deciding cost is the guest
 image, and the two per-instance values that must leave the closure are the
 address and the **base commit**. A kernel param works for neither — it lands in
 `toplevel`. The netns work makes the guest bit-identical, which is the lever.

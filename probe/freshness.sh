@@ -226,9 +226,9 @@ RESULTS+=("NOTE  process: no falsifying delta under a hypervisor — see DEC-189
 echo "== stage 3: what makes it usable — history, over the socket =="
 
 # The designed path rather than a mktemp: the socket path is the capsule's
-# identity under netns (PLAN_C, "Plumbing"), and `capsule-provision` is built
-# with a ProxyCommand against exactly this one, so this is the real program on
-# the real seam and not an approximation of it.
+# identity under netns (docs/plan-c-multi-capsule.md, "Plumbing"), and
+# `capsule-provision` is built with a ProxyCommand against exactly this one, so
+# this is the real program on the real seam and not an approximation of it.
 mkdir -p "$SOCKDIR"
 chmod 0755 "$SOCKDIR"
 helper "$NS" socat \
