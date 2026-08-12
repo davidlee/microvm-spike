@@ -311,10 +311,19 @@ load out=".vm/load.tsv" +names="capsule":
       exit 1
     }
   done
-  # Every capsule is in the same slice, so its total is the answer to "what do N
-  # of them cost" with nothing double-counted.
+  # Every capsule is in the same slice, so its *current* total is the answer to
+  # "what do N of them cost" with nothing double-counted. Its **peak** is not:
+  # `systemctl stop` destroys a unit's cgroup and resets that unit's peak, but the
+  # slice stays active with no members — measured, `ActiveEnterTimestamp` hours
+  # older than the units in it — so the slice's peak spans every capsule that has
+  # run since it went active. Read once here and once at the end: a peak that did
+  # not move is a peak this run did not set, and saying so is the difference
+  # between a figure and a number left over from a previous session.
   slice=$(dirname "${cg[${names[0]}]}")
   mib() { echo $(( $(cat "$1") / 1048576 )); }
+  declare -A peak0
+  for n in "${names[@]}"; do peak0[$n]=$(mib "${cg[$n]}/memory.peak"); done
+  slice_peak0=$(mib "$slice/memory.peak")
   some() { awk '/^some/{print $2}' "$1" | cut -d= -f2; }
   {
     printf 'elapsed'
@@ -335,18 +344,41 @@ load out=".vm/load.tsv" +names="capsule":
     printf '%s\n' "$line" >>{{out}}
     sleep 2
   done
-  echo
-  echo "peak, from the kernel rather than from these samples:"
-  for n in "${names[@]}"; do
-    printf '  %-14s %s MiB' "$n" "$(mib "${cg[$n]}/memory.peak")"
-    # A nonzero event means the kernel reclaimed, and a peak measured under
-    # reclaim is a floor. Printed beside the number it qualifies.
-    ev=$(awk '$2 != 0 {printf "%s=%s ", $1, $2}' "${cg[$n]}/memory.events")
-    [ -n "$ev" ] && printf '  (memory.events: %s)' "$ev"
-    echo
-  done
-  printf '  %-14s %s MiB\n' "$(basename "$slice")" "$(mib "$slice/memory.peak")"
-  echo "samples in {{out}} — quote figures from there, not from this screen"
+  # Written as well as printed, for the same reason the samples are: the peaks are
+  # the figure this recipe exists to produce, and until now they existed only in
+  # scrollback (docs/probes.md).
+  peaks="{{out}}.peak"
+  {
+    echo "peak, from the kernel rather than from these samples:"
+    sum=0 most=0
+    for n in "${names[@]}"; do
+      p=$(mib "${cg[$n]}/memory.peak")
+      sum=$(( sum + p ))
+      [ "$p" -gt "$most" ] && most=$p
+      printf '  %-14s %s MiB' "$n" "$p"
+      [ "$p" = "${peak0[$n]}" ] && printf '  (unchanged — set before this run)'
+      # A nonzero event means the kernel reclaimed, and a peak measured under
+      # reclaim is a floor. Printed beside the number it qualifies.
+      ev=$(awk '$2 != 0 {printf "%s=%s ", $1, $2}' "${cg[$n]}/memory.events")
+      [ -n "$ev" ] && printf '  (memory.events: %s)' "$ev"
+      echo
+    done
+    # The pair cost is bounded, not known: the slice's peak is unattributable
+    # unless it moved, and two units' peaks need not have coincided in time.
+    sp=$(mib "$slice/memory.peak")
+    # Not aligned to the number above it: this name is longer than any capsule's
+    # can be, so a shared column would only ever line up by accident.
+    printf '  %s %s MiB\n' "$(basename "$slice")" "$sp"
+    if [ "$sp" = "$slice_peak0" ]; then
+      printf '    unchanged since before this run, so NOT set by it — a slice outlives\n'
+      printf '    the units in it. Quote the bound below instead.\n'
+    else
+      printf '    was %s MiB before this run.\n' "$slice_peak0"
+    fi
+    printf '  bound on these %d together: [%s, %s] MiB — the largest unit, and their sum\n' \
+      "${#names[@]}" "$most" "$sum"
+  } | tee "$peaks"
+  echo "samples in {{out}}, peaks in $peaks — quote figures from there, not from this screen"
 
 # every egress attempt, live — unlisted hostnames show up here as denials
 proxy-log:
@@ -356,30 +388,54 @@ proxy-log:
 allowed:
   @cat "${CAPSULE_ALLOWLIST:-$(just _target allowlist)}"
 
-# a shell in the guest as the agent — TUIs work here, not on the console
-ssh name="capsule":
-  stty sane # in case echo got stuck on
-  @just _guest-ssh agent {{name}}
+# a shell in the guest as the agent — TUIs work here, not on the console. With a
+# command it runs that instead, which is the only way to ask a capsule something
+# without becoming a human reading a prompt: every capsule is the same image, so
+# every one of them says `agent@capsule` and the prompt identifies nothing.
+ssh name="capsule" *cmd:
+  @stty sane # in case echo got stuck on — silent, or it lands in a captured command
+  @just _guest-ssh agent {{name}} {{cmd}}
 
 # root in the guest — admin from outside the jail; the agent has no path to it
-admin name="capsule":
-  @just _guest-ssh root {{name}}
+admin name="capsule" *cmd:
+  @just _guest-ssh root {{name}} {{cmd}}
 
 # One door, two transports. On the module shape the guest is not routable from
 # here at all and the way in is the capsule's relay socket — which is also its
 # identity, so `HostKeyAlias` files each capsule's host key under its own name
 # instead of N capsules fighting over one address's entry. The interactive paths
 # keep strict host-key checking on purpose: a human is present to read it.
-_guest-ssh user name:
+#
+# A trailing command is word-split rather than carried as argv: just hands a
+# recipe its arguments by interpolation, not on a command line, and ssh joins its
+# remote words with spaces anyway. Quote-sensitive commands want a heredoc into
+# an interactive session; this is a human's front end.
+_guest-ssh user name *cmd:
   #!/usr/bin/env bash
   set -euo pipefail
-  guest=$(just _net guest)
   sock="/run/capsule/{{name}}/ssh.sock"
+  set -- {{cmd}}
   if [ -S "$sock" ]; then
     exec ssh -o HostKeyAlias="capsule-{{name}}" \
-      -o ProxyCommand="socat - UNIX-CONNECT:$sock" "{{user}}@$guest"
+      -o ProxyCommand="socat - UNIX-CONNECT:$sock" \
+      "{{user}}@$(just _net guest)" ${1+"$@"}
   fi
-  exec ssh "{{user}}@$guest"
+  # No socket for this capsule, but one for another, means the module path owns
+  # this host and the named capsule is simply not up. Going direct from here
+  # reaches for a `net.guest` whose tap is inside somebody's namespace, and that
+  # is a timeout that reads as a dead guest — the failure the four programs were
+  # taught to refuse (NOTES item 20). Refuse it here too, and name the capsules
+  # that do have a door.
+  shopt -s nullglob
+  doors=()
+  for s in /run/capsule/*/ssh.sock; do s=${s%/ssh.sock}; doors+=("${s##*/}"); done
+  if [ ${#doors[@]} -gt 0 ]; then
+    echo "no relay socket for '{{name}}', and the module path owns this host." >&2
+    echo "  capsules with a door: ${doors[*]}" >&2
+    echo "  'just up {{name}}' if it should be running." >&2
+    exit 1
+  fi
+  exec ssh "{{user}}@$(just _net guest)" ${1+"$@"}
 
 # a fresh capsule has fresh host keys at the same address, because they live on
 # its volume — so the interactive paths above refuse. The programs don't: they

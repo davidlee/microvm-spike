@@ -397,7 +397,7 @@ what stops it being proposed again.
 
     | resource | bound today | actually open |
     | -------- | ----------- | ------------- |
-    | memory   | `target.sizes.mem`, hard — but a **ceiling**, not a charge. ~~the VM costs 16 GiB for its whole life~~ **struck**: firecracker does not preallocate and the guest root is tmpfs, so two booted capsules cost ~1.5 GiB between them ([probes](./probes.md)) | what the guest *touches* — no balloon, so a high-water mark is never returned. Unmeasured under load, and that is now the binding term at N |
+    | memory   | `target.sizes.mem`, hard — but a **ceiling**, not a charge. ~~the VM costs 16 GiB for its whole life~~ **struck**: firecracker does not preallocate and the guest root is tmpfs, so two booted capsules cost ~1.5 GiB between them ([probes](./probes.md)) | what the guest *touches* — no balloon, so a high-water mark is never returned. ~~Unmeasured under load~~ **measured**: two cold builds at once peaked at 7774 and 6801 MiB inside an 8192 ceiling with zero reclaim ([probes](./probes.md#two-cold-builds-at-once)), so memory is *not* the binding term at N=2. What is still open is the ratchet, not the peak — a capsule holds most of its ceiling until it is stopped |
     | vCPU     | `target.sizes.vcpu` threads of 32 | the *share*: those threads at 100% compete with everything else you are doing. A real charge from the first busy thread, unlike memory |
     | disk     | 32 GiB, hard — a sparse file cannot exceed its declared size | see item 15 |
     | disk I/O | none | a `cargo build` in the guest hammers the host disk unthrottled |

@@ -5,14 +5,18 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-12, after the units ran at N=1 and `probe-netns-egress`
+Last updated 2026-08-13, after the load figure, and before that 2026-08-12,
+when the units ran at N=1 and `probe-netns-egress`
 re-ran 27/27 behind them — and then after the one bug that stood between N=1 and
 N=2: a host program's transport is an argument now ([notes](./notes.md) item 20),
 and `probe-two-capsules` re-ran 28/28 on it with one program set instead of two.
 **Since then N=2 has run through the module path** — two capsules declared
 ([notes](./notes.md) item 21), both provisioned, injected and cold-baselined
 green, the unit's `ExecStop` green on both, and the guard holding two namespaces.
-What is left of that step is the load figure (step 6).
+**And the load figure is taken**, which closes step 6 and the last thing Plan C
+owed before its CLI work: two cold builds at once cost 112 s and 121 s against a
+109 ± 5% sequential control, with neither capsule reaching its memory ceiling and
+neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
 
 ## Where it got to
 
@@ -106,6 +110,25 @@ What is left of that step is the load figure (step 6).
   runs, which is the strongest form that claim can take at n = 2 — one 12175 MiB
   image shared by every capsule, and ~296 MiB of volume per instance of which
   260 MiB is empty filesystem. All in [probes.md](./probes.md), the only copy.
+- **Two capsules building at once is measured, and RAM is not what binds.**
+  Fresh volumes, same commit both sides, so concurrency was the only variable:
+  **112 s and 121 s** to green against 109 / 115 / 104 sequential — ~5% at the
+  tail — with unit peaks of 7774 and 6801 MiB inside the declared 8192 and
+  `memory.events` zero everywhere, so those are true high-water marks. The pair's
+  own peak is a **bound**, [7774, 14575] MiB, because the slice that would have
+  settled it had its peak set in an earlier session: a unit's cgroup is destroyed
+  by a stop, a slice's is not. `just load` reads every peak at start as well as at
+  end for that reason, and writes them beside the samples. Figures and the host's
+  other load in [probes.md](./probes.md#two-cold-builds-at-once).
+- **A capsule cannot say which capsule it is**, and this is where that stopped
+  being theoretical: one image means every guest is `agent@capsule`, so the two
+  `history.tsv` rows were indistinguishable by prompt and the differing durations
+  were the evidence. The price is [notes](./notes.md) item 21's, knowingly paid.
+  What was missing was a way to *ask*: `just ssh <name> <cmd>` and `just admin
+  <name> <cmd>` now pass a command through, and `_guest-ssh` refuses instead of
+  falling through to an unroutable `net.guest` when the named capsule has no relay
+  socket but another capsule does — the timeout-that-reads-as-a-dead-guest the
+  four programs were already taught to refuse ([notes](./notes.md) item 20).
 - **Two capsules run at once, 28/28, twice.** One runner store path, two namespaces, two
   volumes, two base commits; all four independences hold and the second capsule
   costs 0.18 s of boot. Figures in [probes.md](./probes.md).
@@ -248,14 +271,20 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    half — the module's copies of all four programs are what provisioned, injected
    and baselined both capsules.
 
-6. **The load figure, and nothing before it.** Two cold baselines at once, which
-   needs fresh volumes on both capsules — a capsule that has built holds its
-   high-water mark until it is stopped, and would price a state nobody starts
-   from ([probes](./probes.md)). The control
-   is the three sequential cold runs; the instrument is `just load <out> capsule
-   capsule-b` beside them. Then what is left of Plan C item 7: the `capsule` CLI,
-   per-capsule secret injection at start, and `just status`/`fetch`/`branches`
-   aggregating.
+6. ~~The load figure~~ **taken, on fresh volumes, and it holds**: 112 s and 121 s
+   for two concurrent cold builds against the three sequential runs as control,
+   both units inside their ceiling with zero reclaim
+   ([probes](./probes.md#two-cold-builds-at-once)). It cost one correction to its
+   own instrument rather than to the capsules — a slice's `memory.peak` outlives
+   the units in it, so the pair figure is a bound and `just load` now says which
+   peaks it actually set. No `.vm/load.tsv` was taken, so **cpu and io pressure
+   under concurrent load are still unmeasured**; the durations and the kernel's
+   peaks are the whole result.
+7. **What is left of Plan C item 7**, and it is now the front of the queue: the
+   `capsule` CLI (naming decided in [notes](./notes.md) item 20 — resolve a name
+   and exec), per-capsule secret injection at start, and `just
+   status`/`fetch`/`branches` aggregating. `just status` is still blind inside a
+   namespace it does not own, which is the path that has more than one capsule.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
@@ -286,11 +315,13 @@ Then the rest of Plan C's
   ([probes.md](./probes.md)). What stays open is that the *freshness probe* still
   cannot take it: its namespace has no upstream, so the price and the 22
   assertions come from different runs and should not be quoted as one result.
-- **What N capsules cost under load.** The pair probe priced two *idle* capsules
-  and that is cheap; two concurrent builds against their ceilings is the question
-  it did not ask, and it is what replaced the withdrawn 16 GiB figure.
-  `capsule-baseline` is now the command that would ask it — two of them at once,
-  against two capsules, with each run's own record on its own volume.
+- ~~**What N capsules cost under load.**~~ Measured at N=2 for memory and wall
+  clock ([probes](./probes.md#two-cold-builds-at-once)); what replaces it is
+  narrower. **Pressure under concurrent load is unmeasured** — no sampler ran, so
+  nothing is known about cpu or io contention between two building capsules, and io
+  is the one the disk table would predict. **N=2 is not N.** And the **ratchet**
+  remains the term that decides how many fit: a capsule holds most of its ceiling
+  until it is stopped, so the peaks above are not additive across a working day.
 - **Time-to-interactive is not 8.31 s.** "Usable" in [probes.md](./probes.md)
   means *provisioned* — that is the freshness probe's own definition. An
   interactive capsule is boot + provision + setup + a cold baseline build, and

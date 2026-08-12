@@ -358,12 +358,11 @@
         else if builtins.isString v
         then [v]
         else [];
-      newlined =
-        lib.filter (n:
-          lib.any (lib.hasInfix "\n")
-          (lib.concatMap literals
-            (lib.attrValues (host.config.systemd.services.${n}.serviceConfig or {}))))
-        units;
+      newlined = lib.filter (n:
+        lib.any (lib.hasInfix "\n")
+        (lib.concatMap literals
+          (lib.attrValues (host.config.systemd.services.${n}.serviceConfig or {}))))
+      units;
     in
       if failed != []
       then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"

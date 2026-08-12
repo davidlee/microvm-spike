@@ -363,7 +363,7 @@ both capsules **idle**, no agent running, hours after their cold baselines above
 | --- | --- | --- |
 | `microvm@capsule`, idle after one baseline | 7844 MiB current, **7845 peak** | against a declared guest ceiling of 8192 |
 | `microvm@capsule-b`, same | 6941 MiB current, **8365 peak** | *above* the declared 8192, see below |
-| **`system-microvm.slice`, both capsules** | 14816 MiB current, **16305 peak** | the answer to "what do two cost", with nothing double-counted |
+| **`system-microvm.slice`, both capsules** | **14816 MiB current** | the answer to "what do two cost" at that moment, with nothing double-counted. Its *peak* read 16305 and **that figure is not attributable to this session** — see [the concurrent build](#two-cold-builds-at-once) for why a slice's peak is not a session's |
 | `memory.events`, every cgroup | `low/high/max/oom/oom_kill` all **0** | no reclaim, so each peak is a true high-water mark |
 | the capsules' own `io.pressure` | **0.00** at `avg10/60/300`, 544 µs total for a whole lifetime | and see the host-wide reading below |
 | host memory available | 13.1 GiB of 60.4 | both capsules idle, other work running |
@@ -386,6 +386,16 @@ depend on a sampler's interval.**
 
 Two consequences, both of which shape the load question rather than answering it:
 
+- **A slice's peak is not a session's peak, and nothing in the reading says so.**
+  `systemctl stop` destroys a unit's cgroup, so a unit's `memory.peak` resets when
+  it restarts — but the slice above it **stays active with no members**, measured:
+  `system-microvm.slice` reported `ActiveEnterTimestamp` of 18:31, hours before the
+  units that were in it at 01:06, with both capsules stopped in between and the
+  cgroup never garbage-collected. So the slice's peak spans every capsule that has
+  run since the slice went active, and re-reading it later re-reads the *first*
+  session that set it. 16305 was read twice, sessions apart, identical to the MiB;
+  that was the tell. `just load` now reads every peak at start as well as at end
+  and marks an unmoved one as not set by this run.
 - **A capsule that has built once holds most of its ceiling until it is stopped.**
   Freshness returns it; nothing else does. So "what N capsules cost" has two
   different answers — at peak, and afterwards — and the second one is the one that
@@ -404,6 +414,44 @@ their own cgroups io pressure was `0.00` and 544 µs total for their whole
 lifetimes. A host-wide figure on a shared machine is not a capsule figure, which is
 why `just load` reads per-unit pressure and keeps `MemAvailable` as context rather
 than as evidence.
+
+## Two cold builds at once
+
+The load figure Plan C had owed since the withdrawn ceiling: **what two capsules
+cost when both are doing the expensive thing at the same time.** Not a probe — two
+`capsule-baseline` runs through the module path, on fresh volumes, both provisioned
+to the *same* commit so concurrency is the only variable. `20260812T150641Z`, both
+stamps in the same second because both were launched from one `;`-separated line.
+The control is the three sequential cold runs above.
+
+| figure | `capsule` | `capsule-b` | sequential control |
+| --- | --- | --- | --- |
+| `just web-build test`, cold, to green | **112 s**, exit 0 | **121 s**, exit 0 | 109 / 115 / 104 |
+| MiB of volume, before → after | 124 → 1253 | 124 → 1253 | 123 → 1253, 124 → 1254, 124 → 1253 |
+| `memory.peak` of the unit | **7774 MiB** | **6801 MiB** | against a declared ceiling of 8192 |
+| `memory.events`, every field | all **0** | all **0** | so both peaks are true high-water marks |
+
+**Concurrency at N=2 is close to free.** The slower of the pair is 121 s against a
+control whose own spread is 104–115; the pair costs ~5% at the tail and nothing
+collapses. Neither unit reached its 8192 ceiling and neither was reclaimed even
+once, so **RAM is not what binds at N=2** — which is what [Plan
+C](./plan-c-multi-capsule.md) assumed from the disk table and had never measured.
+The four-run agreement on 1253 MiB of volume, now across two capsules and two
+concurrency regimes, is the stronger claim in the table: the cost of a cold build
+is a disk cost, and it is stable.
+
+**The pair's peak is a bound, not a figure: [7774, 14575] MiB.** The lower bound is
+the larger unit, the upper their sum, and the truth is between because two peaks
+need not have coincided in time. The slice would have settled it and could not —
+its own peak had been set in an earlier session (above), which is the finding this
+run produced about its instrument rather than about the capsules. Fixed forward,
+not backfilled: no slice figure is quoted for this run.
+
+**What else was running, because on this host that is part of the reading.** One
+other agent actively working, noctalia's indexer visible in `iotop`, niri plus idle
+terminals and Firefox. No `.vm/load.tsv` was taken, so this section claims **nothing
+about cpu or io pressure** — the durations and the kernel's peaks are the whole of
+it, and both are per-cgroup.
 
 ## What freshness.sh explicitly does not measure
 
