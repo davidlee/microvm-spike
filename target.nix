@@ -12,8 +12,9 @@
 # edit is not a control. Only the tool set comes from the target, because that is
 # a build input rather than a control.
 #
-# `rec`, for one reason: `guestPath` is a path both sides must agree on, and
-# deriving it keeps the target named once.
+# `rec`, for one reason: the guest paths below are paths both sides must agree
+# on, and deriving them keeps the target — and the volume's mount point — named
+# once each.
 rec {
   # The guest's checkout directory name, and the motd.
   name = "doctrine";
@@ -25,10 +26,15 @@ rec {
 
   # The guest's checkout, absolute. Both sides need it: `vm/capsule.nix` creates
   # it on the volume, and the host's git channel pushes to it and fetches from
-  # it. It has to sit under the volume's mount point, which is the guest's own
-  # business (`work` in vm/capsule.nix) — this is the one part of the layout the
-  # host is entitled to know.
-  guestPath = "/work/${name}";
+  # it.
+  guestPath = "${volumePath}/${name}";
+
+  # Where the capsule's volume is mounted in the guest. What the guest arranges
+  # *under* it is the guest's own business; the mount point itself is shared,
+  # because `caches`, `cachePaths` and `guestConfig` are all declared relative to
+  # it and all three are read host-side as well as guest-side. Named here so
+  # neither side spells it twice — `vm/capsule.nix` takes it from here too.
+  volumePath = "/work";
 
   # Package in the target's own flake carrying its devshell tool set, so the
   # guest and that devshell cannot drift. `null` for a target with no flake:
@@ -53,6 +59,12 @@ rec {
     BUN_INSTALL_CACHE_DIR = ".bun-cache";
   };
 
+  # The same directories, absolute — what anything that is not setting an env
+  # var actually wants. The guest's seed creates and chowns exactly these, and
+  # `capsule-baseline` sizes them before and after a run, which is what makes a
+  # recorded build checkably cold or warm. Derived, so a cache is declared once.
+  cachePaths = map (dir: "${volumePath}/${dir}") (builtins.attrValues caches);
+
   # The branch the guest works on, and the branch `capsule-provision` lands a
   # base commit onto — which is *any* ref in the target repo, so a capsule's
   # base is an argument rather than a value in the guest's closure. The guest's
@@ -68,6 +80,18 @@ rec {
 
   # Shown in the motd: the target's own entrypoints, so the agent need not guess.
   commands = "just test / just web-build";
+
+  # What takes a provisioned capsule to a working one: build and test to green,
+  # filling `caches` on the way. `capsule-baseline` runs this in the checkout and
+  # records green-plus-duration on the volume — on a fresh volume that is the
+  # **cold build**, the largest term in time-to-interactive and the one figure
+  # the freshness probe cannot take (docs/probes.md).
+  #
+  # A command line, run by the guest's own login shell, and that is the whole
+  # generic capability: nothing outside this file knows what `just` is, or that
+  # anything here is built with cargo. `null` for a target with nothing to
+  # build, which drops the program rather than shipping one that cannot work.
+  baseline = "just web-build test";
 
   # The guest is sized for this target's build, not for the host.
   #

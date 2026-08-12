@@ -225,13 +225,15 @@ filesystem path into the guest (firecracker: no shares), so anything that has to
 get there arrives over the link or is baked into the closure — and which of those
 it is depends on what it is. The decomposition is the part worth having written
 down, because the three parts have different mechanisms and different trust
-properties — and only the first of them is built.
+properties. All three are built now, and they stayed three programs rather than
+becoming one: they differ in what they carry, in what may see it, and in how
+long they take.
 
-| | what | mechanism | in the closure? |
-| --- | --- | --- | --- |
-| static config | build config, git config, shell rc, agent instructions | derived from `target.sizes`, guest-side | **yes** — config, not secret |
-| credentials | OAuth tokens, API key | host-initiated push over the ssh channel | **never** — `/nix/store` is world-readable |
-| baseline | a green `just web-build test`, caches seeded | a host-initiated *command* | n/a |
+| | what | mechanism | in the closure? | program |
+| --- | --- | --- | --- | --- |
+| static config | build config, git config, shell rc, agent instructions | derived from `target.sizes`, guest-side | **yes** — config, not secret | the guest's seed |
+| credentials | OAuth tokens, API key | host-initiated push over the ssh channel | **never** — `/nix/store` is world-readable | `capsule-inject` |
+| baseline | the target's own build-and-test to green, caches seeded | a host-initiated *command* | n/a | `capsule-baseline` |
 
 **Static config is a function of `target.sizes`, not a copy of a human's
 dotfiles.** The tempting version — carry in `~/.cargo/config.toml` — imports a
@@ -300,9 +302,40 @@ API-key path in item 2 still works and needs none of this.
 implemented by deleting volumes, and `/work/home` is on one — so setup and
 baseline are not one-time costs, they are part of what a fresh capsule costs.
 That also means the cold baseline build is the largest term in
-time-to-interactive, and it is the one figure [probes.md](./probes.md) cannot
-take: the freshness probe's namespace has no upstream. A host-initiated baseline
-command is where that number comes from.
+time-to-interactive, and it is the one figure the freshness probe cannot take:
+its namespace has no upstream. A host-initiated baseline command is where that
+number comes from.
+
+**Built, as `capsule-baseline`.** `target.nix`'s `baseline` is the command —
+this target's is `just web-build test`, and nothing outside that file knows what
+`just` is. The program is `host/baseline.nix` and knows an ssh destination, a
+command line and four guest paths.
+
+The measurement lesson is structural in it rather than remembered. Two sizing
+runs were lost to a figure whose only copy was terminal scrollback, so the run
+writes its log and one line of `/work/baseline/history.tsv` **onto the volume as
+it goes**, and it detaches into its own session — the host attaches to watch and
+may leave without stopping it. Re-running while one is in flight attaches to
+that one instead of starting a second, because two runs interleaved into one
+record are two figures lost rather than one gained. It also sizes the checkout
+and every `target.caches` directory before and after, so a recorded run says for
+itself whether it was cold; the totals are in the record and the breakdown is in
+the log. The volume is where a figure survives the session — freshness deletes
+the volume, so [probes.md](./probes.md) is where it survives the capsule.
+
+Two things it refuses. A capsule with no commit at `guestPath` is a mistake, not
+a red — it does not run, and says to provision first. And the record lives
+*beside* the checkout, never in it: a record written into the worktree is a
+dirty worktree, which is exactly what `receive.denyCurrentBranch = updateInstead`
+refuses the next provision on.
+
+**Run 1: 109 s to green, and it reorders the design's priorities.**
+Time-to-interactive is ~2 minutes and this build is ~93% of it, so the boot
+figures everything else in [probes.md](./probes.md) chases are noise beside the
+first `cargo build`. What that argues for is not a faster capsule but a warmer
+one — carrying a crate cache in, or not discarding it — and that runs straight
+into freshness, which is implemented by discarding exactly that. The tension is
+real and unresolved; it is at least now a tension between two measured things.
 
 ## nix inside the guest — considered, not done
 

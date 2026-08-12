@@ -190,6 +190,19 @@ It refuses to replace anything already there: a capsule's copy of a credential
 drifts from this host's once the agent uses it. `capsule-inject NAME --force`
 when you mean it.
 
+A provisioned capsule still has empty caches, so the first build in it is the
+slow one. Take it deliberately, and keep the number:
+
+```
+capsule-baseline           # runs target.nix's `baseline` to green, and records it
+```
+
+The run detaches in the guest and writes its log and one line of
+`/work/baseline/history.tsv` **on the volume as it goes** — so Ctrl-C, a closed
+terminal or a dropped link costs you the output, never the result. Run it again
+while one is in flight and you re-attach to it. `--detach` to start one and
+leave.
+
 Then from a fourth terminal: `ssh agent@10.99.0.2`. Inside the guest you are
 `agent`, in `/work/<target>`:
 
@@ -220,6 +233,7 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
 | `capsule-collect [NAME]` | fetch the guest's refs into a quarantine repo.          |
 | `capsule-inject [NAME...] [--force]` | push the payloads declared in `setup.nix` into `/work/home`. |
+| `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |

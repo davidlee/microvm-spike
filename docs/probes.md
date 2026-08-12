@@ -16,6 +16,12 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
 | `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, run 1 (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
+One figure here comes from something that is not a probe: `capsule-baseline` is a
+lifecycle command a human runs on a capsule they are about to work in, and it
+happens to produce [the cold build](#the-cold-build). It needs no root, and it
+needs the real perimeter up — which is why it is not in `probe/`
+([notes](./notes.md) item 19).
+
 ## What netns.sh established
 
 Identical /30 and MAC in every namespace, so one guest image with no DHCP and no
@@ -63,9 +69,9 @@ because two samples say more about the noise than either says alone.
 | `/work/doctrine`, same workload, **tuned** | **1.1 GiB** | — | hand-measured, below | `debug = 0`, `incremental = false`. A **floor**, not a plateau — no discard, and `target/` accretes |
 | cold boot to ssh | 6.41 s | 6.34 | freshness | volume created, mkfs and seed all inside it |
 | provision, 32 MiB of history | 1.90 s | 2.26 | freshness | the noisiest term here, ±16% |
-| time to a usable fresh capsule | 8.31 s | 8.60 | freshness | boot + provision; "usable" means provisioned, not merely answering ssh — and **not interactive**. An interactive capsule is this plus setup plus a cold baseline build, both of them paid per fresh capsule because `/work/home` is on the volume freshness deletes. Do not let the word widen quietly |
+| time to a usable fresh capsule | 8.31 s | 8.60 | freshness | boot + provision; "usable" means provisioned, not merely answering ssh — and **not interactive**. An interactive capsule is this plus setup plus a cold baseline build, both paid per fresh capsule because `/work/home` is on the volume freshness deletes. That is ~2 min, and this row is 7% of it ([the cold build](#the-cold-build)). Do not let the word widen quietly |
 | warm boot to ssh | 6.34 s | 6.36 | freshness | volume already made and provisioned |
-| the price of freshness | +0.07 s | −0.02 | freshness | cold minus warm. **It changed sign between runs**, which is the finding: freshness is free at boot to within ~1%, and its cost is the discarded cache, unmeasured |
+| the price of freshness | +0.07 s | −0.02 | freshness | cold minus warm **at boot**. It changed sign between runs, which is the finding: boot is free to within ~1%. The real price of freshness is the discarded cache, and that is [the cold build](#the-cold-build) — 109 s, three orders of magnitude larger than this row |
 | teardown | 3.63 s | void | freshness | guest halts over ssh, then the VMM is terminated |
 | git channel, both directions | ~100 MiB/s, 66.4k objects / 32 MiB | — | hand-measured, item 18 | the link is not the cost |
 
@@ -202,16 +208,59 @@ still the open question the pair probe left, and it is a scheduling question, no
 an arithmetic one.
 
 **What this is not: a cold build.** The crate cache was already warm (144 MiB),
-so nothing was fetched. `cargo clean` empties `target/`, not `~/.cargo`. The cold
-figure is still `capsule-baseline`'s to take, on a fresh volume.
+so nothing was fetched. `cargo clean` empties `target/`, not `~/.cargo`. That
+figure is the next section's.
+
+## The cold build
+
+`capsule-baseline`, run 1 — `20260812T055327Z`, base `4662e64e`, on a volume
+whose image had been deleted. Not a probe: a lifecycle command that produces a
+figure ([notes](./notes.md) item 19). Its own record is the source, and the
+record is on the volume — `/work/baseline/history.tsv` plus the run's log — which
+is why it is copied here, since freshness deletes volumes.
+
+| figure | value | note |
+| --- | --- | --- |
+| **`just web-build test`, cold, to green** | **109 s**, exit 0 | fresh volume, empty caches, everything fetched through the proxy |
+| the same, warm cache after `cargo clean` | ~50 s | previous section. **So the cold crate fetch costs ~59 s** — about as much again as the build |
+| the same, fully warm | ~35 s | previous section |
+| `/work/doctrine`, before / after | 121 → 1104 MiB | before is the provisioned checkout alone; after matches the 1.1 GiB tuned figure above, taken by hand |
+| `/work/.cargo`, before / after | 1 → **144 MiB** | and 144 MiB is exactly what the warm runs above had. Two measurements of the crate cache, taken months and methods apart, that agree |
+| `/work/.bun-cache`, before / after | 1 → 5 MiB | |
+| all three, before / after | 123 → 1253 MiB | **one baseline costs ~1.1 GiB of volume** |
+
+**The record proves its own coldness, without trusting the operator.** The
+caches totalled 123 MiB before and `.cargo` alone was 144 MiB after; 144 > 123,
+so the crate cache cannot have been warm at the start. That is the reason the
+sizes are in the record and not only in the log: a duration is only a cold-build
+figure if something in the same row says the caches were empty. The 1 MiB
+readings before are `du` rounding on directories holding nothing but
+`guestConfig`'s symlink — the same "nothing from outside the closure" the
+freshness axis asserts.
+
+**Time-to-interactive is ~2 minutes, and it is nearly all this.** 8.31 s to a
+provisioned capsule, `capsule-inject` (unmeasured, seconds), then 109 s of
+baseline. The terms come from different runs rather than one timed sequence, so
+read it as an order of magnitude — but the shape is not in doubt: **the cold
+build is ~93% of it**, and every other figure in this file is noise beside it.
+It is paid per *fresh* capsule, because `/work/home` and the caches are on the
+volume freshness deletes.
+
+One thing the run also confirmed in passing: `proxy : http://10.99.0.1:3128` at
+the head of the log. The `bash -l` in `capsule-baseline` is load-bearing exactly
+as [notes](./notes.md) item 6 says — without it nothing would have fetched, and
+the failure would have looked like the network.
 
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the guest
 can fetch a crate, and the first `cargo build` on a fresh volume is the largest
-cost freshness actually imposes. Measuring it needs the proxy joined to the
-namespace, i.e. the host module. Recorded as not-measured rather than estimated:
-the discarded cache is asserted, its price is not.
+cost freshness actually imposes. Measuring it *inside the probe* still needs the
+proxy joined to the namespace, i.e. the host module — but measuring it at all
+needed only a fresh volume on the devshell path, and `capsule-baseline` has now
+done that: **109 s**, above. So freshness's price is no longer "asserted but not
+priced"; the probe's own 22 assertions simply are not where the price comes from,
+and the two should not be conflated.
 
 ## Still unproven
 

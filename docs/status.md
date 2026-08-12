@@ -6,7 +6,8 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
 Last updated 2026-08-12, after the pair probe's first run, the static-config
-change, the first `capsule-inject`, and the sizing runs.
+change, the first `capsule-inject`, the sizing runs, and `capsule-baseline`'s
+first run — which took the cold build.
 
 ## Where it got to
 
@@ -61,6 +62,21 @@ change, the first `capsule-inject`, and the sizing runs.
   stands. Figures and provenance in [probes.md](./probes.md); the sampling
   method is part of the finding, since the first run's numbers died with the
   terminal that printed them.
+- **`capsule-baseline` exists and has run green, and the cold build is
+  measured.** The third of the three setup problems (design.md), and the last
+  step of making a capsule usable: it runs `target.nix`'s `baseline` — for
+  doctrine `just web-build test` — in the guest's checkout under a login shell,
+  detached, and writes its log plus one line of `/work/baseline/history.tsv`
+  **on the volume as it goes**. The host attaches to watch and may leave;
+  re-running attaches to the run in flight. Run 1 on a deleted volume:
+  **109 s to green**, ~1.1 GiB of volume, and the record proves its own
+  coldness — the caches totalled 123 MiB before and `.cargo` alone was 144 MiB
+  after. Figures in [probes.md](./probes.md); [notes](./notes.md) item 19.
+- **Time-to-interactive is ~2 minutes, and ~93% of it is that one build.**
+  8.31 s to provisioned, seconds of `capsule-inject`, then 109 s of baseline —
+  from separate runs, so it is an order of magnitude rather than a stopwatch.
+  Every other figure this repo has taken is noise beside it, which is worth
+  knowing before optimising any of them.
 - **Four of REQ-450's five axes are green; the fifth is not a row.** Checkout,
   repository and temporary state hold on a capsule nothing has used, and runtime
   now holds too. Process is deliberately unrowed: a capsule is a separate kernel,
@@ -81,23 +97,16 @@ change, the first `capsule-inject`, and the sizing runs.
 
 ## Next, in order
 
-The round in progress is *make one capsule usable interactively, then size it
-honestly*. Each step is there because the next is meaningless without it.
+The round just finished was *make one capsule usable interactively, then size it
+honestly*. Each step was there because the next was meaningless without it.
 
-The capsule boots at 4 vCPU / 8 GiB with `guestConfig` on its volume and a
-signed-in agent in it, and the sizing runs are done — three of the round's four
-steps. What is left:
+**It is done.** The capsule boots at 4 vCPU / 8 GiB with `guestConfig` on
+its volume and a signed-in agent in it, it is sized honestly, and one command
+takes a fresh one to green and says what that cost. Next is Plan C:
 
-1. **`capsule-baseline`** — host-initiated `just web-build test` to green, which
-   seeds the caches and yields the **cold build** figure. That figure is
-   unmeasurable *by the freshness probe*, whose namespace has no upstream — not
-   unmeasurable in general, and this is where it comes from.
-
-Then Plan C:
-
-2. `capsules.nix` — under netns it is a name list and little else.
+1. `capsules.nix` — under netns it is a name list and little else.
    [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
-3. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
+2. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
    before `microvm-tap-interfaces@%i`), `NetworkNamespacePath` drop-ins on both
    units, the ssh relay unit, `host/perimeter-check.nix` rewritten around the
    namespace's own `ip_forward`. Bookkeeping against a known-good result now.
@@ -120,11 +129,15 @@ Then the rest of Plan C's
   provisioning inputs" is closed: `capsule-inject` uses it.)
 - **Quarantine retention** (doctrine has DEC-193 proposed).
 - **Throughput over the unix socket.** The tap did ~100 MiB/s each way.
-- **The cold build under freshness** is unmeasured and cannot be measured by that
-  probe — see [probes.md](./probes.md). Step 1 above is where it comes from.
+- ~~**The cold build under freshness**~~ — measured, 109 s, one run
+  ([probes.md](./probes.md)). What stays open is that the *freshness probe* still
+  cannot take it: its namespace has no upstream, so the price and the 22
+  assertions come from different runs and should not be quoted as one result.
 - **What N capsules cost under load.** The pair probe priced two *idle* capsules
   and that is cheap; two concurrent builds against their ceilings is the question
   it did not ask, and it is what replaced the withdrawn 16 GiB figure.
+  `capsule-baseline` is now the command that would ask it — two of them at once,
+  against two capsules, with each run's own record on its own volume.
 - **Time-to-interactive is not 8.31 s.** "Usable" in [probes.md](./probes.md)
   means *provisioned* — that is the freshness probe's own definition. An
   interactive capsule is boot + provision + setup + a cold baseline build, and

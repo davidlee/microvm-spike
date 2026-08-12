@@ -6,17 +6,14 @@
   target,
   ...
 }: let
-  work = "/work";
-  # The one path the host also knows, so it comes from target.nix rather than
-  # being derived twice — the host pushes to it and fetches from it.
+  # The two paths the host also knows, so both come from target.nix rather than
+  # being derived twice — the host pushes to `repo` and fetches from it, and it
+  # resolves the caches and the baseline's record directory against `work`.
+  work = target.volumePath;
   repo = target.guestPath;
   # $HOME lives on the volume, so ~/.claude, credentials and shell history
   # survive reboots.
   home = "${work}/home";
-
-  # Caches that would otherwise land on the RAM-backed rootfs. One declaration
-  # (target.nix) for the env vars and for the directories the seed must create.
-  cacheDirs = lib.mapAttrsToList (_: dir: "${work}/${dir}") target.caches;
 
   # Static configuration the capsule renders from its own declared reservation
   # (target.nix's `guestConfig`), rather than carrying one in from a machine
@@ -202,14 +199,14 @@ in {
     };
     path = [pkgs.coreutils pkgs.util-linux pkgs.git];
     script = ''
-      mkdir -p ${work}/tmp ${home} ${work}/ssh ${lib.escapeShellArgs cacheDirs}
+      mkdir -p ${work}/tmp ${home} ${work}/ssh ${lib.escapeShellArgs target.cachePaths}
       chmod 1777 ${work}/tmp
       # One-time migration for volumes seeded before the agent user existed.
       # Guarded on /work's owner so a populated target/ isn't walked each boot.
       if [ "$(stat -c %u ${work})" != "1000" ]; then
         chown -R agent:users ${work}
       fi
-      chown agent:users ${home} ${lib.escapeShellArgs cacheDirs}
+      chown agent:users ${home} ${lib.escapeShellArgs target.cachePaths}
       ${lib.concatMapStringsSep "\n" (f: ''
           install -d -o agent -g users ${builtins.dirOf f.dest}
           ln -sfn ${f.src} ${f.dest}

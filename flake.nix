@@ -312,6 +312,25 @@
         (import ./setup.nix);
     };
 
+    # The last step of making a fresh capsule usable, and the only one that
+    # produces a figure: the target's own build-and-test, host-initiated, its
+    # record written on the volume rather than to a terminal. An attrset because
+    # the field is optional — a target that declares no baseline gets no program
+    # at all, which is a better absent path than one that cannot work.
+    baselinePackages = lib.optionalAttrs (target.baseline != null) {
+      capsule-baseline = import ./host/baseline.nix {
+        inherit pkgs guestHost;
+        sshArgs = guestSshArgs;
+        command = target.baseline;
+        workdir = target.guestPath;
+        # Beside the checkout, never inside it: a record written into the
+        # worktree is a dirty worktree, and a dirty worktree is what the next
+        # `capsule-provision` refuses on.
+        recordDir = "${target.volumePath}/baseline";
+        measure = [target.guestPath] ++ target.cachePaths;
+      };
+    };
+
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
     vm = pkgs.writeShellApplication {
@@ -575,6 +594,7 @@
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
+      // baselinePackages
       // {
         inherit vm vm-stop capsule-net capsule-host;
         inherit capsule-provision capsule-collect capsule-inject;
@@ -583,31 +603,35 @@
       };
 
     devShells.${system}.default = pkgs.mkShellNoCC {
-      packages = [
-        vm
-        vm-stop
-        capsule-net
-        capsule-host
-        capsule-provision
-        capsule-collect
-        capsule-inject
-        probe-netns
-        probe-netns-boot
-        probe-freshness
-        probe-two-capsules
-        pkgs.firecracker
-        pkgs.just
-        microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
-        # stdenv's PATH carries plain `pkgs.bash`, which is built without readline
-        # or progcomp: running `bash` in here gave `complete: command not found`
-        # and a prompt full of literal \[ \]. `packages` comes first, so this puts
-        # the real one back. Not repo-specific — every nix devshell does it.
-        pkgs.bashInteractive
-      ];
+      packages =
+        [
+          vm
+          vm-stop
+          capsule-net
+          capsule-host
+          capsule-provision
+          capsule-collect
+          capsule-inject
+          probe-netns
+          probe-netns-boot
+          probe-freshness
+          probe-two-capsules
+          pkgs.firecracker
+          pkgs.just
+          microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
+          # stdenv's PATH carries plain `pkgs.bash`, which is built without readline
+          # or progcomp: running `bash` in here gave `complete: command not found`
+          # and a prompt full of literal \[ \]. `packages` comes first, so this puts
+          # the real one back. Not repo-specific — every nix devshell does it.
+          pkgs.bashInteractive
+        ]
+        ++ lib.attrValues baselinePackages;
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"
         echo "                       guest side: vm capsule   (or: vm hello)"
-        echo "                       then:       capsule-provision  /  capsule-inject"
+        echo "                       then:       capsule-provision / capsule-inject"
+        ${lib.optionalString (target.baseline != null)
+          ''echo "                                   capsule-baseline (to green)"''}
         echo "                       and back:   capsule-collect"
       '';
     };

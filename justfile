@@ -62,12 +62,15 @@ fmt:
 fmt-check:
   alejandra -c {{nix_paths}}
 
-# the host-side scripts — shellcheck runs at build, so this is the real lint
+# the host-side scripts — shellcheck runs at build, so this is the real lint.
+# capsule-baseline exists only while the target declares a `baseline`; a target
+# that omits it drops that line, and the build says so rather than skipping it.
 build:
   nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' \
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
-    '.#capsule-provision' '.#capsule-collect' '.#capsule-inject'
+    '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
+    '.#capsule-baseline'
 
 # the guest closure and its runner — the slow one
 build-vm:
