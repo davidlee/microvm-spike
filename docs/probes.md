@@ -356,42 +356,54 @@ are the control for it.
 
 The ratchet the pair probe predicted — no balloon, so a capsule is charged its
 high-water mark and never returns it — measured for the first time, and it is
-large. `just load`, sampling each VMM's `VmRSS` by its unit's `MainPID` (a VMM
-cannot be found by name; CLAUDE.md) plus `/proc/pressure` to a TSV. Both capsules
-**idle**, no agent running, hours after their cold baselines above.
+large. `just load`, reading each unit's **cgroup** rather than its process, with
+both capsules **idle**, no agent running, hours after their cold baselines above.
 
 | figure | value | note |
 | --- | --- | --- |
-| `capsule` VMM resident, idle after one baseline | **6033 MiB** | against a declared ceiling of 8192 |
-| `capsule-b`, same | **6908 MiB** | |
-| host memory available | 13.1 GiB of 60.4 | with both capsules idle and nothing else large running |
-| host memory pressure | **0.00** at `some` and `full`, `avg300` | so nothing here is a reclaim-suppressed reading |
+| `microvm@capsule`, idle after one baseline | 7844 MiB current, **7845 peak** | against a declared guest ceiling of 8192 |
+| `microvm@capsule-b`, same | 6941 MiB current, **8365 peak** | *above* the declared 8192, see below |
+| **`system-microvm.slice`, both capsules** | 14816 MiB current, **16305 peak** | the answer to "what do two cost", with nothing double-counted |
+| `memory.events`, every cgroup | `low/high/max/oom/oom_kill` all **0** | no reclaim, so each peak is a true high-water mark |
+| the capsules' own `io.pressure` | **0.00** at `avg10/60/300`, 544 µs total for a whole lifetime | and see the host-wide reading below |
+| host memory available | 13.1 GiB of 60.4 | both capsules idle, other work running |
 
-**Read these as an upper bound per capsule, not as a charge that adds up.** RSS
-counts the read-only guest image where it is mapped, and that image is one store
-path shared by every capsule (12175 MiB, [freshness](#freshness)), so two RSS
-figures double-count whatever both have touched of it. `smaps_rollup`, which would
-give PSS and settle it, is not readable for another uid's process by the human, and
-everything host-side here runs as the human on purpose ([notes](./notes.md) item
-11). The host-level term that is not double-counted is `MemAvailable`.
+**A capsule's host charge can exceed the RAM it was given**, and `capsule-b`'s
+8365 against a declared 8192 is that: the cgroup carries the guest's touched pages
+*and* the host page cache for the image and volume reads the VMM did, which is
+real memory the host is holding on that capsule's behalf. The declaration bounds
+what the guest can address, not what the unit costs.
+
+The instrument matters as much as the number. Per-process RSS says 6033 and 6908
+MiB for the same two capsules — lower, and not comparable between them, because it
+double-counts the one read-only image both have mapped (12175 MiB,
+[freshness](#freshness)) while missing page cache charged to neither. PSS would
+settle that and `smaps_rollup` is unreadable for another uid's process by the
+human, which everything host-side here is by design ([notes](./notes.md) item 11).
+The cgroup has neither problem: shared pages are charged once, the slice total is
+the aggregate, and **`memory.peak` comes from the kernel, so the peak does not
+depend on a sampler's interval.**
 
 Two consequences, both of which shape the load question rather than answering it:
 
 - **A capsule that has built once holds most of its ceiling until it is stopped.**
   Freshness returns it; nothing else does. So "what N capsules cost" has two
   different answers — at peak, and afterwards — and the second one is the one that
-  decides how many fit.
+  decides how many fit. Note what the arithmetic does *not* do: 16305 MiB for two
+  is not a rehabilitation of the withdrawn 16 GiB per capsule. Same order, wrong
+  shape, and it was reasoned from a config file.
 - **The concurrency figure has to be taken on fresh volumes**, with three cold
   builds as its control, and not on capsules that have already built. Measuring
-  two warm builds on ratcheted VMMs would price a state nobody starts from.
+  two warm builds on ratcheted units would price a state nobody starts from.
 
-One instrument is unusable until someone explains it: `/proc/pressure/io` reads
-`some avg10=93.6 full avg10=89.6`, sustained across `avg300`, with two *idle*
-capsules and a host that feels perfectly responsive. That is either firecracker's
-async file IO threads — which it announces as a dev preview at every boot — or a
-kernel accounting artefact, and until it is one or the other, **do not quote io
-pressure in any figure here**. Memory pressure, on the same host at the same
-moment, reads a clean zero.
+**Host-wide PSI is the wrong instrument on this host, and it says so loudly.**
+`/proc/pressure/io` read `some avg10=93.6 full avg10=89.6`, sustained across
+`avg300`, while the machine felt perfectly responsive — that was other agents on
+the same host grepping and running a large JS harness, not the capsules: inside
+their own cgroups io pressure was `0.00` and 544 µs total for their whole
+lifetimes. A host-wide figure on a shared machine is not a capsule figure, which is
+why `just load` reads per-unit pressure and keeps `MemAvailable` as context rather
+than as evidence.
 
 ## What freshness.sh explicitly does not measure
 

@@ -9,8 +9,10 @@ Last updated 2026-08-12, after the units ran at N=1 and `probe-netns-egress`
 re-ran 27/27 behind them — and then after the one bug that stood between N=1 and
 N=2: a host program's transport is an argument now ([notes](./notes.md) item 20),
 and `probe-two-capsules` re-ran 28/28 on it with one program set instead of two.
-A second capsule is declared and wired since ([notes](./notes.md) item 21); the
-host rebuild that runs it is step 5 below and has not happened.
+**Since then N=2 has run through the module path** — two capsules declared
+([notes](./notes.md) item 21), both provisioned, injected and cold-baselined
+green, the unit's `ExecStop` green on both, and the guard holding two namespaces.
+What is left of that step is the load figure (step 6).
 
 ## Where it got to
 
@@ -43,8 +45,10 @@ host rebuild that runs it is step 5 below and has not happened.
   the human, and drop-ins on `microvm@<name>` and `microvm-tap-interfaces@<name>`
   that put both in the namespace and fix microvm.nix's `Restart=always`. The
   guard is rewritten around the namespaces and holds all of them at once.
-  **Unrun** — it is a NixOS module and this repo cannot rebuild a host; `just
-  units` is the eval-level check that exists in its place.
+  **Run at N=1 and N=2 on Sleipnir.** `just units` stays the eval-level check
+  this repo can do without a host, and it grew a second job on the way: it
+  refuses a newline in any `serviceConfig` value, because that is what a whole
+  evening went to (step 5).
 - **A host program takes its capsule as an argument, and two capsules have used
   it.** `--capsule <name>`, `CAPSULE_NAME`, or `capsules.default` — one store path
   for provision, collect, inject and baseline, serving every capsule, because the
@@ -53,8 +57,11 @@ host rebuild that runs it is step 5 below and has not happened.
   one program set instead of two, reproducing run 1's figures inside a tenth of a
   second and strengthening the withdrawn-ceiling finding on the way past
   ([probes.md](./probes.md)). [notes](./notes.md) item 20 has the decision and the
-  CLI shape that follows. Unrun: the same programs on the *module* path, which
-  needs a host rebuild.
+  CLI shape that follows. **The module path's copies are run too now** — they are
+  what provisioned, injected and baselined both capsules — and they refuse rather
+  than time out when the devshell's shadow them on `PATH`. `just provision |
+  inject | baseline | collect | setup <name>` picks the copy that can reach the
+  capsule named.
 - **A stop is a reboot, and that makes it clean.** The thing standing between
   N=1 and two capsules building at once was that `systemctl stop microvm@<name>`
   is a power cut on a mounted volume. It is not a missing signal, it is the
@@ -217,8 +224,9 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    had never parsed. **What is left of this step is the load figure** — two cold
    baselines at once, on fresh volumes, against those three sequential runs as
    the control, with `just load` sampling the host. The first thing that sampler
-   measured is already a finding: a capsule that has built once holds ~6–7 GiB
-   until it is stopped ([probes](./probes.md)).
+   measured is already a finding: a capsule that has built once holds most of its
+   ceiling until it is stopped, and the slice holding both peaked at 16305 MiB
+   ([probes](./probes.md)).
 
    The wiring, for the record: `capsule-b` is index
    1 in `capsules.nix`, and every declared capsule is now an attribute of
@@ -241,8 +249,9 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    and baselined both capsules.
 
 6. **The load figure, and nothing before it.** Two cold baselines at once, which
-   needs fresh volumes on both capsules — a capsule that has built holds ~6–7 GiB
-   and would price a state nobody starts from ([probes](./probes.md)). The control
+   needs fresh volumes on both capsules — a capsule that has built holds its
+   high-water mark until it is stopped, and would price a state nobody starts
+   from ([probes](./probes.md)). The control
    is the three sequential cold runs; the instrument is `just load <out> capsule
    capsule-b` beside them. Then what is left of Plan C item 7: the `capsule` CLI,
    per-capsule secret injection at start, and `just status`/`fetch`/`branches`

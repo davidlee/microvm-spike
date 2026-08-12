@@ -281,59 +281,71 @@ fetch name="capsule":
 # What the host pays while capsules work — the question the withdrawn "16 GiB per
 # capsule" left behind, since what binds at N is what capsules *touch*.
 #
-# A VMM is identified by its unit, never by its name: one image means every one of
-# them is `microvm@capsule` in the process table, so `MainPID` of `microvm@<name>`
-# is the only unprivileged answer that cannot pick the wrong sibling (CLAUDE.md).
-# Everything read here is world-readable, so no root and no probe — this attaches
-# to the real instances rather than booting throwaways, which is the one thing a
-# probe must not do.
+# Per **cgroup**, not per process, and that is the whole design. Host-wide PSI on
+# this machine measures whatever else is running — other agents grepping read as
+# 93% io pressure while the capsules' own cgroups sat at 0.00 — so a host-wide
+# figure is not a capsule figure. A unit's cgroup isolates it, charges shared
+# pages once, and hands over `memory.peak` and `memory.events` from the kernel:
+# **the peak does not depend on this sampler's interval**, and zero events is what
+# says a peak is a high-water mark rather than a reclaim floor.
 #
-# Sampled to a file *and* summarised, because a figure whose only copy is
-# terminal scrollback is not a figure (docs/probes.md). Ctrl-C ends it and prints
-# the peaks; the TSV is what a figure gets quoted from.
+# The cgroup comes from the unit, because a VMM cannot be found by name — one
+# image means every one of them is `microvm@capsule` in the process table
+# (CLAUDE.md). Everything read is world-readable: no root, and not a probe, since
+# this attaches to the real instances rather than booting throwaways.
 #
-# what the host pays while these capsules work: RSS per VMM, host pressure
+# Sampled to a file *and* summarised, because a figure whose only copy is terminal
+# scrollback is not a figure (docs/probes.md). Ctrl-C ends it.
+#
+# what these capsules cost while they work: cgroup memory, their own pressure
 load out=".vm/load.tsv" +names="capsule":
   #!/usr/bin/env bash
   set -uo pipefail
   mkdir -p "$(dirname {{out}})"
   read -ra names <<<"{{names}}"
+  declare -A cg
+  for n in "${names[@]}"; do
+    cg[$n]="/sys/fs/cgroup$(systemctl show "microvm@$n" -P ControlGroup)"
+    [ -r "${cg[$n]}/memory.current" ] || {
+      echo "just load: no cgroup for microvm@$n — start it first." >&2
+      exit 1
+    }
+  done
+  # Every capsule is in the same slice, so its total is the answer to "what do N
+  # of them cost" with nothing double-counted.
+  slice=$(dirname "${cg[${names[0]}]}")
+  mib() { echo $(( $(cat "$1") / 1048576 )); }
+  some() { awk '/^some/{print $2}' "$1" | cut -d= -f2; }
   {
-    printf 'elapsed\t'
-    printf '%s_rss_mib\t' "${names[@]}"
-    printf 'mem_avail_mib\tmem_some_avg10\tcpu_some_avg10\tio_some_avg10\n'
+    printf 'elapsed'
+    for n in "${names[@]}"; do printf '\t%s_mib\t%s_cpu_some\t%s_io_some' "$n" "$n" "$n"; done
+    printf '\tslice_mib\thost_avail_mib\n'
   } >{{out}}
-  declare -A peak
-  for n in "${names[@]}"; do peak[$n]=0; done
-  peak_mem=0
   trap 'break' INT TERM
   start=$SECONDS
   while :; do
-    row=$((SECONDS - start))
-    line="$row"
+    line="$((SECONDS - start))"
     for n in "${names[@]}"; do
-      pid=$(systemctl show "microvm@$n" -P MainPID)
-      rss=0
-      if [ "$pid" != 0 ] && [ -r "/proc/$pid/status" ]; then
-        rss=$(( $(awk '/^VmRSS:/{print $2}' "/proc/$pid/status") / 1024 ))
-      fi
-      [ "$rss" -gt "${peak[$n]}" ] && peak[$n]=$rss
-      line+=$'\t'"$rss"
+      line+=$'\t'"$(mib "${cg[$n]}/memory.current")"
+      line+=$'\t'"$(some "${cg[$n]}/cpu.pressure")"
+      line+=$'\t'"$(some "${cg[$n]}/io.pressure")"
     done
-    avail=$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))
-    m=$(awk '/^some/{print $2}' /proc/pressure/memory | cut -d= -f2)
-    c=$(awk '/^some/{print $2}' /proc/pressure/cpu | cut -d= -f2)
-    i=$(awk '/^some/{print $2}' /proc/pressure/io | cut -d= -f2)
-    # Pressure is the whole reason a peak can be trusted: a high-water mark taken
-    # while the kernel was reclaiming is a floor, not a peak.
-    awk -v m="$m" -v p="$peak_mem" 'BEGIN{exit !(m>p)}' && peak_mem=$m
-    printf '%s\t%s\t%s\t%s\t%s\n' "$line" "$avail" "$m" "$c" "$i" >>{{out}}
+    line+=$'\t'"$(mib "$slice/memory.current")"
+    line+=$'\t'"$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))"
+    printf '%s\n' "$line" >>{{out}}
     sleep 2
   done
   echo
-  echo "peak RSS, MiB:"
-  for n in "${names[@]}"; do printf '  %-12s %s\n' "$n" "${peak[$n]}"; done
-  echo "peak memory pressure (some avg10): $peak_mem"
+  echo "peak, from the kernel rather than from these samples:"
+  for n in "${names[@]}"; do
+    printf '  %-14s %s MiB' "$n" "$(mib "${cg[$n]}/memory.peak")"
+    # A nonzero event means the kernel reclaimed, and a peak measured under
+    # reclaim is a floor. Printed beside the number it qualifies.
+    ev=$(awk '$2 != 0 {printf "%s=%s ", $1, $2}' "${cg[$n]}/memory.events")
+    [ -n "$ev" ] && printf '  (memory.events: %s)' "$ev"
+    echo
+  done
+  printf '  %-14s %s MiB\n' "$(basename "$slice")" "$(mib "$slice/memory.peak")"
   echo "samples in {{out}} — quote figures from there, not from this screen"
 
 # every egress attempt, live — unlisted hostnames show up here as denials
