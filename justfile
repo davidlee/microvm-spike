@@ -7,7 +7,7 @@
 # more than one command to answer.
 
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
-nix_paths := "flake.nix net.nix target.nix perimeter host vm"
+nix_paths := "flake.nix net.nix target.nix setup.nix perimeter host vm"
 
 # addresses and ports come from net.nix or they drift
 # --json, not --raw: the ports are integers and --raw refuses to coerce one
@@ -67,7 +67,7 @@ build:
   nix build --no-link '.#capsule-host' '.#capsule-net' '.#vm-stop' \
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
-    '.#capsule-provision' '.#capsule-collect'
+    '.#capsule-provision' '.#capsule-collect' '.#capsule-inject'
 
 # the guest closure and its runner — the slow one
 build-vm:

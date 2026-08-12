@@ -18,6 +18,23 @@
   # (target.nix) for the env vars and for the directories the seed must create.
   cacheDirs = lib.mapAttrsToList (_: dir: "${work}/${dir}") target.caches;
 
+  # Static configuration the capsule renders from its own declared reservation
+  # (target.nix's `guestConfig`), rather than carrying one in from a machine
+  # that is not this one. It is config, not secret, so it rides in the closure
+  # and needs no transport — but the tools look for it on the volume, so the
+  # seed links it there.
+  #
+  # Links rather than copies, for the same reason it is derived rather than
+  # copied: a copy on the volume outlives the sizes it was rendered from, and
+  # nothing would say so. This way a rebuild replaces it and a fresh capsule
+  # cannot start with a stale one.
+  configLinks =
+    lib.mapAttrsToList (path: text: {
+      dest = "${work}/${path}";
+      src = pkgs.writeText "capsule-${lib.replaceStrings ["/"] ["-"] path}" text;
+    })
+    target.guestConfig;
+
   adminKeys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
   ];
@@ -193,6 +210,11 @@ in {
         chown -R agent:users ${work}
       fi
       chown agent:users ${home} ${lib.escapeShellArgs cacheDirs}
+      ${lib.concatMapStringsSep "\n" (f: ''
+          install -d -o agent -g users ${builtins.dirOf f.dest}
+          ln -sfn ${f.src} ${f.dest}
+        '')
+        configLinks}
       if [ ! -e ${repo}/.git ]; then
         install -d -o agent -g users ${repo}
         # --initial-branch explicitly, not via init.defaultBranch below: HEAD

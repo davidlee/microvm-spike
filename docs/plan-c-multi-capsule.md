@@ -533,7 +533,12 @@ all egress down, which is the correct blast radius for a host-wide control.
 
 ## Ceilings stop being optional
 
-N × 8 vCPU / 16 GiB is where the host dies, and NOTES item 12 is still open. This
+N × `target.sizes` is where the host dies — though **not** in the way this
+section claimed until the pair probe ran. Memory is a ceiling the guest
+converges on, not a charge at boot: two booted capsules cost ~1.5 GiB between
+them, so the binding term is what N capsules *touch* at once, which is
+workload-dependent and unmeasured ([probes](./probes.md), NOTES item 12). vCPU
+shares are a charge from the first busy thread. Item 12 is still open. This
 is the strongest argument for doing **the VMM half of item 11 together with this
 work**: microvm.nix's host module gives per-instance units, `MemoryMax`,
 `CPUQuota`, the uid drop off your account, and root-side tap creation — which

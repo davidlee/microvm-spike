@@ -260,7 +260,22 @@
     # The interactive paths — `just ssh`, `just admin` — deliberately do *not*
     # use this. A human present to read the warning is the case where the strict
     # default is still worth having.
-    guestSsh = "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR";
+    #
+    # As argv rather than a command line, because `capsule-inject` runs ssh
+    # itself and the netns form carries a ProxyCommand with spaces in it — a
+    # string would have to be re-split by a shell that cannot know where the
+    # quoting was meant to go. `guestSsh` is the same thing for the consumers
+    # that want a command line: git parses `GIT_SSH_COMMAND` shell-style.
+    guestSshArgs = [
+      "ssh"
+      "-o"
+      "StrictHostKeyChecking=no"
+      "-o"
+      "UserKnownHostsFile=/dev/null"
+      "-o"
+      "LogLevel=ERROR"
+    ];
+    guestSsh = lib.escapeShellArgs guestSshArgs;
 
     # Git in both directions, host-initiated. The one jail-shaped fact it takes
     # is how to reach the guest's checkout: here, ssh over the p2p tap as the
@@ -268,10 +283,15 @@
     # grows a `ProxyCommand` against the capsule's unix socket (NOTES item 17),
     # at which point the socket path is the identity and the relaxation above
     # stops being needed.
+    # Who the host talks to when it talks to a capsule: the unprivileged guest
+    # user over the p2p tap. Named once — the git channel needs it as part of a
+    # URL, `capsule-inject` needs it as an ssh destination.
+    guestHost = "agent@${net.guest}";
+
     # Where the guest's checkout is, as a URL. One binding: the git channel
     # pushes and fetches against it, and probe-netns-boot asks the same question
     # of it through a unix socket.
-    guestRepo = "ssh://agent@${net.guest}${target.guestPath}";
+    guestRepo = "ssh://${guestHost}${target.guestPath}";
 
     gitChannel = import ./host/git-channel.nix {
       inherit pkgs target guestRepo;
@@ -279,6 +299,18 @@
     };
     capsule-provision = gitChannel.provision;
     capsule-collect = gitChannel.collect;
+
+    # The non-git half of provisioning: credentials and anything else a fresh
+    # capsule needs that no repository carries. The list is ./setup.nix, whose
+    # `tools` are nixpkgs attr names — resolved here for the same reason
+    # `target.extraTools` is, so a declaration file stays data.
+    capsule-inject = import ./host/inject.nix {
+      inherit pkgs guestHost;
+      sshArgs = guestSshArgs;
+      injections =
+        map (i: i // {tools = map (name: pkgs.${name}) i.tools;})
+        (import ./setup.nix);
+    };
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -544,7 +576,8 @@
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
-        inherit vm vm-stop capsule-net capsule-host capsule-provision capsule-collect;
+        inherit vm vm-stop capsule-net capsule-host;
+        inherit capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-boot probe-freshness probe-two-capsules;
         default = self.packages.${system}.capsule;
       };
@@ -557,6 +590,7 @@
         capsule-host
         capsule-provision
         capsule-collect
+        capsule-inject
         probe-netns
         probe-netns-boot
         probe-freshness
@@ -573,7 +607,8 @@
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"
         echo "                       guest side: vm capsule   (or: vm hello)"
-        echo "                       then:       capsule-provision  /  capsule-collect"
+        echo "                       then:       capsule-provision  /  capsule-inject"
+        echo "                       and back:   capsule-collect"
       '';
     };
   };

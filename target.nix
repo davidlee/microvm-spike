@@ -70,9 +70,53 @@ rec {
   commands = "just test / just web-build";
 
   # The guest is sized for this target's build, not for the host.
+  #
+  # `mem` is a ceiling, not a charge: firecracker does not preallocate and the
+  # guest's root is tmpfs, so two booted capsules cost ~1.5 GiB between them
+  # against 32 GiB declared (docs/probes.md, the pair probe — it withdrew the
+  # opposite claim, which had been read off this file rather than measured).
+  # What makes the ceiling matter anyway is that there is no balloon: a capsule
+  # is charged its high-water mark and never gives it back, so a long build
+  # converges on this number and stays there. `vcpu` is a real charge from the
+  # first busy thread. NOTES item 12.
   sizes = {
-    vcpu = 8;
-    mem = 16384; # / is tmpfs, so guest RAM also pays for /tmp and rootfs
+    vcpu = 4;
+    mem = 8192; # / is tmpfs, so guest RAM also pays for /tmp and rootfs
     volume = 32768; # sparse; holds the checkout, target/, caches
+  };
+
+  # Static build configuration for the guest: path relative to the volume's
+  # mount point (same convention as `caches`), file content. Rendered into the
+  # guest's closure and linked onto the volume by its seed — none of it is
+  # secret, so none of it needs a transport.
+  #
+  # The whole point is what it is *not*: a copy of a human's
+  # ~/.cargo/config.toml. That file describes a 32-thread machine with a large
+  # page cache, and its `jobs` inside a 4-vCPU guest is a worse default than no
+  # file at all. So the machine-shaped value is derived from `sizes` above — the
+  # same reservation the VM is built from, which is why the two cannot disagree
+  # — and the policy-shaped ones are stated here, where this target's policy
+  # already lives. A target that does not build with cargo writes a different
+  # value here; nothing generic knows what a toolchain is.
+  #
+  # This is cargo's lowest-precedence config, so a `.cargo/config.toml` in the
+  # checkout still wins: a default the target repo can override, not an
+  # imposition on it.
+  guestConfig = {
+    "${caches.CARGO_HOME}/config.toml" = ''
+      # Rendered from target.nix by the capsule. Edits here go on the next boot.
+      [build]
+      # The capsule's vCPUs, not the host's threads.
+      jobs = ${toString sizes.vcpu}
+
+      [profile.dev]
+      # Disk, and disk is the binding constraint (docs/probes.md): full
+      # debuginfo and an incremental cache are the two largest terms in
+      # `target/`, nothing reclaims volume blocks, and the incremental cache
+      # does not survive a fresh capsule anyway. `debug = "line-tables-only"` is
+      # the knob if backtraces stop naming lines.
+      debug = 0
+      incremental = false
+    '';
   };
 }

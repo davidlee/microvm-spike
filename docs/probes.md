@@ -14,7 +14,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
-| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | **written, not yet run** (doctrine IMP-426 P1b) |
+| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, run 1 (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
 ## What netns.sh established
 
@@ -59,10 +59,10 @@ because two samples say more about the noise than either says alone.
 | volume, after boot before provision | 260 MiB | 260 | freshness | allocated blocks (`du -B1`). Empty ext4 for a 32 GiB declaration — this much exists before any content does |
 | volume, after provision | 296 MiB | 296 | freshness | so a provision costs **36 MiB** on disk, against a 32 MiB repository. The declared 32 GiB is sparse and is not a disk cost |
 | volume, provisioned plus some ssh work | 385 MiB | — | hand-measured, [notes](./notes.md) item 15 | same order — a pre-build capsule is ~300-400 MiB either way |
-| volume, one `just web-build test` in | 7.4 GiB | — | hand-measured, item 15 | 6.9 GiB of it `/work/doctrine`. A **floor**, not a plateau — no discard, and `target/` accretes |
+| volume, one `just web-build test` in | 7.4 GiB | — | hand-measured, item 15 | 6.9 GiB of it `/work/doctrine`. A **floor**, not a plateau — no discard, and `target/` accretes. Taken when the capsule had no build config at all, so it is an *untuned* build — full debuginfo, incremental cache. `target.nix`'s `guestConfig` now turns both off, which is why nothing later should be compared to this |
 | cold boot to ssh | 6.41 s | 6.34 | freshness | volume created, mkfs and seed all inside it |
 | provision, 32 MiB of history | 1.90 s | 2.26 | freshness | the noisiest term here, ±16% |
-| time to a usable fresh capsule | 8.31 s | 8.60 | freshness | boot + provision; "usable" means provisioned, not merely answering ssh |
+| time to a usable fresh capsule | 8.31 s | 8.60 | freshness | boot + provision; "usable" means provisioned, not merely answering ssh — and **not interactive**. An interactive capsule is this plus setup plus a cold baseline build, both of them paid per fresh capsule because `/work/home` is on the volume freshness deletes. Do not let the word widen quietly |
 | warm boot to ssh | 6.34 s | 6.36 | freshness | volume already made and provisioned |
 | the price of freshness | +0.07 s | −0.02 | freshness | cold minus warm. **It changed sign between runs**, which is the finding: freshness is free at boot to within ~1%, and its cost is the discarded cache, unmeasured |
 | teardown | 3.63 s | void | freshness | guest halts over ssh, then the VMM is terminated |
@@ -93,14 +93,44 @@ by construction rather than cleaned up afterwards.
 | checkout | yes | the repository exists, HEAD is unborn, the worktree is empty. This is the axis item 18's inversion bought: the base commit is an argument to a host command, so a fresh capsule has no history until one is pushed |
 | repository | yes | no remote to fetch from, and no alternates pointing at a shared object store — REQ-448's "no writable shared object store" holding **by absence** rather than by permission |
 | runtime | yes | the current boot has a journal, and no previous boot survives in it. Asserted as a pair, because a bare "no previous boot" passes just as well against a journalctl that cannot run |
-| temporary | yes | `/work/tmp` is empty, and every cache in `target.caches` is empty on a fresh volume |
+| temporary | yes | `/work/tmp` is empty, and every cache in `target.caches` holds nothing that did not come out of the closure. It asked for *empty* until `guestConfig` began linking static config into `CARGO_HOME` — a store symlink is not a previous capsule's leftovers, and "nothing from outside the closure" is the property freshness wanted all along. **Not re-run since that change** |
 | process | **not rowed** | deliberately. A capsule is a separate kernel, so no delta can falsify the reading — a permanently green row is misleading evidence rather than extra assurance (doctrine DEC-189) |
 
 Four rowed, four green. The fifth is a deliberate absence, and the reason is
 worth keeping: an assertion that cannot fail is not evidence, and a checklist
 that counts it as one is worse than a checklist that admits the gap.
 
-## What two-capsules.sh asks
+## What two-capsules.sh established
+
+**28/28 green on run 1**, one runner store path serving both capsules. The four
+independences below all hold, and the pair costs this:
+
+| figure | value | note |
+| --- | --- | --- |
+| A answers ssh, from launch | 6.94 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
+| both answer ssh, from launch | 7.12 s | the second capsule costs **0.18 s**, not a second boot |
+| declared guest RAM, per capsule | 16384 MiB | what `target.sizes.mem` said at the time of this run |
+| **MemAvailable, both booted and idle** | **1488 MiB** | against 32768 MiB declared between them. See the withdrawal below |
+| both provisioned, in series | 3.51 s | two 32 MiB histories, one after the other |
+| volume, A / B | 295 / 295 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
+| teardown, one down, sibling up | 3.56 s | matches the single-capsule 3.63 s: a sibling costs the teardown nothing |
+| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | see below |
+
+**A figure was withdrawn, and it is the more useful artefact.** Both this file
+and doctrine's EVD-019 carried "16 GiB per capsule" as the term that binds at N.
+It was never measured — it was read off `target.nix` — and it travelled as a
+finding anyway, into a status doc and into this probe's own design. Measured:
+firecracker does not preallocate and the guest's root is tmpfs, so **the
+declaration is a ceiling on what a capsule may reach, not a charge levied at
+boot**. Two idle capsules are cheap.
+
+What replaces it is worse-behaved and honest: the binding term at N is what the
+capsules *touch*, which is workload-dependent and unmeasured. Two concurrent
+`cargo build`s against their ceilings is the open question — and the ceiling
+still matters, because there is no balloon, so a capsule is charged its
+high-water mark and never returns it. The corollary, next to doctrine's DEC-189
+(a row needs a falsifying delta): **a number needs one too, and one read off a
+config file has none.**
 
 Four independences, because REQ-454 wants a candidate verified in a *separate*
 capsule from the one that produced it, and a verifier sharing anything load-bearing

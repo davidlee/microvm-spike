@@ -37,11 +37,30 @@ what stops it being proposed again.
    has since stopped serving, and item 18 is why. Not exercised: a second host, a
    second target repo (item 16), and the VMM half of item 11. Assume anything
    documented here but not named in this paragraph is reviewed rather than run.
-2. **Agent credentials.** No shares, so nothing can be injected from the host
-   filesystem. First boot: put `export ANTHROPIC_API_KEY=...` in `/work/.env`
-   (sourced at login, persists on the volume). OAuth login would need
-   `claude.ai` + `console.anthropic.com`, both allowlisted, but the device flow
-   wants a browser.
+2. **Agent credentials — solved by `capsule-inject`.** No shares, so nothing can
+   be injected from the host *filesystem*; the channel that does it is the ssh
+   one that already exists, host-initiated, as the human. `setup.nix` declares
+   what leaves this host and `host/inject.nix` is the mechanism, which never
+   learns what a credential is — each entry brings its own filter.
+
+   Two payloads, and the split is the finding: the OAuth **token** is
+   `~/.claude/.credentials.json`, a file that is nothing but the credential, so
+   there is no subsection to take; `~/.claude.json` holds **no token at all** —
+   it is identity plus ninety keys of local state, of which four travel and
+   `projects`, `githubRepoPaths`, `mcpServers` and every cache do not. A
+   whole-directory copy would have taken `history.jsonl` (3 MB of prompts) and
+   `file-history/` into a jail that exists to not have them.
+
+   The token rotates on refresh, and a capsule holds a *copy* rather than
+   sharing the file — so the two diverge and neither is authoritative. Hence
+   write-if-absent with an explicit `--force`, rather than a merge or a
+   clobber. Running several agents off one credential is already known to work
+   (the bwrap jails do it), but they share one file; that answers concurrency,
+   not divergence.
+
+   The older path still works and needs none of this: `export
+   ANTHROPIC_API_KEY=...` in `/work/.env`, sourced at login. OAuth's device flow
+   wants a browser, which is why the token is carried rather than obtained.
 3. **`pkgs.claude-code`** exists on this channel (confirmed by it failing the
    unfree check, not the existence guard). It is unfree, so the guest carries
    an `allowUnfreePredicate` naming just that package. Still guarded by
@@ -319,17 +338,26 @@ what stops it being proposed again.
 
     | resource | bound today | actually open |
     | -------- | ----------- | ------------- |
-    | memory   | 16 GiB, hard. No balloon in the firecracker runner, so the high-water mark is never returned to the host either | nothing, but the VM costs 16 GiB for its whole life |
-    | vCPU     | 8 threads of 32 | the *share*: 8 threads at 100% compete with everything else you are doing |
+    | memory   | `target.sizes.mem`, hard — but a **ceiling**, not a charge. ~~the VM costs 16 GiB for its whole life~~ **struck**: firecracker does not preallocate and the guest root is tmpfs, so two booted capsules cost ~1.5 GiB between them ([probes](./probes.md)) | what the guest *touches* — no balloon, so a high-water mark is never returned. Unmeasured under load, and that is now the binding term at N |
+    | vCPU     | `target.sizes.vcpu` threads of 32 | the *share*: those threads at 100% compete with everything else you are doing. A real charge from the first busy thread, unlike memory |
     | disk     | 32 GiB, hard — a sparse file cannot exceed its declared size | see item 15 |
     | disk I/O | none | a `cargo build` in the guest hammers the host disk unthrottled |
 
     So the real asks are `CPUQuota`/`CPUWeight` and `IOWeight`, plus
     `MemoryMax` as a backstop against a VMM leak rather than against the guest.
     Interim, without moving to the host module: `systemd-run --user --scope -p
-    CPUQuota=600% -p IOWeight=50 -p MemoryMax=18G -- vm capsule`. Caps only, no
+    CPUQuota=400% -p IOWeight=50 -p MemoryMax=10G -- vm capsule`. Caps only, no
     uid separation, and the user slice needs the `cpu` controller delegated for
     the quota to take.
+
+    **How the memory row came to be wrong is worth more than the row.** It was
+    read off `target.nix` — a configuration fact, labelled as one — and it
+    travelled as a measurement anyway: into this ledger, into the spike's status
+    doc, into doctrine's EVD-019, and into the design of the very probe that
+    eventually refuted it. DEC-189 says a row needs a falsifying delta; the
+    corollary is that **a number needs one too**, and a number read off a config
+    file has none. The same trap is why [probes.md](./probes.md) exists and why
+    it records provenance per figure.
 13. **Accepted, not fixed:** host SMT is on and `machine-config` carries
     `smt: true`, against firecracker's own host-setup guidance for untrusted
     guests. Zen 5 reports vmscape mitigated (IBPB on VMEXIT) and is unaffected

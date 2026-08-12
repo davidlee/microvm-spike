@@ -177,6 +177,19 @@ host, naming the base commit — any branch, tag or sha in the target repo:
 capsule-provision edge
 ```
 
+History is not everything a capsule needs. `$HOME` is on the volume, and
+freshness deletes volumes, so a fresh capsule has no agent credentials either.
+Push the declared payloads — `setup.nix` says what they are, and nothing not
+named there leaves this host:
+
+```
+capsule-inject             # all of them; add a name to pick one
+```
+
+It refuses to replace anything already there: a capsule's copy of a credential
+drifts from this host's once the agent uses it. `capsule-inject NAME --force`
+when you mean it.
+
 Then from a fourth terminal: `ssh agent@10.99.0.2`. Inside the guest you are
 `agent`, in `/work/<target>`:
 
@@ -206,6 +219,7 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-host`      | tinyproxy + the perimeter watch. Foreground, unprivileged.   |
 | `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
 | `capsule-collect [NAME]` | fetch the guest's refs into a quarantine repo.          |
+| `capsule-inject [NAME...] [--force]` | push the payloads declared in `setup.nix` into `/work/home`. |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |
@@ -280,9 +294,14 @@ Tools the target's list omits because it assumes a host that has them go in
 ## Pointing it at a different repo
 
 `target.nix` holds everything target-shaped: name, path, tools package, egress
-allowlist file, cache directories, working branch, collect ceiling and the
-guest's sizes. Change it and the guest's checkout path, the branch the git
-channel provisions onto, the motd and the host side all follow.
+allowlist file, cache directories, working branch, collect ceiling, the guest's
+sizes and the build config rendered from them. Change it and the guest's
+checkout path, the branch the git channel provisions onto, the motd and the host
+side all follow.
+
+What does *not* move with the target is `setup.nix` — which agent you sign in
+as is a property of you, not of the repo under confinement, so a second target
+takes that list unchanged.
 
 One duplication is unavoidable: an input's url must be a literal, so
 `inputs.target.url` in `flake.nix` has to name the same repo as `path` in

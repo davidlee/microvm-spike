@@ -209,9 +209,17 @@ measure "runtime: journalctl --list-boots lines (header included)" \
 # freshness holding — and it is the cost, not the benefit. See judgement call 3.
 check "temporary: /work/tmp is empty" deny \
   g "find $WORK/tmp -mindepth 1 | grep -q ."
+#
+# Not "empty", though it used to be: the seed links this capsule's static config
+# (target.nix's `guestConfig`) into these directories, and a cache holding a
+# store symlink is a cache holding nothing a previous capsule wrote. So the
+# question is whether anything here came from outside the closure — which is the
+# property freshness actually wants, and it does not soften with each config
+# file added. A guest-written symlink would have to point into /nix/store to
+# pass, and the store is read-only.
 for cache in $CACHES; do
-  check "temporary: $cache is empty on a fresh volume" deny \
-    g "find $WORK/$cache -mindepth 1 | grep -q ."
+  check "temporary: $cache holds nothing the closure did not put there" deny \
+    g "find $WORK/$cache -mindepth 1 -not -lname '/nix/store/*' | grep -q ."
 done
 
 # Process is the fifth axis and it is deliberately *not* a row here. A capsule is

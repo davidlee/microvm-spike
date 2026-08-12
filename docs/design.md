@@ -156,8 +156,10 @@ overstates it:
 - **Consequence, and it is the real one:** firecracker runs as *you*, uid 1000,
   with ambient access to `~/.ssh`, `~/.claude`, every repo and every shell rc.
   A VMM escape lands directly on the assets the capsule exists to protect.
-  Second consequence: no `MemoryMax`/`CPUQuota`/`TasksMax`, so 16 GiB and 8
-  vCPU are the guest's to abuse. See [notes](./notes.md) items 11-12.
+  Second consequence: no `MemoryMax`/`CPUQuota`/`TasksMax`, so whatever
+  `target.sizes` declares is the guest's to abuse — and, memory being a ceiling
+  the guest converges on rather than a charge at boot ([probes](./probes.md)),
+  abusing it is the only way to pay for it. See [notes](./notes.md) items 11-12.
 
 Also note microvm.nix appends **`--enable-pci`** unconditionally for
 firecracker ≥ 1.13 (`lib/runners/firecracker.nix`), and `firecracker.extraArgs`
@@ -221,9 +223,9 @@ there before `nix flake update doctrine` will see them.
 A provisioned capsule is not yet a capsule you can work in. There is no
 filesystem path into the guest (firecracker: no shares), so anything that has to
 get there arrives over the link or is baked into the closure — and which of those
-it is depends on what it is. Not built yet; the decomposition is the part worth
-having written down, because the three parts have different mechanisms and
-different trust properties.
+it is depends on what it is. The decomposition is the part worth having written
+down, because the three parts have different mechanisms and different trust
+properties — and only the first of them is built.
 
 | | what | mechanism | in the closure? |
 | --- | --- | --- | --- |
@@ -247,19 +249,52 @@ declared reservation*, and cargo's `jobs` is one target's instance of it. A
 target that does not build with cargo needs a different value here, not
 different code.
 
+**Built, as `target.nix`'s `guestConfig`**: guest paths relative to the volume
+mount, file contents, rendered into the closure by `vm/capsule.nix` and linked
+onto the volume by the seed. Links rather than copies, for the same reason the
+values are derived rather than copied — a copy on the volume outlives the sizes
+it was rendered from and nothing would say so. The generic side knows only
+"path, content"; the string `cargo` appears once in this repo, in `target.nix`,
+and `{}` is a working absent value for a target that wants none of it.
+
+What it changed for doctrine is not subtle: until it existed, the capsule built
+with full debuginfo and an incremental cache — cargo's defaults, since neither
+the human's config nor doctrine's own `Cargo.toml` reaches a capsule. Every
+volume figure in [probes.md](./probes.md) was taken against that untuned build.
+
 **Credentials are a push, not a fetch, and item 18 is why.** The earlier plan
 here had `capsule-host` *serve* a bootstrap tarball, with an open question about
 whether it went over the git daemon or a second port. Both halves of that
 question died with the inversion: the host initiates over ssh now, so a
 credential injection is one host-side program pushing an explicit list of paths
 into `/work/home`, with no service, no port and nothing for the guest to reach.
-Explicit selection is still the point — a whole-`~/.claude` copy hands the agent
-every project's history and every credential in it.
 
-Two open questions survive: whether OAuth tokens tolerate being live in two
-places at once or whether a capsule needs its own credential, and how to avoid
-overwriting a newer in-guest login with a stale host copy. The `/work/.env`
-API-key path in item 2 works today and needs none of this.
+**Built, as `capsule-inject`.** `setup.nix` declares the payloads and
+`host/inject.nix` is the mechanism — and the mechanism never learns what a
+credential is, because each entry carries its own host-side `produce` fragment.
+No filename, format or key name appears in the program. Same rule as
+`guestConfig`, same seam as `capsule-provision`.
+
+Selection is the whole point, and the shape of these two payloads is the
+argument for it:
+
+- `~/.claude/.credentials.json` is **nothing but the token**, so it travels
+  whole — there is no subsection to take.
+- `~/.claude.json` holds **no token at all**: 94 KB of identity plus ninety keys
+  of local state, including `projects` — 16 repo paths and their per-project
+  history. Four keys travel (`oauthAccount`, `userID`, and the two onboarding
+  flags); the rest, and `history.jsonl`'s 3 MB of prompts beside it, stay on the
+  host. A whole-`~/.claude` copy would have taken all of it into a jail that
+  exists to not have it.
+
+One open question is answered and one is not. **Concurrency**: several agents do
+run off one credential — the bwrap jails already do — so a capsule does not need
+its own. **Divergence**: those jails share one *file*, whereas a capsule holds a
+*copy* on its volume, and the token rotates on refresh, so the two drift and
+neither is authoritative. Hence write-if-absent with an explicit `--force`
+rather than a merge or a clobber: replacing a capsule's credential discards
+whatever it has written since, and that should be a decision. The `/work/.env`
+API-key path in item 2 still works and needs none of this.
 
 **`$HOME` is on the volume, so setup is paid per fresh capsule.** Freshness is
 implemented by deleting volumes, and `/work/home` is on one — so setup and
