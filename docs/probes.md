@@ -447,6 +447,14 @@ its own peak had been set in an earlier session (above), which is the finding th
 run produced about its instrument rather than about the capsules. Fixed forward,
 not backfilled: no slice figure is quoted for this run.
 
+**A second instrument agrees, and the ratchet is what it agrees about.** Stopping
+`capsule-b` the next evening printed systemd's own accounting line for the unit:
+`6.6G memory peak` over `52min` of wall clock. That is 6801 MiB read a different
+way, by a different mechanism, at the end of a unit's life rather than by sampling
+it — and it was still 6801 MiB *52 minutes after the build finished*, with an idle
+guest in between. So the peak is held until the cgroup is destroyed, which is
+exactly the ratchet above and the reason a stop is what resets it.
+
 **What else was running, because on this host that is part of the reading.** One
 other agent actively working, noctalia's indexer visible in `iotop`, niri plus idle
 terminals and Firefox. No `.vm/load.tsv` was taken, so this section claims **nothing

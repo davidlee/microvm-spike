@@ -372,7 +372,8 @@ end's job.
 
 | command             | what                                                       |
 | ------------------- | ---------------------------------------------------------- |
-| `capsule [name] <verb>` | resolve a capsule and run a verb at it: `start`, `stop`, `created`, `ssh`, `admin`, `setup`, or any of the four above. |
+| `capsule [name] <verb>` | resolve a capsule and run a verb at it: `start`, `stop`, `created`, `status`, `branches`, `fetch`, `ssh`, `admin`, `setup`, or any of the four above. |
+| `capsule all <verb>`| the same, over every declared capsule. Questions only — `status`, `branches`, `fetch`. |
 | `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). Devshell shape. |
 | `vm-stop [name]`    | clean shutdown over the firecracker API socket. Devshell shape. |
 | `just ssh [name]`   | `capsule <name> ssh`, from the checkout — over the relay socket if the capsule has one. |
@@ -394,10 +395,14 @@ Those are the lifecycle; `just` has the gate, the create, and everything that
 needs more than one command to answer — the run-time verbs are `capsule`'s and the
 recipes delegate. `just check` is the gate (every nix file
 parses and is alejandra-clean — no eval, so it can't trigger a VM build).
-`just status` puts the VM, the tap, the listener, the perimeter's verdict, the
-units and what has been collected on one screen. Then `just verify`,
-`just fetch`, `just branches`, `just proxy-log`, `just allowed`, `just ssh`,
-`just admin`.
+`just status` is `capsule all status` — a row per capsule (created, VM / proxy /
+relay unit state, door, whether the guest answers, refs collected) — plus the
+devshell shape's own tap and listener, which are the only parts of a perimeter
+this namespace can read directly. What is inside a capsule's namespace is
+`capsule-perimeter-guard`'s to verify, and the table names it rather than
+guessing: `ip netns exec` needs root, and a status that needs root is a status
+nobody runs. Then `just verify`, `just fetch`, `just branches`,
+`just proxy-log [name]`, `just allowed`, `just ssh`, `just admin`.
 `just --list` for the rest. Addresses come from `net.nix` and target paths from
 `target.nix`, never a literal.
 

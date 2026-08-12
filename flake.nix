@@ -312,7 +312,7 @@
     # honest statement of that. `capsule-cli` as an attribute, `capsule` as a
     # program: `.#capsule` is the guest runner and has been all along.
     capsule-cli = import ./host/cli.nix {
-      inherit pkgs lib net capsules;
+      inherit pkgs lib net target capsules guestSsh;
       programVerbs =
         ["provision" "collect" "inject"]
         ++ lib.optional (hostPrograms.baseline != null) "baseline";

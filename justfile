@@ -24,23 +24,14 @@ _net key:
 _target key:
   @nix eval --json --file target.nix {{key}} | tr -d '"'
 
-# a capsule's quarantine, wherever this host keeps it: /var/lib/capsule (module
-# path) or .vm/host. Same search order as the programs' own defaults.
-_quarantine name="capsule":
+# the proxy's log, wherever this host keeps it. A capsule is a *directory* under
+# the module's proxy state — one proxy per capsule since the units went
+# per-namespace — so this takes the name; the devshell path has one proxy and one
+# log, and ignores it.
+_proxy-log name="capsule":
   #!/usr/bin/env bash
   set -euo pipefail
-  for state in "${CAPSULE_STATE:-}" /var/lib/capsule "${CAPSULE_ROOT:-$PWD}/.vm/host"; do
-    [ -n "$state" ] && [ -d "$state/collect/{{name}}.git" ] \
-      && { echo "$state/collect/{{name}}.git"; exit 0; }
-  done
-  echo "nothing collected yet — run capsule-collect --capsule {{name}}" >&2
-  exit 1
-
-# same question for the proxy's log
-_proxy-log:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  for f in /var/lib/capsule-proxy/tinyproxy.log \
+  for f in "/var/lib/capsule-proxy/{{name}}/tinyproxy.log" \
            "${CAPSULE_PROXY_STATE:-${CAPSULE_STATE:-${CAPSULE_ROOT:-$PWD}/.vm/host}}/tinyproxy.log"; do
     [ -f "$f" ] && { echo "$f"; exit 0; }
   done
@@ -160,36 +151,25 @@ refresh name="capsule":
     echo "{{name}}: updated, and it was not running — 'just up {{name}}'"
   fi
 
-# VM, tap, listener, perimeter, quarantine, units — one screen
+# Two shapes answer this differently and both are shown. The per-capsule table is
+# `capsule all status` — every column of it readable without root, and what is
+# inside a namespace named as the guard's rather than printed as unknown
+# (host/cli.nix). What is left here is the devshell shape, whose tap and listener
+# *are* in this namespace and so can be shown directly.
 #
-# Two shapes answer this differently and both are shown. On the devshell shape
-# the tap and the proxy's listener are in the root namespace, where this can see
-# them; on the module shape they are inside a capsule's namespace and this
-# cannot, by construction — the namespaces and the sockets are what says a
-# capsule is up.
-status name="capsule":
+# every capsule, plus the devshell shape's own link — one screen
+status:
   #!/usr/bin/env bash
   set -uo pipefail
-  echo "== vm"
-  pgrep -af 'microvm@' || echo "  no VM running"
-  echo "== tap (devshell shape only — a namespaced tap is invisible from here)"
-  ip -brief addr show "$(just _net tap)" 2>/dev/null || echo "  none in this namespace"
-  echo "== listener (devshell shape only; only your own processes are named)"
-  ss -lntp "sport = :$(just _net proxyPort)" 2>/dev/null | tail -n +2 || echo "  none"
-  echo "== perimeter (devshell shape)"
+  capsule all status
+  echo
+  echo "== devshell shape (its tap and listener are in this namespace; a"
+  echo "   namespaced one is not, which is what the table above is for)"
+  ip -brief addr show "$(just _net tap)" 2>/dev/null | sed 's/^/  /' \
+    || echo "  no tap here"
+  ss -lntp "sport = :$(just _net proxyPort)" 2>/dev/null | tail -n +2 | sed 's/^/  /' \
+    || echo "  nothing on the proxy port"
   just verify 2>&1 | sed 's/^/  /'
-  echo "== capsules (module shape)"
-  ip netns list 2>/dev/null | grep '^cap-' | sed 's/^/  ns /' || echo "  no namespaces"
-  for s in /run/capsule/*/ssh.sock; do
-    [ -S "$s" ] && echo "  in $s"
-  done
-  echo "== units (module shape)"
-  systemctl list-units --no-legend --no-pager 'capsule-*' 2>/dev/null \
-    | awk '{printf "  %s: %s\n", $1, $3}' || true
-  echo "== collected"
-  q=$(just _quarantine {{name}} 2>/dev/null) \
-    && echo "  $q ($(git --git-dir="$q" for-each-ref "refs/capsule/{{name}}/" | wc -l) refs)" \
-    || echo "  nothing — capsule-collect --capsule {{name}}"
 
 # The capsule comes first in every one of these, as everywhere else here, so
 # `just provision capsule-b edge` cannot be read the other way round. The ref is
@@ -216,17 +196,13 @@ collect name="capsule":
 setup name="capsule" ref="":
   @capsule {{name}} setup {{ref}}
 
-# what a capsule has produced, as collected
+# what a capsule has produced, as collected — `all` for every capsule
 branches name="capsule":
-  @git --git-dir="$(just _quarantine {{name}})" for-each-ref \
-    --sort=-committerdate \
-    --format='%(objectname:short)  %(refname:short)  %(committerdate:relative)  %(subject)' \
-    'refs/capsule/{{name}}/'
+  @capsule {{name}} branches
 
 # the second step: quarantine -> the repo you work in, once you have looked
 fetch name="capsule":
-  git -C "${CAPSULE_REPO:-$(just _target path)}" fetch "$(just _quarantine {{name}})" \
-    'refs/capsule/*:refs/capsule/*'
+  @capsule {{name}} fetch
 
 # What the host pays while capsules work — the question the withdrawn "16 GiB per
 # capsule" left behind, since what binds at N is what capsules *touch*.
@@ -331,8 +307,8 @@ load out=".vm/load.tsv" +names="capsule":
   echo "samples in {{out}}, peaks in $peaks — quote figures from there, not from this screen"
 
 # every egress attempt, live — unlisted hostnames show up here as denials
-proxy-log:
-  tail -f "$(just _proxy-log)"
+proxy-log name="capsule":
+  tail -f "$(just _proxy-log {{name}})"
 
 # hostnames the proxy will resolve — a destination control, not an exfil one
 allowed:

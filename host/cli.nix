@@ -26,52 +26,74 @@
   pkgs,
   lib,
   net,
+  target,
   capsules,
+  # The host->guest ssh relaxation, for the *reachability probe* only
+  # (host/guest-ssh.nix). The human's own door keeps the strict default, because a
+  # human is there to read the warning; a probe asking "is anything listening"
+  # would otherwise report a rotated host key as an unreachable guest.
+  guestSsh,
   # Which `capsule-<verb>` programs this host actually has. `baseline` is absent
   # when the target declares none (host/programs.nix), and an unknown verb should
   # say so rather than exec a command that is not there.
   programVerbs,
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.
-  ownVerbs = ["start" "stop" "created" "ssh" "admin" "setup"];
+  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch"];
+
+  # Verbs `all` may be applied to. A question aggregates: N answers on one screen,
+  # and a failure on one capsule is a row rather than a decision. An *action* does
+  # not, without a policy for the fourth of five failing — so `all start`, `all
+  # stop` and `all setup` are refused until someone wants that policy decided,
+  # rather than half-done by default.
+  aggregable = ["status" "branches" "fetch"];
 
   verbs = ownVerbs ++ programVerbs;
 
   names = builtins.attrNames capsules.instances;
 
   # A leading argument is a capsule when it names one, and a verb otherwise —
-  # decidable, because both lists are known here. A name that is also a verb
-  # would make it a guess, so it is an eval error instead, in the same spirit as
-  # `capsules.nix`'s own refusals.
-  collide = lib.intersectLists verbs names;
+  # decidable, because both lists are known here. A name that is also a verb, or
+  # one called `all`, would make it a guess, so it is an eval error instead, in the
+  # same spirit as `capsules.nix`'s own refusals.
+  collide = lib.intersectLists (verbs ++ ["all"]) names;
 
-  # microvm.nix's state directory, and the only host path this file knows. A
-  # created VM tracks it rather than the flake (CLAUDE.md), and its `tap-up` is
-  # what both `microvm@<name>` and the tap unit are conditioned on — so its
-  # absence is what "never created here" looks like, and without asking, a start
-  # fails as a dependency error naming neither unit. The justfile used to spell
-  # this; it asks `capsule <name> created` now.
+  # microvm.nix's state directory. A created VM tracks it rather than the flake
+  # (CLAUDE.md), and its `tap-up` is what both `microvm@<name>` and the tap unit
+  # are conditioned on — so its absence is what "never created here" looks like,
+  # and without asking, a start fails as a dependency error naming neither unit.
+  # The justfile used to spell this; it asks `capsule <name> created` now.
   microvms = "/var/lib/microvms";
+
+  # Where the module keeps quarantines. On the module path this is not a guess at
+  # all — that copy is wrapped with `CAPSULE_STATE` and `CAPSULE_REPO` from the
+  # host's own options (host/services.nix), the same wrapper the two stateful
+  # programs get, and `CAPSULE_STATE` is the first thing tried below. This is the
+  # *devshell* copy's guess at where the module put things, which is the case that
+  # actually needs one: inside the repo, asked about a capsule the units own. The
+  # convention itself has one definition (host/git-channel.nix's `statePaths`).
+  moduleState = "/var/lib/capsule";
 
   # A capsule's identity and its way in are the same thing (NOTES item 17), and
   # the path is a pure function of a name known only at run time — so these are
   # `capsules.socketOf` applied to a shell expression and to the wildcard, and the
   # convention still has exactly one definition.
-  guestSock = capsules.socketOf ''"$name"'';
-  everyGuestSock = capsules.socketOf "*";
+  sockOfArg = capsules.socketOf ''"$1"'';
+  everySock = capsules.socketOf "*";
 in
-  assert collide == [] || throw "host/cli.nix: '${builtins.head collide}' is both a capsule and a verb, so `capsule ${builtins.head collide} …` cannot be read either way";
+  assert collide == [] || throw "host/cli.nix: '${builtins.head collide}' is both a capsule and a verb (or `all`), so `capsule ${builtins.head collide} …` cannot be read either way";
     pkgs.writeShellApplication {
       name = "capsule";
-      runtimeInputs = [pkgs.coreutils pkgs.systemd pkgs.openssh pkgs.socat];
+      runtimeInputs = [pkgs.coreutils pkgs.systemd pkgs.openssh pkgs.socat pkgs.git pkgs.gnused];
       text = ''
         declared=(${lib.concatMapStringsSep " " lib.escapeShellArg names})
 
         usage() {
-          echo "capsule [<name>] <verb> [args…]"
+          echo "capsule [<name>|all] <verb> [args…]"
           echo
           echo "  capsules:  ''${declared[*]}   (default ${capsules.default})"
           echo "  lifecycle: start | stop | created"
+          echo "  ask:       status | branches | fetch     (these take 'all')"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
         }
@@ -88,7 +110,7 @@ in
         # default, which is a value rather than a habit (`capsules.nix`).
         name=${lib.escapeShellArg capsules.default}
         if [ "$#" -gt 0 ]; then
-          for d in "''${declared[@]}"; do
+          for d in "''${declared[@]}" all; do
             if [ "$1" = "$d" ]; then
               name="$1"
               shift
@@ -115,20 +137,51 @@ in
           exit 1
         fi
 
-        sock=${guestSock}
-        unit="microvm@$name"
+        targets=("$name")
+        if [ "$name" = all ]; then
+          aggregable=no
+          for v in ${lib.concatMapStringsSep " " lib.escapeShellArg aggregable}; do
+            [ "$verb" = "$v" ] && aggregable=yes
+          done
+          if [ "$aggregable" = no ]; then
+            echo "capsule: 'all $verb' is an action on every capsule, not a question about" >&2
+            echo "  them, and what to do when the third of five fails is undecided. Name one:" >&2
+            echo "  ''${declared[*]}" >&2
+            exit 1
+          fi
+          targets=("''${declared[@]}")
+        fi
 
-        created() { [ -x "${microvms}/$name/current/bin/tap-up" ]; }
+        sockOf() { printf '%s' ${sockOfArg}; }
+        unitOf() { printf 'microvm@%s' "$1"; }
+        created() { [ -x "${microvms}/$1/current/bin/tap-up" ]; }
+
+        # A unit's state in one word: `SubState` while it is active, since `running`
+        # and `auto-restart` are the difference between a capsule and a crash loop,
+        # and `ActiveState` otherwise. `--` for a unit this host does not have —
+        # asked as `LoadState`, because `systemctl show` answers `inactive` for a unit
+        # that does not exist and that would read as a stopped one.
+        unitState() {
+          local load
+          load=$(systemctl show "$1" -P LoadState 2>/dev/null || true)
+          if [ "$load" != loaded ]; then
+            echo "--"
+          elif [ "$(systemctl show "$1" -P ActiveState)" = active ]; then
+            systemctl show "$1" -P SubState
+          else
+            systemctl show "$1" -P ActiveState
+          fi
+        }
 
         # The module's copy when this capsule has a door and the host has one,
         # otherwise whatever PATH gives — which inside the repo is the devshell's,
         # the right answer for a capsule on a tap in this namespace.
         program() {
-          local module="/run/current-system/sw/bin/$1"
-          if [ -S "$sock" ] && [ -x "$module" ]; then
+          local module="/run/current-system/sw/bin/$2"
+          if [ -S "$(sockOf "$1")" ] && [ -x "$module" ]; then
             echo "$module"
           else
-            echo "$1"
+            echo "$2"
           fi
         }
 
@@ -137,65 +190,142 @@ in
         # which would make `capsule capsule-b provision --capsule capsule` succeed
         # against the wrong capsule quietly. Refuse rather than resolve.
         work() {
-          local prog arg
-          prog=$(program "capsule-$1")
-          shift
+          local n="$1" prog arg
+          prog=$(program "$n" "capsule-$2")
+          shift 2
           for arg in ''${1+"$@"}; do
             case "$arg" in
               --capsule | --capsule=*)
-                echo "capsule: '$name' is already named, so drop the --capsule from here." >&2
+                echo "capsule: '$n' is already named, so drop the --capsule from here." >&2
                 exit 1
                 ;;
             esac
           done
-          "$prog" --capsule "$name" "$@"
+          "$prog" --capsule "$n" "$@"
         }
 
-        # The interactive door, and deliberately not `host/guest-ssh.nix`'s
-        # relaxation: that one turns host-key checking off because the git channel
-        # cannot stop for a changed key, and here a human is present to read the
-        # warning. `HostKeyAlias` files each capsule's key under its own name, since
-        # every guest is at the same address and would otherwise fight over one
-        # `known_hosts` entry.
-        guest_ssh() {
-          local user="$1"
-          shift
-          if [ -S "$sock" ]; then
-            exec ssh -o HostKeyAlias="capsule-$name" \
-              -o ProxyCommand="socat - UNIX-CONNECT:$sock" \
-              "$user@${net.guest}" ''${1+"$@"}
-          fi
-          # No socket for this capsule but one for another means the module path
-          # owns this host and this capsule is simply not up. Going direct reaches
-          # for a `net.guest` whose tap is inside somebody's namespace, which is a
-          # timeout that reads as a dead guest — the failure the four programs were
-          # taught to refuse (NOTES item 20).
+        # Which capsules have a way in at all. The answer to "why can I not reach
+        # this one" is usually another capsule's name.
+        doorsOpen() {
           shopt -s nullglob
-          local doors=() s
-          for s in ${everyGuestSock}; do
+          local s
+          doors=()
+          for s in ${everySock}; do
             s=''${s%/ssh.sock}
             doors+=("''${s##*/}")
           done
-          if [ ''${#doors[@]} -gt 0 ]; then
-            echo "no relay socket for '$name', and the module path owns this host." >&2
-            echo "  capsules with a door: ''${doors[*]}" >&2
-            echo "  'capsule $name start' if it should be running." >&2
-            exit 1
+        }
+
+        # Fills `ssh_argv` with the argv that reaches a capsule, and returns 1 when
+        # this host has doors but not this capsule's — which means the module path
+        # owns it and this capsule is simply not up. Going direct then reaches for a
+        # `net.guest` whose tap is inside somebody's namespace, and that is a timeout
+        # that reads as a dead guest (NOTES item 20).
+        #
+        # `human` keeps strict host-key checking and files each capsule's key under
+        # its own name, since every guest is at the same address and would otherwise
+        # fight over one `known_hosts` entry. `probe` uses the relaxation the git
+        # channel uses (host/guest-ssh.nix) plus `BatchMode`, because it is asking
+        # whether anything answers and must not stop for a key or a prompt.
+        door() {
+          local n="$1" mode="$2" sock
+          sock=$(sockOf "$n")
+          case "$mode" in
+            human) ssh_argv=(ssh -o HostKeyAlias="capsule-$n") ;;
+            probe) ssh_argv=(${lib.escapeShellArgs guestSsh.args} -o BatchMode=yes) ;;
+          esac
+          if [ -S "$sock" ]; then
+            ssh_argv+=(-o "ProxyCommand=socat - UNIX-CONNECT:$sock")
+            return 0
           fi
-          exec ssh "$user@${net.guest}" ''${1+"$@"}
+          doorsOpen
+          [ ''${#doors[@]} -eq 0 ]
+        }
+
+        # Does the guest answer? The one per-capsule fact that is not a unit's
+        # opinion of itself — every unit reported health through an evening when the
+        # VM was crash-looping in the wrong namespace (CLAUDE.md), and this is the
+        # question none of them can get wrong.
+        answers() {
+          local ssh_argv=()
+          door "$1" probe || return 1
+          "''${ssh_argv[@]}" "agent@${net.guest}" true >/dev/null 2>&1
+        }
+
+        # Where this capsule's collected work landed, if anywhere. A search rather
+        # than a derivation, deliberately: which state directory holds it depends on
+        # which shape did the collecting, and looking for the artefact answers that
+        # without having to infer it from what is running now.
+        quarantineOf() {
+          local n="$1" state
+          for state in "''${CAPSULE_STATE:-}" ${moduleState} "''${CAPSULE_ROOT:-$PWD}/.vm/host"; do
+            [ -n "$state" ] || continue
+            [ -d "$state/collect/$n.git" ] && {
+              echo "$state/collect/$n.git"
+              return 0
+            }
+          done
+          return 1
+        }
+
+        refsIn() {
+          git --git-dir="$1" for-each-ref --format='%(refname)' "refs/capsule/$2/" | wc -l
+        }
+
+        statusHeader() {
+          printf '%-11s %-7s %-11s %-8s %-8s %-6s %-7s %s\n' \
+            capsule created vm proxy relay door answers refs
+        }
+
+        yesno() { if "$@"; then echo yes; else echo no; fi; }
+
+        statusRow() {
+          local n="$1" q refs=-
+          if q=$(quarantineOf "$n"); then refs=$(refsIn "$q" "$n"); fi
+          printf '%-11s %-7s %-11s %-8s %-8s %-6s %-7s %s\n' \
+            "$n" \
+            "$(yesno created "$n")" \
+            "$(unitState "$(unitOf "$n")")" \
+            "$(unitState "capsule-proxy-$n")" \
+            "$(unitState "capsule-ssh-relay-$n")" \
+            "$(yesno test -S "$(sockOf "$n")")" \
+            "$(yesno answers "$n")" \
+            "$refs"
+        }
+
+        # What is inside a capsule's namespace — its own `ip_forward=0`, the tap's
+        # input drop, the drops between capsules — cannot be read from here at all:
+        # `ip netns exec` wants CAP_SYS_ADMIN and a status must not need root. So this
+        # does not print "unknown"; it names the witness. `capsule-perimeter-guard`
+        # audits every namespace every 10 s and exits — taking every proxy's egress
+        # with it — the moment one of them stops holding, so its being active *is* the
+        # per-namespace verdict, for all capsules at once.
+        perimeter() {
+          local state
+          state=$(unitState capsule-perimeter-guard)
+          if [ "$state" = "--" ]; then
+            echo "perimeter: no guard unit — the module path is not installed on this host."
+            echo "  The devshell shape's answer is 'capsule-net verify'."
+            return 0
+          fi
+          echo "perimeter: capsule-perimeter-guard is $state — it audits every namespace"
+          echo "  every 10 s, and nothing else here can see inside one."
+          journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null \
+            | sed 's/^/  /' || true
         }
 
         case "$verb" in
-          created) created ;;
+          created) created "$name" ;;
 
           start)
-            created || {
+            created "$name" || {
               echo "capsule '$name' has never been created on this host." >&2
               echo "  Creating resolves its name as a flake attribute (NOTES item 21), so it" >&2
               echo "  needs the flake: 'just up $name' in the checkout, or" >&2
               echo "  'sudo microvm -c $name -f <flake>'." >&2
               exit 1
             }
+            unit=$(unitOf "$name")
             # A host rebuild that changes this unit's drop-ins does not reach a unit
             # that is already running or mid-restart: systemd keeps the loaded
             # fragment and only records NeedDaemonReload, and a reload cannot swap it
@@ -230,29 +360,74 @@ in
             # unmounts and then its reset exits the VMM (NOTES item 11). The journal
             # tail is the evidence — `reboot requested` and then a return, rather than
             # 120 s of TimeoutStopSec.
+            unit=$(unitOf "$name")
             sudo systemctl stop "$unit"
             journalctl -u "$unit" -n 12 --no-pager -o cat 2>/dev/null || true
             ;;
 
-          ssh)
-            # In case echo got stuck on. Silent, or it lands in a captured command.
-            stty sane 2>/dev/null || true
-            guest_ssh agent ''${1+"$@"}
+          status)
+            statusHeader
+            for t in "''${targets[@]}"; do statusRow "$t"; done
+            echo
+            perimeter
             ;;
 
-          admin) guest_ssh root ''${1+"$@"} ;;
+          branches)
+            for t in "''${targets[@]}"; do
+              if [ ''${#targets[@]} -gt 1 ]; then echo "== $t"; fi
+              if q=$(quarantineOf "$t"); then
+                git --git-dir="$q" for-each-ref \
+                  --sort=-committerdate \
+                  --format='%(objectname:short)  %(refname:short)  %(committerdate:relative)  %(subject)' \
+                  "refs/capsule/$t/"
+              else
+                echo "nothing collected yet — capsule $t collect"
+              fi
+            done
+            ;;
+
+          # The second step: quarantine -> the repo you work in, once you have looked.
+          # `CAPSULE_REPO` before `target.path` because that is what the git channel's
+          # own default does (host/git-channel.nix), and a capsule's refs are already
+          # namespaced by its name, so N quarantines fetch into one repo without
+          # colliding.
+          fetch)
+            for t in "''${targets[@]}"; do
+              if q=$(quarantineOf "$t"); then
+                git -C "''${CAPSULE_REPO:-${target.path}}" fetch "$q" \
+                  'refs/capsule/*:refs/capsule/*'
+              else
+                echo "nothing collected yet — capsule $t collect" >&2
+              fi
+            done
+            ;;
+
+          ssh | admin)
+            user=agent
+            [ "$verb" = admin ] && user=root
+            # In case echo got stuck on. Silent, or it lands in a captured command.
+            [ "$verb" = ssh ] && { stty sane 2>/dev/null || true; }
+            ssh_argv=()
+            door "$name" human || {
+              echo "no relay socket for '$name', and the module path owns this host." >&2
+              echo "  capsules with a door: ''${doors[*]}" >&2
+              echo "  'capsule $name start' if it should be running." >&2
+              exit 1
+            }
+            exec "''${ssh_argv[@]}" "$user@${net.guest}" ''${1+"$@"}
+            ;;
 
           # The three setup problems in the only order they work in (docs/design.md),
           # which is also what makes a fresh capsule usable. Ends attached to the
           # baseline, so it finishes when the build does — Ctrl-C leaves that run
           # going in the guest and `capsule <name> baseline` re-attaches.
           setup)
-            work provision ''${1+"$@"}
-            work inject
-            ${lib.optionalString (builtins.elem "baseline" programVerbs) "work baseline"}
+            work "$name" provision ''${1+"$@"}
+            work "$name" inject
+            ${lib.optionalString (builtins.elem "baseline" programVerbs) ''work "$name" baseline''}
             ;;
 
-          *) work "$verb" ''${1+"$@"} ;;
+          *) work "$name" "$verb" ''${1+"$@"} ;;
         esac
       '';
     }

@@ -1056,9 +1056,40 @@ what stops it being proposed again.
     `capsule` in both, which is the price, not a bug; asking the *volume* is the
     answer, and the CLI is what makes asking one command per capsule.
 
-    What it does *not* have yet is `status`: the table wants per-capsule truth from
-    inside a namespace this cannot see into, which is the next piece of Plan C item
-    7 and where `just status`'s blindness gets fixed.
+    **`status` and the aggregates, and how the blindness actually closed.** `just
+    status` could not see inside a namespace it did not own, and the fix is not a
+    way in — `ip netns exec` wants CAP_SYS_ADMIN and a status that needs root is a
+    status nobody runs. It is *naming the witness*. Every column of `capsule all
+    status` is readable from the root namespace (`LoadState`/`SubState` of the VM,
+    proxy and relay units, the socket, the quarantine's ref count), plus one that is
+    not any unit's opinion of itself: an ssh probe through the capsule's own socket,
+    because every unit reported health through the evening the VM was crash-looping
+    in the wrong namespace. What is genuinely inside — each namespace's
+    `ip_forward=0`, the tap's input drop, the drops between capsules — is
+    `capsule-perimeter-guard`'s, audited every 10 s with egress bound to it, so its
+    being active *is* the per-namespace verdict for every capsule at once. The table
+    prints that as a witness line rather than printing "unknown".
+
+    Two decisions inside it:
+
+    - **`all` is a name, not a flag**, so it composes with the name-first grammar
+      instead of adding a per-verb option. It is refused as a *capsule* name at eval,
+      same as a name that collides with a verb.
+    - **`all` aggregates questions, not actions.** `status`, `branches` and `fetch`
+      take it; `start`, `stop`, `setup` and the four programs do not, because what to
+      do when the third of five fails is a policy nobody has decided — and an action
+      half-applied across N capsules is worse than one refused. When someone wants
+      that policy, this is where it goes.
+    - The probe uses the git channel's ssh relaxation rather than the human's strict
+      door (`host/guest-ssh.nix`): a rotated host key is a fact about identity, and
+      reporting it as an unreachable guest would be the wrong answer to the question
+      being asked. The human's `ssh`/`admin` keep the strict default, because a
+      human is there to read the warning.
+
+    On the way past, one real bug in the recipe this replaced: `just proxy-log` still
+    looked for `/var/lib/capsule-proxy/tinyproxy.log`, from before the proxy became
+    one unit per capsule, so it fell through to the devshell path's log and reported
+    "no proxy log yet" on a host with two of them.
 
 21. **A declared capsule needs a flake attribute, and all of them are one
     value.** Declaring a second capsule in `capsules.nix` generated its

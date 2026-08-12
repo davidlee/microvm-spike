@@ -31,15 +31,31 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
   refusal; `_capsule` and `_guest-ssh` are deleted rather than wrapped, and the
   recipes that remain are one-line delegations. One store path, installed by both
   paths, because unlike the four programs it carries no transport
-  ([notes](./notes.md) item 20). **The door verb is run, and it is the load
-  round's own ambiguity that says so**: `capsule <name> ssh 'tail -1
-  /work/baseline/history.tsv'` returned 112 s from one capsule and 121 s from the
-  other — the two rows that were indistinguishable by prompt, now answered per
-  namespace ([probes](./probes.md#two-cold-builds-at-once)). It needs no host
-  rebuild to be useful, since the devshell's copy picks the module's copy of each
-  program; a rebuild only puts `capsule` itself on a host with no checkout.
-  **Unrun: `start`, `stop` and `setup`.** `status` is deliberately not a verb yet:
-  that is the next piece, with the namespace blindness below.
+  ([notes](./notes.md) item 20). It needs no host rebuild to be useful, since the
+  devshell's copy picks the module's copy of each program; a rebuild only puts
+  `capsule` itself on a host with no checkout. **Run: the door, `start` and
+  `stop`.** The door proved itself against the load round's own ambiguity —
+  `capsule <name> ssh 'tail -1 /work/baseline/history.tsv'` returned 112 s from one
+  capsule and 121 s from the other, the two rows that were indistinguishable by
+  prompt ([probes](./probes.md#two-cold-builds-at-once)) — and `just down capsule-b
+  && just up capsule-b` went green through the delegations: the guest visibly
+  unmounting, `Deactivated successfully` with no timeout, then the guard back at
+  two namespaces. **Unrun: `setup`** (its three parts have each run separately).
+- **`just status` can see every capsule now, and the way it does is the point.**
+  `capsule all status` is a row per capsule — created, VM / proxy / relay unit
+  state, door, whether the guest *answers*, refs collected — and a witness line for
+  what no unprivileged reader can see. The namespace's own `ip_forward=0` and the
+  three drops are `capsule-perimeter-guard`'s, audited every 10 s with egress bound
+  to it, so the table names it rather than printing "unknown"; `ip netns exec`
+  wants root and a status that needs root is a status nobody runs. `all` is a name
+  rather than a flag, and it aggregates *questions* only — `branches` and `fetch`
+  take it too, `start`/`stop`/`setup` refuse it, since a half-applied action across
+  N capsules needs a policy nobody has decided ([notes](./notes.md) item 20).
+  Run against the live pair: both rows `running`/`running`/`running`, both guests
+  answering, and it correctly reports **no** collected refs for `capsule-b` while
+  finding `capsule`'s one ref in the devshell path's quarantine. `_quarantine` and
+  `_guest-ssh` are gone with it, and `just proxy-log` was quietly broken — it
+  looked for the pre-per-capsule log path.
 - **The netns boot is verified.** `sudo probe-netns-boot`, 9/9 — firecracker comes
   up with its tap created inside a namespace, the guest boots and answers ssh in
   there, and the tap, the guest and its ssh port are all unreachable from the root
@@ -300,17 +316,15 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    peaks it actually set. No `.vm/load.tsv` was taken, so **cpu and io pressure
    under concurrent load are still unmeasured**; the durations and the kernel's
    peaks are the whole result.
-7. **What is left of Plan C item 7.** Three pieces, and the first is written:
-   - ~~the `capsule` CLI~~ **written, unrun** — see above and
-     [notes](./notes.md) item 20. Wants `just build` (shellcheck) and a host
-     rebuild before it can be believed on the module path.
-   - **`capsule <name> status` and the aggregates.** `just status` is still blind
-     inside a namespace it does not own, which is exactly the path that has more
-     than one capsule — fix that first or the aggregate lies. `just
-     fetch`/`branches` aggregating comes with it.
+7. **What is left of Plan C item 7** — two of three pieces done:
+   - ~~the `capsule` CLI~~ **written and run** — see above and
+     [notes](./notes.md) item 20.
+   - ~~`status` and the aggregates~~ **written and run**, and the blindness is
+     closed by naming the guard as the witness rather than by finding a way into a
+     namespace.
    - **Per-capsule secret injection at start**, so a capsule is usable without a
      separate `capsule-inject` step ([plan C](./plan-c-multi-capsule.md#secrets-and-home-at-n)
-     has the two shapes and the one interface).
+     has the two shapes and the one interface). Nothing blocks it.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
@@ -330,7 +344,16 @@ Then the rest of Plan C's
   and how long a capsule's copy stays good is unknown. `capsule-inject --force`
   is the answer until it is measured. (The transport half of "non-git
   provisioning inputs" is closed: `capsule-inject` uses it.)
-- **Quarantine retention** (doctrine has DEC-193 proposed).
+- **Quarantine retention** (doctrine has DEC-193 proposed). Two pieces of stale
+  state on this host are the near-term case for it: `/var/lib/capsule/collect/`
+  holds a `faux.git` from before a capsule named its own quarantine, and
+  `/var/lib/capsule/doctrine.git` is the served mirror [notes](./notes.md) item 18
+  deleted the *service* for. Both are out-of-band cleanups, not flake changes.
+- **Nothing outside a capsule's namespace can independently confirm its
+  `ip_forward=0`.** This is what is left of `just status`'s blindness after
+  `capsule all status`: the guard is the only reader of the inside of a namespace,
+  so if the guard is wrong it is wrong alone. It holds egress bound to itself, which
+  is why that is acceptable rather than merely unavoidable.
 - ~~**Throughput over the unix socket.**~~ Measured on the first real
   provision/collect pair: **93.7 MiB/s out, 117.9 MiB/s back**
   ([probes.md](./probes.md)), against the tap's ~100 MiB/s each way. The relay is

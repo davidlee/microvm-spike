@@ -98,7 +98,7 @@
   # rather than a second instantiation, which is the honest way to say that this
   # is the one thing about a capsule that does not differ between the two paths.
   cli = import ./cli.nix {
-    inherit pkgs lib net capsules;
+    inherit pkgs lib net target capsules guestSsh;
     programVerbs =
       ["provision" "collect" "inject"]
       ++ lib.optional (hostPrograms.baseline != null) "baseline";
@@ -536,7 +536,12 @@ in {
       # falling back to `capsules.default`.
       environment.systemPackages =
         [
-          cli
+          # Wrapped for the same reason the two stateful programs are, and it is the
+          # same wrapper: `capsule <name> fetch` writes into `repo` and `capsule
+          # <name> status` counts refs in `stateDir`, and both of those are this
+          # host's rather than `target.nix`'s — a host whose human is not this one
+          # has a different home. Wrapping keeps the CLI itself one store path.
+          (wrap "capsule" cli)
           (wrap "capsule-provision" hostPrograms.provision)
           (wrap "capsule-collect" hostPrograms.collect)
           hostPrograms.inject
