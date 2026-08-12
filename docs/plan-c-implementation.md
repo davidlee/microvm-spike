@@ -313,7 +313,7 @@ Say no to these in the plan, so they don't arrive as scope:
    `microvm.vms.<name>` makes the host config evaluate the guest closure, and
    `~/flakes` is fetchable from darwin only because it does not (the `git+file:`
    target path exists on one machine). So `microvm.host.enable = true` in the
-   host config, `microvm -c <name> -f …#capsule` once per capsule, and the VMM
+   host config, `sudo microvm -c <name> -f <flake>` once per capsule, and the VMM
    moves under systemd without `~/flakes` ever learning what a capsule contains.
    It also keeps the one-image property literally rather than by luck: N state
    directories, one runner store path, no `nixosConfigurations.<name>` per

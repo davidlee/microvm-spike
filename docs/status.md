@@ -146,7 +146,9 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    happens on this machine:
    - `~/flakes` gains `microvm.host.enable = true`; the module brings the rest,
      including the resolver stub the probe had to fall back from.
-   - `microvm -c capsule -f …#capsule`, then `systemctl start microvm@capsule`.
+   - `sudo microvm -c capsule -f /home/david/dev/microvm-spike` (bare flake ref —
+     the CLI appends the runner attribute for `<name>`), then
+     `sudo systemctl start microvm@capsule`.
    - the acceptance test is `sudo probe-netns-egress` re-run, which refuses
      while `cap-capsule` exists — so it runs with the units stopped, and a claim
      of its that stops holding is a bug in the units.
