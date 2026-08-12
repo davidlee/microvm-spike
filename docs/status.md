@@ -141,23 +141,34 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    is what the next two steps assemble out of units, so they are bookkeeping
    against a known-good result rather than experiments on a live host.
 2. ~~`capsules.nix`~~ **written** — see above.
-3. ~~Host-module netns wiring at N=1~~ **written, unrun** — see above. What is
-   left of it is a host rebuild and a first start, which is the next thing that
-   happens on this machine:
-   - `~/flakes` gains `microvm.host.enable = true`; the module brings the rest,
-     including the resolver stub the probe had to fall back from.
-   - `sudo microvm -c capsule -f /home/david/dev/microvm-spike` (bare flake ref —
-     the CLI appends the runner attribute for `<name>`), then
-     `sudo systemctl start microvm@capsule`.
-   - the acceptance test is `sudo probe-netns-egress` re-run, which refuses
-     while `cap-capsule` exists — so it runs with the units stopped, and a claim
-     of its that stops holding is a bug in the units.
+3. ~~Host-module netns wiring at N=1~~ **run, and it holds.** All seven units
+   active on the first start after the rebuild; `capsule-perimeter-guard` reports
+   `1 capsule namespace(s) verified`. Verified by hand from inside the guest,
+   which is the part that could not be argued from the probe:
+   - no default route, and `curl --noproxy '*'` to a raw address exits 7
+     (`COULDNT_CONNECT`) — the namespace's own `ip_forward=0`, with no host
+     sysctl involved.
+   - allowlisted host 200 through the proxy, non-allowlisted 403 from tinyproxy,
+     immediately rather than as a timeout — so the resolver stub the probe had to
+     fall back from works, and a denial is a denial rather than a name that would
+     not resolve.
+   - `capsule-provision` and `capsule-collect` both over the relay socket, at
+     [full speed](./probes.md).
+   The acceptance test then re-ran with the units stopped: **27/27 again**, and
+   this time without the DNS fallback — the module's stub answers, so the capsule
+   keeps the host's DoT chain and the probe says so ([probes.md](./probes.md)).
+   Nothing the units did invalidated a claim the probe had made by hand. Two traps
+   the first start cost, both now in [CLAUDE.md](../CLAUDE.md): `microvm -c … -f`
+   takes no fragment, and a missing create fails as an unrelated dependency error.
 4. N=2 through the module — and then two `capsule-baseline`s at once, which is
-   the load question below and cannot be asked before this. Two things it has to
-   fix first: the git channel's transport is baked per store path (the units
-   build it for the lowest-indexed capsule), and `capsule-inject` and
-   `capsule-baseline` still address the guest directly rather than through a
-   relay socket.
+   the load question below and cannot be asked before this. **One thing has to be
+   fixed first, and it is one bug rather than four:** all four host programs are
+   built with the transport of the lowest-indexed capsule baked into their store
+   path, so a second capsule has no way in for provision, collect, inject or
+   baseline. The socket path is derivable from the capsule's name, so the fix is
+   the transport becoming an argument — which forces the CLI shape Plan C's item 7
+   already wanted, since `capsule-provision` currently takes a ref and
+   `capsule-collect` a quarantine name and neither takes a capsule.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
@@ -178,7 +189,12 @@ Then the rest of Plan C's
   is the answer until it is measured. (The transport half of "non-git
   provisioning inputs" is closed: `capsule-inject` uses it.)
 - **Quarantine retention** (doctrine has DEC-193 proposed).
-- **Throughput over the unix socket.** The tap did ~100 MiB/s each way.
+- ~~**Throughput over the unix socket.**~~ Measured on the first real
+  provision/collect pair: **93.7 MiB/s out, 117.9 MiB/s back**
+  ([probes.md](./probes.md)), against the tap's ~100 MiB/s each way. The relay is
+  not a bottleneck on bulk. What the same session did find is per-packet:
+  `socat` sets no `TCP_NODELAY`, so interactive echo clumped until the unit
+  gained `,nodelay` — and that fix is shipped but unmeasured.
 - ~~**The cold build under freshness**~~ — measured, 109 s, one run
   ([probes.md](./probes.md)). What stays open is that the *freshness probe* still
   cannot take it: its namespace has no upstream, so the price and the 22

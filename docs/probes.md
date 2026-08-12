@@ -94,15 +94,19 @@ Two things it settled that were not the question:
   namespace, that namespace's own forwarding and rules, NAT and forwarding on the
   host, and the two drops above. All of it is host-side and none of it is in the
   guest.
-- **DNS needs a `~/flakes` edit, and this host does not have it.** Loopback is
-  per-namespace, so the host's stub on `127.0.0.53` is not reachable from a
-  capsule namespace — asserted, and it is the trap to design around rather than
-  discover. The probe writes `/etc/netns/<ns>/resolv.conf` itself and detects
-  whether the host answers on the capsule-facing address; it did not, so the run
-  fell back to a public resolver, **which loses the host's DoT hop**. The shipped
-  shape wants `DNSStubListenerExtra=` on that address *and* an input allow for
-  port 53 on that link, since the host firewall covers every interface including
-  one this repo created.
+- **DNS is per-namespace, and that is the trap to design around rather than
+  discover.** Loopback is per-namespace, so the host's stub on `127.0.0.53` is
+  not reachable from a capsule namespace — asserted. The probe writes
+  `/etc/netns/<ns>/resolv.conf` itself and detects whether the host answers on
+  the capsule-facing address; when it does not, it falls back to a public
+  resolver, **which loses the host's DoT hop**, and says so. The shape it wanted
+  is `DNSStubListenerExtra` on that address *and* an input allow for port 53 on
+  that link, since the host firewall covers every interface including one this
+  repo created.
+  - **Run 1 fell back; run 2 did not.** The host module now installs both halves,
+    so the re-run after that rebuild opened with `NOTE the host's own resolver
+    answers on 10.101.0.1 — the capsule keeps its DoT chain`. That closes the
+    half of the perimeter the first 27/27 could not claim.
 
 Like `netns-boot.sh` it borrows the live tap, /30 and volume, for the same
 reason: the guest image has `net.nix` in it, so the real capsule is the subject.
@@ -135,6 +139,7 @@ because two samples say more about the noise than either says alone.
 | teardown | 3.63 s | void | freshness | guest halts over ssh, then the VMM is terminated |
 | git channel, both directions | ~100 MiB/s, 66.4k objects / 32 MiB | — | hand-measured, item 18 | the link is not the cost |
 | ssh through the relay socket | 13 ms to banner, 60-90 ms for a whole `ssh … true` | — | hand-measured, unit path, n=3 | the socket is not the cost either. Interactive prompt at 0.56 s |
+| git channel over the relay socket | 93.7 MiB/s out, 117.9 MiB/s back, 66.9k objects / 32 MiB | — | hand-measured, unit path, n=1 each way | same order as the tap did directly, so the relay costs nothing on bulk. It is `socat` on both ends and a TCP hop inside the namespace, and it still beats the disk |
 | keystroke echo through the relay socket | 18-20 ms a character | — | hand-measured, pty round trip, n=7 in one session | Nagle on the relay's TCP leg: socat sets no `TCP_NODELAY` and ssh cannot set it on a socket it did not open. The first character was 1 ms and the rest clumped, which is the signature. `,nodelay` is now on the unit and **the post-fix figure is unmeasured** |
 
 **Two figures from run 1 were the harness's, not the capsule's** (`572a303`), and

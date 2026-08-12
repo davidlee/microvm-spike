@@ -17,9 +17,10 @@ would cost. Do not put present-tense state in a plan; that is `status.md`'s job.
 
 ## Working here
 
-**Do not run nix builds or evals.** The user runs those themselves — they are
-slow, and as a subshell they have crashed the session. Verify with
-`just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`;
+**Be judicious about running nix builds or evals.** The user usually runs those 
+themselves — they are slow, and as a subshell they have crashed the session in the past. 
+Typical builds / evals for this project though are probably fine (tm). Ask the user to run more involved execution themselves.
+Verify with `just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`;
 neither evaluates). Hand the user the command to run — `just build` for the
 host-side scripts, which is also where shellcheck runs — and say what you
 expect it to do. `just` recipes that shell out to `nix eval` (`_net`, `_target`,
@@ -197,6 +198,14 @@ which shape nearly every decision here:
   `ls /var/lib/microvms/<name>/current/bin` before anything else. Same trap when
   the state dir is stale rather than absent: the VM tracks that directory, not
   the flake, so a guest change needs `sudo microvm -u <name>`.
+- **Inside the repo, the devshell's programs shadow the module's, and they carry
+  different transports.** `capsule-provision` on `PATH` in the devshell ssh's
+  straight to `net.guest`, which is unroutable from the root namespace once the
+  tap is in a namespace; the module's copy of the same program goes through the
+  relay socket. Same name, same source, different `sshArgs`. On the module path
+  call it as `/run/current-system/sw/bin/capsule-provision`, or leave the
+  devshell. The symptom is a timeout against `10.99.0.2`, which reads as a dead
+  guest.
 - **`microvm -c … -f <flake>` takes no fragment.** The CLI appends
   `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
   `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error

@@ -7,10 +7,13 @@
 ![oubliette](./oubliette.png)
 
 
-A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM.nix](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. It holds a
-real git clone of one **target** repo — `target.nix`, here `~/dev/doctrine` —
+A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. 
+
+It holds a real git clone of one **target** repo — `target.nix`, here [doctrine](https://github.com/davidlee/doctrine) —
 carries that project's tool set, and has exactly enough network to work and no
-more. Nothing below is doctrine-specific: `target.nix` is the only file that
+more. 
+
+Nothing below is doctrine-specific: `target.nix` is the only file that
 names it, and `net.nix` is the only file that holds an address.
 
 Design rationale and known gaps live in [docs/](./docs/index.md). This file is
