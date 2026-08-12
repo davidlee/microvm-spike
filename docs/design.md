@@ -241,6 +241,12 @@ they cannot disagree with the machine they run on. This is the same asymmetry as
 [notes](./notes.md) item 16's: the *tool set* comes from the target because it is
 a build input, and policy does not.
 
+It is also the worked example for CLAUDE.md's "doctrine is the guinea pig, not
+the design": the capability is *render static guest config from the instance's
+declared reservation*, and cargo's `jobs` is one target's instance of it. A
+target that does not build with cargo needs a different value here, not
+different code.
+
 **Credentials are a push, not a fetch, and item 18 is why.** The earlier plan
 here had `capsule-host` *serve* a bootstrap tarball, with an open question about
 whether it went over the git daemon or a second port. Both halves of that

@@ -115,6 +115,35 @@ Break these and the confinement stops meaning anything:
   edit that (NOTES item 16). `target.guestPath` is the one path both sides share,
   which is why it is derived there rather than spelled in the guest and again in
   the host's git channel.
+- **doctrine is the guinea pig, not the design.** The capsule is the product and
+  the confined repo is a client, so every target need must be met by a *generic
+  capability plus a value the target supplies* — never by the generic code
+  learning what the target is. doctrine's needs may inform a default; they may
+  never carry the mechanism. Three limbs:
+  1. **Generalise before implementing.** For each target-shaped want, name the
+     capability it is an instance of, and build that. doctrine wants its cargo
+     config tuned to the capacity it has been given; the capability is *render
+     static guest config from the instance's declared reservation*. Not "support
+     cargo", and emphatically not "copy the human's `~/.cargo/config.toml`" —
+     which is a third failure, a config describing a machine the capsule is not.
+     The smell is a toolchain's name (`cargo`, `bun`, `sccache`) appearing
+     anywhere but `target.nix`.
+  2. **Anything beyond the contract is declared and optional.** The contract is
+     *be a git repo on this host, and expose one flake package that is your
+     devshell's tool set* (NOTES item 16). Everything else is a `target.nix`
+     field with a working absent path — `toolsPackage = null` already degrades
+     rather than breaks, and a second target must be able to omit any field
+     doctrine happens to set.
+  3. **Fix transient local state out-of-band.** A one-off in `~/flakes`, this
+     host's disk, or one repo's history is fixed by hand and not by permanent
+     leniency in the flake. Strict-and-owned beats lenient-and-coupled: it fails
+     loudly here, and it is the only thing that ports.
+
+  The review challenge, which is the whole point: *would a different target need
+  this code changed, or only a different value?* If the code, it is in the wrong
+  place. This is doctrine's own POL-002 (platform independence from host-project
+  conventions and state) pointed the other way — the same discipline, with this
+  repo as the platform and doctrine as the host.
 
 ## Firecracker constraints (verified in microvm.nix source)
 
