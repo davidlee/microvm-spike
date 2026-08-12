@@ -13,7 +13,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | --- | --- | --- | --- |
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
-| `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | run 1 green after two corrections — figures below |
+| `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
 
 ## What netns.sh established
 
@@ -44,32 +44,60 @@ running VM.
 
 ## Figures
 
-Sources: the guest image and volume numbers are `probe-freshness` run 1
-(`572a303`); the volume-under-load number is a hand-measured `just web-build
-test` ([notes](./notes.md) item 15); the git-channel throughput is item 18.
+Provenance matters here, because the two disk figures people reach for were taken
+by different means and one of them is *not* what the probe measures.
 
-| figure | value | note |
-| --- | --- | --- |
-| guest image closure | 12175 MiB (11.9 GiB), ~99% shared | one image, however many capsules run under netns |
-| guest image, per instance | 3.0 GiB of erofs | only under the N-closures mechanism |
-| volume, fresh | ~296 MiB | actual blocks; the declared 32 GiB is not a disk cost |
-| volume, one `just web-build test` in | 7.4 GiB | 6.9 GiB of it `/work/doctrine`. A **floor**, not a plateau — no discard, and `target/` accretes |
-| time to a usable fresh capsule | 8.60 s | boot + provision; "usable" means provisioned, not merely answering ssh |
-| cold versus warm boot | indistinguishable | so freshness costs nothing at boot — the cost is the discarded cache, unmeasured |
-| git channel, both directions | ~100 MiB/s, 66.4k objects / 32 MiB | the link is not the cost |
+Freshness has run twice. Run 2 is the current figure and run 1 is kept beside it,
+because two samples say more about the noise than either says alone.
+
+| figure | value | run 1 | source | note |
+| --- | --- | --- | --- | --- |
+| guest image closure | 12175 MiB (11.9 GiB), ~99% shared | 12175 | freshness, `nix path-info -S` on the runner | under netns this is **the** image, once, however many capsules run |
+| store image, per instance | 3.0 GiB of erofs | — | hand-measured, [Plan C](./plan-c-multi-capsule.md#the-cost-that-shapes-everything-else) | the blob the closure names, and it does not dedupe. Only a cost under the N-closures mechanism. **The probe does not measure this** — it measures the closure above |
+| guest kernel / initrd | 381 MiB / 25 MiB | — | same | shared |
+| volume, after boot before provision | 260 MiB | 260 | freshness | allocated blocks (`du -B1`). Empty ext4 for a 32 GiB declaration — this much exists before any content does |
+| volume, after provision | 296 MiB | 296 | freshness | so a provision costs **36 MiB** on disk, against a 32 MiB repository. The declared 32 GiB is sparse and is not a disk cost |
+| volume, provisioned plus some ssh work | 385 MiB | — | hand-measured, [notes](./notes.md) item 15 | same order — a pre-build capsule is ~300-400 MiB either way |
+| volume, one `just web-build test` in | 7.4 GiB | — | hand-measured, item 15 | 6.9 GiB of it `/work/doctrine`. A **floor**, not a plateau — no discard, and `target/` accretes |
+| cold boot to ssh | 6.41 s | 6.34 | freshness | volume created, mkfs and seed all inside it |
+| provision, 32 MiB of history | 1.90 s | 2.26 | freshness | the noisiest term here, ±16% |
+| time to a usable fresh capsule | 8.31 s | 8.60 | freshness | boot + provision; "usable" means provisioned, not merely answering ssh |
+| warm boot to ssh | 6.34 s | 6.36 | freshness | volume already made and provisioned |
+| the price of freshness | +0.07 s | −0.02 | freshness | cold minus warm. **It changed sign between runs**, which is the finding: freshness is free at boot to within ~1%, and its cost is the discarded cache, unmeasured |
+| teardown | 3.63 s | void | freshness | guest halts over ssh, then the VMM is terminated |
+| git channel, both directions | ~100 MiB/s, 66.4k objects / 32 MiB | — | hand-measured, item 18 | the link is not the cost |
 
 **Two figures from run 1 were the harness's, not the capsule's** (`572a303`), and
-the corrections are the reason this file exists:
+the corrections are the reason this file exists. Run 2 carries both, and both
+resolved:
 
 - Teardown at 22.68 s was `halt_guest` waiting out twenty seconds for a VMM exit
   firecracker is documented never to produce on guest poweroff, then reporting
-  its own patience. It now waits for the guest to stop answering. **Discard the
-  22.68 s** rather than comparing anything to it.
+  its own patience. It now waits for the guest to stop answering: **3.63 s**.
+  Discard the 22.68 s rather than comparing anything to it.
 - The runtime-freshness red was a line count against `journalctl --list-boots`,
   which prints a header. Now a pair against `-b -1` — the current boot has a
   journal, and no previous boot survives in it — because a bare "no previous
   boot" passes just as well against a journalctl that cannot run. The raw count
-  rides along as a figure so the next run explains the last one.
+  rides along as a figure, and run 2 printed **2**: the header theory confirmed
+  by the run after the one it explains, which is why the figure stays.
+
+## Which of REQ-450's five axes hold
+
+Asserted on a capsule nothing has used, so a green row means the state is absent
+by construction rather than cleaned up afterwards.
+
+| axis | holds | what is asserted |
+| --- | --- | --- |
+| checkout | yes | the repository exists, HEAD is unborn, the worktree is empty. This is the axis item 18's inversion bought: the base commit is an argument to a host command, so a fresh capsule has no history until one is pushed |
+| repository | yes | no remote to fetch from, and no alternates pointing at a shared object store — REQ-448's "no writable shared object store" holding **by absence** rather than by permission |
+| runtime | yes | the current boot has a journal, and no previous boot survives in it. Asserted as a pair, because a bare "no previous boot" passes just as well against a journalctl that cannot run |
+| temporary | yes | `/work/tmp` is empty, and every cache in `target.caches` is empty on a fresh volume |
+| process | **not rowed** | deliberately. A capsule is a separate kernel, so no delta can falsify the reading — a permanently green row is misleading evidence rather than extra assurance (doctrine DEC-189) |
+
+Four rowed, four green. The fifth is a deliberate absence, and the reason is
+worth keeping: an assertion that cannot fail is not evidence, and a checklist
+that counts it as one is worse than a checklist that admits the gap.
 
 ## What freshness.sh explicitly does not measure
 

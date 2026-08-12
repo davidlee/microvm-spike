@@ -5,7 +5,7 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-12, at `572a303`.
+Last updated 2026-08-12, after freshness run 2.
 
 ## Where it got to
 
@@ -21,11 +21,18 @@ Last updated 2026-08-12, at `572a303`.
   `netns-boot.sh` asserts and `freshness.sh` measures the same shape. `flake.nix`'s
   `probe` builder concatenates harness + script and injects `net.nix`/`target.nix`
   values as a quoted prelude.
-- **Freshness has run, once.** Green after two corrections, both of them the
-  harness measuring itself rather than the capsule. 8.60 s to a usable fresh
-  capsule, a cold boot indistinguishable from a warm one, one 12175 MiB image
-  shared by every capsule, ~296 MiB of volume per instance — all in
-  [probes.md](./probes.md), which is now the only copy.
+- **Freshness has run twice, 22/22 both times.** Run 1 needed two corrections,
+  both of them the harness measuring itself rather than the capsule; run 2 is
+  clean and carries a valid teardown. 8.31 s to a usable fresh capsule, a cold
+  boot indistinguishable from a warm one — the difference *changed sign* between
+  runs, which is the strongest form that claim can take at n = 2 — one 12175 MiB
+  image shared by every capsule, and ~296 MiB of volume per instance of which
+  260 MiB is empty filesystem. All in [probes.md](./probes.md), the only copy.
+- **Four of REQ-450's five axes are green; the fifth is not a row.** Checkout,
+  repository and temporary state hold on a capsule nothing has used, and runtime
+  now holds too. Process is deliberately unrowed: a capsule is a separate kernel,
+  so no delta can falsify the reading, and a permanently green row is misleading
+  evidence rather than extra assurance (doctrine DEC-189).
 - **Disk is the limit, not CPU.** The volume dominates the image, nothing reclaims
   it (no discard), so the planning number is the 32 GiB cap and freshness is a
   disk policy. [Plan C](./plan-c-multi-capsule.md#disk-is-the-practical-limit) has
@@ -41,10 +48,12 @@ Last updated 2026-08-12, at `572a303`.
 
 ## Next, in order
 
-1. **Cite the freshness figures where they are argued from.** [notes](./notes.md)
-   items 15 and 17 and Plan C's disk section still reason from the hand-measured
-   volume number and the 3.0 GiB image; probes.md now carries run 1. Link, don't
-   copy.
+1. **Two concurrent capsules** — the highest-value unknown left (doctrine
+   `REQ-454`). It runs into two things immediately: `target.nix` reserves 16 GiB
+   per capsule, so two is 32 GiB of host memory before anything runs; and
+   instance identity is not there yet — `pgrep -f "microvm@capsule"` cannot tell
+   two capsules apart, and `probe/harness.sh`'s boot fixture is parameterised by
+   state directory but shares one VM name.
 2. `capsules.nix` — under netns it is a name list and little else.
    [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
 3. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
