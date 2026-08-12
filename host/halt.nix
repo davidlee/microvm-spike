@@ -58,7 +58,10 @@ pkgs.writeShellApplication {
     # design and polkit will not grant it to a non-local session.
     ssh_cmd=(${guestSsh.command} ''${identity[@]+"''${identity[@]}"})
 
-    if "''${ssh_cmd[@]}" -o BatchMode=yes -o ConnectTimeout=4 \
+    # No ConnectTimeout of its own: `guestSsh.args` carries one, and ssh takes
+    # the first value it is given for an option, so a second here would be dead
+    # text that reads as the answer.
+    if "''${ssh_cmd[@]}" -o BatchMode=yes \
          root@${net.guest} 'systemctl --no-block reboot'; then
       echo "capsule-halt: reboot requested — the guest unmounts, then its reset exits the VMM"
       exit 0

@@ -279,7 +279,13 @@
     # thing that differs (host/programs.nix).
     hostPrograms = import ./host/programs.nix {
       inherit pkgs net target;
-      transport = guestSsh.direct {inherit (capsules) default;};
+      # The same socket expression the units inject, for the opposite purpose:
+      # there it is the way in, here its existence is what says this copy is the
+      # wrong one (host/guest-ssh.nix).
+      transport = guestSsh.direct {
+        inherit (capsules) default;
+        socket = socketOf ''"$capsule"'';
+      };
     };
 
     # Not one of those four: they run at the *agent*, over whichever transport

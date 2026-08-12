@@ -19,6 +19,22 @@ _net key:
 _target key:
   @nix eval --json --file target.nix {{key}} | tr -d '"'
 
+# Run one of the four host programs at a capsule, with the copy that can reach
+# it. Two copies of each exist by design — the devshell's goes straight over a
+# tap, the module's crosses that capsule's relay socket — and inside the repo the
+# devshell's shadow the module's on PATH, which is a timeout that reads as a dead
+# guest (CLAUDE.md). The programs refuse rather than guess; a recipe is a human's
+# front end, so choosing here is the same latitude `_guest-ssh` already takes.
+_capsule prog name *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  bin={{prog}}
+  if [ -S "/run/capsule/{{name}}/ssh.sock" ] \
+     && [ -x "/run/current-system/sw/bin/{{prog}}" ]; then
+    bin="/run/current-system/sw/bin/{{prog}}"
+  fi
+  exec "$bin" --capsule {{name}} {{args}}
+
 # a capsule's quarantine, wherever this host keeps it: /var/lib/capsule (module
 # path) or .vm/host. Same search order as the programs' own defaults.
 _quarantine name="capsule":
@@ -217,6 +233,38 @@ status name="capsule":
   q=$(just _quarantine {{name}} 2>/dev/null) \
     && echo "  $q ($(git --git-dir="$q" for-each-ref "refs/capsule/{{name}}/" | wc -l) refs)" \
     || echo "  nothing — capsule-collect --capsule {{name}}"
+
+# The capsule comes first in every one of these, as everywhere else here, so
+# `just provision capsule-b edge` cannot be read the other way round. The ref is
+# not defaulted: `capsule-provision` refuses without one, and that refusal should
+# have one home.
+#
+# push a ref into a capsule's checkout
+provision name="capsule" ref="" *flags:
+  @just _capsule capsule-provision {{name}} {{ref}} {{flags}}
+
+# the non-git half: credentials and anything else setup.nix declares
+inject name="capsule" *args:
+  @just _capsule capsule-inject {{name}} {{args}}
+
+# the target's own build-and-test in the guest, with its record on the volume
+baseline name="capsule" *flags:
+  @just _capsule capsule-baseline {{name}} {{flags}}
+
+# what the capsule has produced, into this host's quarantine
+collect name="capsule":
+  @just _capsule capsule-collect {{name}}
+
+# All three, in the only order they work in, which is also the order that makes
+# a fresh capsule usable (docs/design.md's three setup problems). Ends attached
+# to the baseline, so it finishes when the build does — Ctrl-C leaves that run
+# going in the guest and `just baseline <name>` re-attaches.
+#
+# a fresh capsule to green: provision, inject, baseline
+setup name="capsule" ref="":
+  @just provision {{name}} {{ref}}
+  @just inject {{name}}
+  @just baseline {{name}}
 
 # what a capsule has produced, as collected
 branches name="capsule":

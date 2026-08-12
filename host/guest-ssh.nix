@@ -41,6 +41,13 @@
     "UserKnownHostsFile=/dev/null"
     "-o"
     "LogLevel=ERROR"
+    # A stopped capsule is the common case, not an exotic one, and without this
+    # it is a *hang*: the relay socket is a listener, so it accepts, and ssh
+    # then waits on a TCP connect to a guest that is not running. The relay
+    # being up says the namespace is up, which is not the same claim. Bounds the
+    # connect only, so nothing a program does after it is time-limited by this.
+    "-o"
+    "ConnectTimeout=10"
   ];
 
   # The same thing for consumers that want a command line: git parses
@@ -89,13 +96,37 @@
   # straight. It has nothing else to name, so a second name is a refusal rather
   # than a silent success — the failure it would otherwise be is "I provisioned
   # `edge`" while the bytes went to the only capsule there is.
-  direct = {default}:
+  #
+  # `socket` is here for the *second* refusal, which is not about naming: inside
+  # the repo the devshell's copies shadow the module's on PATH, same name and
+  # same source, carrying the other transport (CLAUDE.md). This copy reaching for
+  # `net.guest` on a host whose taps are all in namespaces is unroutable, and it
+  # fails as a timeout that reads as a dead guest. So a relay socket for this
+  # capsule means the module path owns this host and *this* program is the wrong
+  # copy — say so, and name the one that works. Refusing, not choosing: a program
+  # that can try both has both baked in, which is the thing NOTES item 20
+  # decided against.
+  direct = {
+    default,
+    socket,
+  }:
     selectCapsule default
     + ''
       if [ "$capsule" != ${lib.escapeShellArg default} ]; then
         echo "no capsule '$capsule' here: the devshell path runs one, named ${default}." >&2
         echo "  More than one is the module path, where the way in is a relay socket" >&2
         echo "  per capsule (README, 'The module path')." >&2
+        exit 1
+      fi
+      sock=${socket}
+      if [ -S "$sock" ]; then
+        echo "capsule '$capsule' is on the module path here ($sock exists), and this" >&2
+        echo "  is the devshell's copy of the program: it would ssh straight to a" >&2
+        echo "  guest that is not routable from this namespace. Run the module's:" >&2
+        # Bash's own suffix strip rather than basename: a refusal must not need a
+        # tool in `runtimeInputs`, or the message becomes "command not found".
+        echo "    /run/current-system/sw/bin/''${0##*/} --capsule $capsule ..." >&2
+        echo "  or 'just' it, which picks the right copy for you." >&2
         exit 1
       fi
       ssh_cmd=(${lib.escapeShellArgs args})

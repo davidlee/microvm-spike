@@ -67,9 +67,11 @@ host rebuild that runs it is step 5 below and has not happened.
   agent, and the `+` prefix that would make it root would also drop it into the
   root namespace where the guest is unroutable ([notes](./notes.md) item 11). A
   capsule with no readable stop key now refuses to start. `vm-stop` lost its
-  `SendCtrlAltDel` fallback in the same change, since it was inert. **Run on the
-  devshell path; the unit's `ExecStop` is unrun** — it needs the host rebuild in
-  step 5.
+  `SendCtrlAltDel` fallback in the same change, since it was inert. **Run on
+  both paths now.** The unit's `ExecStop` went green on the second rebuild —
+  `capsule-halt: reboot requested`, the guest visibly unmounting on the console,
+  `Deactivated successfully`, no timeout, for both capsules. The first rebuild is
+  what found that the drop-in carrying it had never parsed (step 5).
 - **The serial console takes TUI input now**, which reverses a gotcha that has
   stood since the beginning: `boot.kernelModules = ["i8042" "atkbd"]` makes
   Enter work in claude on the console, A/B'd both ways. No input device appears

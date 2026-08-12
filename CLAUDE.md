@@ -240,11 +240,14 @@ which shape nearly every decision here:
   different transports.** `capsule-provision` on `PATH` in the devshell ssh's
   straight to `net.guest`, which is unroutable from the root namespace once the
   tap is in a namespace; the module's copy of the same program goes through the
-  relay socket. Same name, same source, different `transport`. On the module path
-  call it as `/run/current-system/sw/bin/capsule-provision`, or leave the
-  devshell. The symptom is a timeout against `10.99.0.2`, which reads as a dead
-  guest — unless you named a second capsule, since the devshell's copy refuses a
-  `--capsule` it cannot be.
+  relay socket. Same name, same source, different `transport`. **The devshell's
+  copies refuse rather than time out**: a relay socket for the named capsule means
+  the module path owns this host, so they name the copy to run instead of ssh'ing
+  at an address that is no longer routable from here. It used to be a timeout
+  against `10.99.0.2`, which reads as a dead guest. Refusing, not choosing — a
+  program that can try both transports has both baked in (NOTES item 20).
+  `just provision | inject | baseline | collect | setup <name>` picks the
+  reachable copy, which is a recipe's latitude and not a program's.
 - **`microvm -c … -f <flake>` takes no fragment.** The CLI appends
   `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
   `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error
