@@ -31,11 +31,15 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
   refusal; `_capsule` and `_guest-ssh` are deleted rather than wrapped, and the
   recipes that remain are one-line delegations. One store path, installed by both
   paths, because unlike the four programs it carries no transport
-  ([notes](./notes.md) item 20). **Not run yet** — it needs `just build` for
-  shellcheck and a host rebuild to reach `/run/current-system/sw/bin`; the
-  rendered script is shellchecked clean and its argument parsing exercised by
-  hand. `status` is deliberately not a verb yet: that is the next piece, with the
-  namespace blindness below.
+  ([notes](./notes.md) item 20). **The door verb is run, and it is the load
+  round's own ambiguity that says so**: `capsule <name> ssh 'tail -1
+  /work/baseline/history.tsv'` returned 112 s from one capsule and 121 s from the
+  other — the two rows that were indistinguishable by prompt, now answered per
+  namespace ([probes](./probes.md#two-cold-builds-at-once)). It needs no host
+  rebuild to be useful, since the devshell's copy picks the module's copy of each
+  program; a rebuild only puts `capsule` itself on a host with no checkout.
+  **Unrun: `start`, `stop` and `setup`.** `status` is deliberately not a verb yet:
+  that is the next piece, with the namespace blindness below.
 - **The netns boot is verified.** `sudo probe-netns-boot`, 9/9 — firecracker comes
   up with its tap created inside a namespace, the guest boots and answers ssh in
   there, and the tap, the guest and its ssh port are all unreachable from the root

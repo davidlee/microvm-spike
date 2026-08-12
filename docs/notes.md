@@ -1049,6 +1049,13 @@ what stops it being proposed again.
     for a second instantiation to differ in. `.#capsule-cli` as an attribute,
     `capsule` as the program — `.#capsule` has been the guest runner all along.
 
+    **The door is run, and the thing it was needed for is what proved it.** `capsule
+    <name> ssh 'tail -1 /work/baseline/history.tsv'` answered 112 s from one capsule
+    and 121 s from the other — the pair of rows the load round could not tell apart
+    by prompt, since every guest is `agent@capsule` (item 21). The hostname is still
+    `capsule` in both, which is the price, not a bug; asking the *volume* is the
+    answer, and the CLI is what makes asking one command per capsule.
+
     What it does *not* have yet is `status`: the table wants per-capsule truth from
     inside a namespace this cannot see into, which is the next piece of Plan C item
     7 and where `just status`'s blindness gets fixed.
