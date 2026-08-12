@@ -211,10 +211,11 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |
 | `sudo probe-netns-boot` | evidence: does the capsule boot with its tap in one?     |
 | `sudo probe-freshness [REF]` | evidence: what a fresh capsule costs, and which axes hold. |
+| `sudo probe-two-capsules [REF_A] [REF_B]` | evidence: two at once — independent, and at what price. |
 
 Nothing in the guest: it initiates neither direction, and has no remote.
 
-The two probes are answers kept runnable, not tools — see NOTES "Layout".
+The probes are answers kept runnable, not tools — see [docs/probes.md](./docs/probes.md).
 `probe-netns-boot` boots the real capsule inside a namespace and shuts it down
 again, so it refuses to start beside `capsule-net up` or a running VM; run it
 from the repo, since `$PWD/.vm` is where the VM's state lives.

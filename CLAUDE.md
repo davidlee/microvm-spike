@@ -48,6 +48,15 @@ the assertions), and `report`. It also carries the whole capsule-in-a-namespace
 boot — `ns_up`, `capsule_boot`, `wait_guest`, `halt_guest` — because
 `netns-boot.sh` and `freshness.sh` assert and measure the same shape, and two
 copies of a boot sequence are two answers the first time one is edited.
+
+**A VMM is identified by its namespace, never by its name.** The one-image lever
+means every capsule runs the same runner from the same store path, so all of them
+are `microvm@capsule` in the process table: `pkill -f` on that name is a power cut
+for the siblings, and it reads as a clean teardown while doing it. `vm_running`,
+`wait_vm` and `halt_guest` all take a namespace and scope themselves with
+`ip netns pids`; the unscoped question survives as `any_vm_running`, which is
+what a probe's refusal wants and the only thing it is for. The thing that
+isolates a capsule is the same thing that names it — no pidfile, no registry.
 `probe/netns-boot.sh` is the deliberate exception to the addressing rule and
 says why in its header: it boots the real guest, whose image has `net.nix` in
 it, so the real capsule *is* the subject.

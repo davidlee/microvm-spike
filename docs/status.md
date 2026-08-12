@@ -48,12 +48,11 @@ Last updated 2026-08-12, after freshness run 2.
 
 ## Next, in order
 
-1. **Two concurrent capsules** — the highest-value unknown left (doctrine
-   `REQ-454`). It runs into two things immediately: `target.nix` reserves 16 GiB
-   per capsule, so two is 32 GiB of host memory before anything runs; and
-   instance identity is not there yet — `pgrep -f "microvm@capsule"` cannot tell
-   two capsules apart, and `probe/harness.sh`'s boot fixture is parameterised by
-   state directory but shares one VM name.
+1. **Run `sudo probe-two-capsules`** — written, never run, and the highest-value
+   unknown left (doctrine `REQ-454`). Two real capsules at the declared 16 GiB
+   each, against 63 GiB of host. It already forced the instance-identity fix it
+   was expected to: a VMM is identified by its namespace now, not by a name every
+   capsule shares. See [probes.md](./probes.md).
 2. `capsules.nix` — under netns it is a name list and little else.
    [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
 3. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,

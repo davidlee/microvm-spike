@@ -55,17 +55,22 @@ measure() {
   RESULTS+=("MEAS  $name: $value${unit:+ $unit}")
 }
 
+# A stopwatch, for the figures `timed` cannot express: two marks off one start,
+# which is what a concurrent boot needs — first capsule ready and both capsules
+# ready are the same clock read twice.
+now() { date +%s.%N; }
+since() { awk -v a="$1" -v b="$(now)" 'BEGIN { printf "%.2f", b - a }'; }
+
 # Wall-clock a command and record it. This *times*, it does not test — pair it
 # with a `check` on the same thing, or the figure is of an unknown outcome.
 # Leaves the elapsed seconds in LAST_SECONDS and returns the command's status.
 timed() {
-  local name=$1 t0 t1 rc
+  local name=$1 t0 rc
   shift
-  t0=$(date +%s.%N)
+  t0=$(now)
   "$@" >/dev/null 2>&1
   rc=$?
-  t1=$(date +%s.%N)
-  LAST_SECONDS=$(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.2f", b - a }')
+  LAST_SECONDS=$(since "$t0")
   measure "$name" "$LAST_SECONDS" s
   return "$rc"
 }
@@ -211,12 +216,43 @@ ns_up() {
 # holding a dead fd.
 ns_down() { ip netns del "$1" 2>/dev/null; }
 
-vm_running() { pgrep -f "microvm@$1" >/dev/null; }
+# ---------------------------------------------- which VM, and *whose* capsule
+#
+# Two questions that look like one, and `pgrep -f microvm@capsule` only answers
+# the first:
+#
+#   * is a VM of this name running **anywhere on the host**? A refusal — the
+#     devshell shape and a probe's shape must never be up at once.
+#   * is **this capsule's** VM running? Every wait, and every teardown.
+#
+# The second cannot be asked by name, and that is a consequence of the design
+# rather than an oversight: the one-image lever means N capsules run the same
+# runner from the same store path, so every one of them is `microvm@capsule` in
+# the process table. A `pkill -f` on that name is a power cut for the siblings.
+#
+# The namespace is the identity instead. `ip netns pids` scopes the match to one
+# capsule, it costs nothing because the VMM was started in there, and it needs no
+# naming scheme, no pidfile and no registry — the thing that isolates the capsule
+# is the same thing that names it.
+any_vm_running() { pgrep -f "microvm@$1" >/dev/null; }
+
+vm_pids() {
+  local ns=$1 vm=$2 pid cmd
+  for pid in $(ip netns pids "$ns" 2>/dev/null); do
+    # NUL-separated, so it needs translating before a glob can see it.
+    cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null) || continue
+    case $cmd in
+      *"microvm@$vm"*) echo "$pid" ;;
+    esac
+  done
+}
+
+vm_running() { [ -n "$(vm_pids "$1" "$2")" ]; }
 
 wait_vm() {
-  local vm=$1
+  local ns=$1 vm=$2
   for _ in $(seq 60); do
-    vm_running "$vm" && return 0
+    vm_running "$ns" "$vm" && return 0
     sleep 0.5
   done
   return 1
@@ -229,7 +265,7 @@ wait_guest() {
   for _ in $(seq 180); do
     in_ns_as_human "$ns" ssh "${SSH_OPTS[@]}" "root@$addr" true >/dev/null 2>&1 \
       && return 0
-    vm_running "$vm" || return 1
+    vm_running "$ns" "$vm" || return 1
     sleep 1
   done
   return 1
@@ -273,24 +309,32 @@ capsule_boot() {
 #
 # The guest stops answering when it halts, which is the thing that actually has
 # to finish before terminating is safe. Nonzero if the VMM outlives SIGKILL.
+#
+# Everything here is scoped to one namespace, including the signals. The earlier
+# `pkill -f microvm@capsule` was correct only while exactly one capsule could
+# exist: with a sibling up it tears that one down too, and it looks like a clean
+# teardown while doing it.
 halt_guest() {
   local ns=$1 addr=$2 vm=$3
-  vm_running "$vm" || return 0
+  vm_running "$ns" "$vm" || return 0
   guest_ssh "$ns" "$addr" root 'systemctl --no-block poweroff' >/dev/null 2>&1 \
     || echo "   ssh poweroff failed; terminating the VMM instead" >&2
   for _ in $(seq 100); do
     nsping "$ns" "$addr" >/dev/null 2>&1 || break
     sleep 0.2
   done
-  vm_running "$vm" || return 0
-  pkill -f -- "microvm@$vm"
+  kill_vm "$ns" "$vm" -TERM && return 0
+  kill_vm "$ns" "$vm" -KILL
+}
+
+# Signal this capsule's VMM and wait for it to go. Zero if nothing is left.
+kill_vm() {
+  local ns=$1 vm=$2 sig=$3 pids
+  mapfile -t pids < <(vm_pids "$ns" "$vm")
+  [ "${#pids[@]}" -gt 0 ] || return 0
+  kill "$sig" "${pids[@]}" 2>/dev/null
   for _ in $(seq 50); do
-    vm_running "$vm" || return 0
-    sleep 0.1
-  done
-  pkill -9 -f -- "microvm@$vm"
-  for _ in $(seq 50); do
-    vm_running "$vm" || return 0
+    vm_running "$ns" "$vm" || return 0
     sleep 0.1
   done
   return 1

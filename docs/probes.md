@@ -14,6 +14,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
+| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | **written, not yet run** (doctrine IMP-426 P1b) |
 
 ## What netns.sh established
 
@@ -98,6 +99,38 @@ by construction rather than cleaned up afterwards.
 Four rowed, four green. The fifth is a deliberate absence, and the reason is
 worth keeping: an assertion that cannot fail is not evidence, and a checklist
 that counts it as one is worse than a checklist that admits the gap.
+
+## What two-capsules.sh asks
+
+Four independences, because REQ-454 wants a candidate verified in a *separate*
+capsule from the one that produced it, and a verifier sharing anything load-bearing
+with its subject is not a verifier:
+
+- **addressing** — a marker file on each volume, read back through the shared
+  address from each namespace. A capsule cannot reach its sibling because it
+  cannot *name* it: the address it would use is its own. That is stronger than a
+  dropped route, which is a control that can be misconfigured; this has nothing
+  to configure.
+- **storage** — two volumes, and neither marker is visible from the other side.
+- **history** — provisioned from two different base commits off one image, which
+  is the transport inversion's whole premise ([notes](./notes.md) item 17: the
+  base commit had to leave the closure or N capsules means N images). Each is
+  then collected into its own quarantine, because attribution is the other half
+  of REQ-454 — a verdict that cannot be tied to the capsule that produced it is
+  not evidence.
+- **lifecycle** — halt one, the other keeps answering.
+
+It forced a change in the harness, and that is a finding in itself. Two capsules
+on one image are both `microvm@capsule` in the process table, so the old
+`pkill -f microvm@capsule` teardown would have killed the sibling *and reported
+success* — it then asks "is a microvm running?" of a host that no longer has
+either. A VMM is now identified by its namespace (`ip netns pids`), never by its
+name. The probe reports both counts every run, so the day they agree is visible.
+
+The asymmetry it exposes on the way past: `capsule-collect` takes its capsule's
+name as an argument, `capsule-provision` bakes its socket path into a store path.
+Two capsules therefore need two provision programs. Fine for a probe, not fine
+for N.
 
 ## What freshness.sh explicitly does not measure
 

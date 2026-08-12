@@ -383,11 +383,22 @@
     # `capsule-provision` has to be built with a ProxyCommand against it: the
     # probe exercises the real program on the real seam, which is the whole
     # point of `sshCommand` being injected.
-    nsSocket = "/run/capsule/capsule/ssh.sock";
-    nsGitChannel = import ./host/git-channel.nix {
-      inherit pkgs target guestRepo;
-      sshCommand = "${guestSsh} -o ProxyCommand='socat - UNIX-CONNECT:${nsSocket}'";
-    };
+    #
+    # A function over the socket, because the pair probe needs two of these and
+    # the socket is the only thing that differs. That it *has* to be two programs
+    # rather than one program and an argument is the finding, not the plumbing:
+    # under netns a capsule's identity is its socket path, and here that path is
+    # baked into a store path. `capsule-collect` already takes its name as an
+    # argument; `capsule-provision` does not, and N capsules make that asymmetry
+    # cost something.
+    capsuleSocket = name: "/run/capsule/${name}/ssh.sock";
+    nsChannelFor = sock:
+      import ./host/git-channel.nix {
+        inherit pkgs target guestRepo;
+        sshCommand = "${guestSsh} -o ProxyCommand='socat - UNIX-CONNECT:${sock}'";
+      };
+    nsSocket = capsuleSocket "capsule";
+    nsGitChannel = nsChannelFor nsSocket;
     probe-freshness = probe {
       name = "probe-freshness";
       script = ./probe/freshness.sh;
@@ -417,6 +428,54 @@
         pkgs.openssh
         pkgs.git
         pkgs.nix # builds the runner and prices its closure, as the human
+      ];
+    };
+
+    # Can two capsules run at once, are they independent, and what does the pair
+    # cost (doctrine IMP-426 P1b, REQ-454)? Two namespaces, two volumes, two base
+    # commits — and deliberately *one* runner from one store path, because that
+    # is the shape being priced and it is what makes instance identity a real
+    # problem rather than a hypothetical one.
+    pairA = "pair-a";
+    pairB = "pair-b";
+    pairChannelA = nsChannelFor (capsuleSocket pairA);
+    pairChannelB = nsChannelFor (capsuleSocket pairB);
+    probe-two-capsules = probe {
+      name = "probe-two-capsules";
+      script = ./probe/two-capsules.sh;
+      prelude = ''
+        TAP="${net.tap}"
+        HOST_ADDR="${net.host}"
+        GUEST_ADDR="${net.guest}"
+        PREFIX="${toString net.prefix}"
+        VM="capsule"
+        NAME_A="${pairA}"
+        NAME_B="${pairB}"
+        SOCKDIR_A="${builtins.dirOf (capsuleSocket pairA)}"
+        SOCKDIR_B="${builtins.dirOf (capsuleSocket pairB)}"
+        PROVISION_A="${pairChannelA.provision}/bin/capsule-provision"
+        PROVISION_B="${pairChannelB.provision}/bin/capsule-provision"
+        COLLECT_A="${pairChannelA.collect}/bin/capsule-collect"
+        COLLECT_B="${pairChannelB.collect}/bin/capsule-collect"
+        GUEST_PATH="${target.guestPath}"
+        TARGET_PATH="${target.path}"
+        DEFAULT_BRANCH="${target.defaultBranch}"
+        MEM_MIB="${toString target.sizes.mem}"
+      '';
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.iputils
+        pkgs.procps
+        pkgs.coreutils # du, dirname, date, tr
+        pkgs.gnugrep
+        pkgs.gawk # the arithmetic behind every figure
+        pkgs.util-linux # runuser: enter the namespace as root, boot the VM as you
+        pkgs.glibc.bin # getent, for the human's home directory
+        pkgs.bash
+        pkgs.socat
+        pkgs.openssh
+        pkgs.git
+        pkgs.nix # builds the one runner both capsules share, as the human
       ];
     };
 
@@ -486,7 +545,7 @@
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // {
         inherit vm vm-stop capsule-net capsule-host capsule-provision capsule-collect;
-        inherit probe-netns probe-netns-boot probe-freshness;
+        inherit probe-netns probe-netns-boot probe-freshness probe-two-capsules;
         default = self.packages.${system}.capsule;
       };
 
@@ -501,6 +560,7 @@
         probe-netns
         probe-netns-boot
         probe-freshness
+        probe-two-capsules
         pkgs.firecracker
         pkgs.just
         microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)

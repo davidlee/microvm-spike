@@ -66,7 +66,7 @@ if ip link show "$TAP" >/dev/null 2>&1; then
   echo "$PROG: 'capsule-net down' first; two links of that name is two answers." >&2
   exit 1
 fi
-if vm_running "$VM"; then
+if any_vm_running "$VM"; then
   echo "$PROG: a microvm is already running — vm-stop first." >&2
   exit 1
 fi
@@ -81,7 +81,7 @@ if ! as_human git -C "$TARGET_PATH" rev-parse --verify --quiet "$REF^{commit}" \
 fi
 
 cleanup() {
-  if vm_running "$VM"; then
+  if vm_running "$NS" "$VM"; then
     echo
     echo "== shutting the guest down =="
     halt_guest "$NS" "$GUEST_ADDR" "$VM"
@@ -141,7 +141,7 @@ echo "== stage 1: a capsule from nothing =="
 check "no volume exists before the first boot" deny test -f "$VOLUME"
 
 capsule_boot "$NS" "$RUNNER" "$VMDIR" "$LOG" || exit 1
-check "the VMM starts" ok wait_vm "$VM"
+check "the VMM starts" ok wait_vm "$NS" "$VM"
 
 # One call, timed and asserted on the same result: a figure for a boot that did
 # not happen is worse than no figure.
@@ -280,13 +280,13 @@ echo "== stage 4: does it actually go away, and what did freshness cost =="
 # guest going quiet; discard the earlier figure rather than comparing to it.
 timed "teardown (guest halts, then the VMM is terminated)" \
   halt_guest "$NS" "$GUEST_ADDR" "$VM"
-check "no VMM process remains" deny vm_running "$VM"
+check "no VMM process remains" deny vm_running "$NS" "$VM"
 check "the tap survives its VMM" ok ip netns exec "$NS" ip link show "$TAP"
 
 # The assertion that means something: the tap was *released*, not merely present.
 # A second attach is the only way to tell, and it is also the warm figure.
 capsule_boot "$NS" "$RUNNER" "$VMDIR" "$LOG" || exit 1
-check "a second capsule attaches the same tap (no EBUSY)" ok wait_vm "$VM"
+check "a second capsule attaches the same tap (no EBUSY)" ok wait_vm "$NS" "$VM"
 if timed "warm boot to ssh (volume already made and provisioned)" \
   wait_guest "$NS" "$GUEST_ADDR" "$VM"; then
   warm_ready=1

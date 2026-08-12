@@ -74,7 +74,7 @@ if ip link show "$TAP" >/dev/null 2>&1; then
   echo "$PROG: 'capsule-net down' first; two links of that name is two answers." >&2
   exit 1
 fi
-if vm_running "$VM"; then
+if any_vm_running "$VM"; then
   echo "$PROG: a microvm is already running — vm-stop first." >&2
   exit 1
 fi
@@ -84,7 +84,7 @@ if ip netns list | grep -qw "$NS"; then
 fi
 
 cleanup() {
-  if vm_running "$VM"; then
+  if vm_running "$NS" "$VM"; then
     echo
     echo "== shutting the guest down =="
     halt_guest "$NS" "$GUEST_ADDR" "$VM"
@@ -114,7 +114,7 @@ capsule_boot "$NS" "$RUNNER" "$VMDIR" "$LOG" || exit 1
 
 echo "== stage 1: the boot itself (up to two minutes) =="
 
-check "the VMM starts with its tap inside the namespace" ok wait_vm "$VM"
+check "the VMM starts with its tap inside the namespace" ok wait_vm "$NS" "$VM"
 # Run once, assert on the result, and say what went wrong if it did.
 if wait_guest "$NS" "$GUEST_ADDR" "$VM"; then ssh_ready=1; else ssh_ready=0; fi
 check "the guest boots and answers ssh from inside the namespace" ok \
