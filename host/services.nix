@@ -298,8 +298,20 @@
     name = "capsule-ssh-relay-${c.name}";
     value = {
       description = "ssh into capsule ${c.name}, over a unix socket";
-      bindsTo = [(netnsUnit c)];
-      after = [(netnsUnit c)];
+      # The tap as well as the namespace, and the tap is the load-bearing half:
+      # a namespace unit is `active exited` and *stays* up, which is right for a
+      # namespace and wrong for the way into a guest. Bound to the namespace
+      # alone, this relay outlived every stopped capsule — and the socket is not
+      # just a convenience, it is the test every host program uses to decide
+      # which copy of itself to run (host/guest-ssh.nix). So a dead capsule read
+      # as "the module path owns this one", the devshell's copies refused, and
+      # the module's copy accepted the unix connection and then blocked forwarding
+      # into a namespace where nothing listens. `ConnectTimeout` bounds that, but
+      # a bounded lie is still a lie. The tap is what a VM pulls up and takes
+      # down, so binding to it is what the proxy already does, for the same
+      # reason.
+      bindsTo = [(netnsUnit c) (tapUnit c)];
+      after = [(netnsUnit c) (tapUnit c)];
       serviceConfig = {
         # `nodelay` because socat does not set TCP_NODELAY and ssh cannot set it
         # on a socket it did not open, so Nagle clumps keystroke echo on this leg

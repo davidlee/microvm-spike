@@ -407,6 +407,13 @@ Then the rest of Plan C's
   because `/work/home` is on the volume that freshness deletes, **setup is paid
   per fresh capsule**. `capsule-inject` being fast and idempotent is a
   requirement, not a nicety.
+- **A relay outliving its VM is fixed in-tree and unshipped**, and this host's
+  installed build has neither that fix nor `ConnectTimeout`. `capsule-ssh-relay-<name>`
+  bound only to its namespace unit, which stays up, so a stopped capsule kept a
+  live socket — and that socket is the test both transports use to pick a copy of
+  a program, so the devshell's copies refused and the module's copy *hung*
+  ([notes](./notes.md) item 20, appended). Until this host is rebuilt, stopping
+  the module path also means `sudo systemctl stop 'capsule-ssh-relay-*'` by hand.
 - `vm --help` creates `.vm/--help/`. Every argument is a VM name. Papercut.
 
 ## Do not re-derive these
