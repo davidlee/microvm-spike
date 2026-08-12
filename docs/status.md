@@ -5,9 +5,9 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-12, after the pair probe's first run, the static-config
-change, the first `capsule-inject`, the sizing runs, and `capsule-baseline`'s
-first run — which took the cold build.
+Last updated 2026-08-12, after `capsule-baseline`'s first run — which took the
+cold build — then `probe-netns-egress`, and Plan C's first written code:
+`capsules.nix`.
 
 ## Where it got to
 
@@ -30,6 +30,27 @@ first run — which took the cold build.
   inventory had left out, and that this host needs a `~/flakes` DNS edit before a
   capsule can resolve through its own chain — both in
   [probes.md](./probes.md).
+- **The netns shape is wired, as units.** `host/netns.nix` is
+  `probe-netns-egress` translated into systemd: the aggregating namespace, a
+  namespace per capsule with `ip_forward=0` in it, a veth each, the three drops,
+  host NAT and forwarding, and the resolver stub — which is a module option now
+  rather than a `~/flakes` edit, so that half of NOTES item 7 comes home.
+  `host/services.nix` generates the per-capsule units around it: the proxy
+  joined to its namespace, the ssh relay on `/run/capsule/<name>/ssh.sock` as
+  the human, and drop-ins on `microvm@<name>` and `microvm-tap-interfaces@<name>`
+  that put both in the namespace and fix microvm.nix's `Restart=always`. The
+  guard is rewritten around the namespaces and holds all of them at once.
+  **Unrun** — it is a NixOS module and this repo cannot rebuild a host; `just
+  units` is the eval-level check that exists in its place.
+- **The instances are declared.** `capsules.nix` — a value, and a short one:
+  which capsules exist, each one's namespace, its way in
+  (`/run/capsule/<name>/ssh.sock`) and its uplink /30 to the aggregator, plus
+  the aggregator itself. The index is declared rather than positional and two
+  capsules cannot share one; a name over 11 characters is refused, since it is
+  on the wire twice and IFNAMSIZ is 15. `net.nix` is untouched and stays flat:
+  under netns every capsule has the *same* tap, /30 and MAC, which is what one
+  guest image means. Nothing consumes it yet beyond the socket path `flake.nix`
+  was already spelling — the units in the next step are what it is for.
 - **Probes grew a shared harness.** `probe/harness.sh` carries check / observe /
   measure / report *and* the whole capsule-in-a-namespace boot, because
   `netns-boot.sh` asserts and `freshness.sh` measures the same shape. `flake.nix`'s
@@ -119,19 +140,22 @@ takes a fresh one to green and says what that cost. Next is Plan C:
 1. ~~`sudo probe-netns-egress`~~ **done, 27/27** — see above. The shape it proved
    is what the next two steps assemble out of units, so they are bookkeeping
    against a known-good result rather than experiments on a live host.
-2. `capsules.nix` — under netns it is a name list and little else.
-   [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
-3. Host-module netns wiring at N=1, instance zero: `capsule-netns@` (root
-   oneshot, `ip netns add/del`, before `microvm-tap-interfaces@%i`),
-   `NetworkNamespacePath` drop-ins on both units, the `ExecStop`/`Restart`
-   drop-in ([notes](./notes.md) item 11), the ssh relay unit, and
-   `host/perimeter-check.nix` rewritten around the namespace's own `ip_forward`.
-   Plus what the probe found the plan had left out of that list: the aggregating
-   namespace, a veth per capsule, host NAT and forwarding, the tap input drop and
-   the interface-pair drop. The `~/flakes` DNS edit is part of this step, not a
-   follow-up — without it a capsule resolves outside the host's DoT chain.
+2. ~~`capsules.nix`~~ **written** — see above.
+3. ~~Host-module netns wiring at N=1~~ **written, unrun** — see above. What is
+   left of it is a host rebuild and a first start, which is the next thing that
+   happens on this machine:
+   - `~/flakes` gains `microvm.host.enable = true`; the module brings the rest,
+     including the resolver stub the probe had to fall back from.
+   - `microvm -c capsule -f …#capsule`, then `systemctl start microvm@capsule`.
+   - the acceptance test is `sudo probe-netns-egress` re-run, which refuses
+     while `cap-capsule` exists — so it runs with the units stopped, and a claim
+     of its that stops holding is a bug in the units.
 4. N=2 through the module — and then two `capsule-baseline`s at once, which is
-   the load question below and cannot be asked before this.
+   the load question below and cannot be asked before this. Two things it has to
+   fix first: the git channel's transport is baked per store path (the units
+   build it for the lowest-indexed capsule), and `capsule-inject` and
+   `capsule-baseline` still address the guest directly rather than through a
+   relay socket.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).

@@ -47,6 +47,14 @@
     # Same rule as net.nix: nothing below spells a target detail twice.
     target = import ./target.nix;
 
+    # Which capsules exist, and each one's namespace, socket and uplink. Same
+    # rule again. Under netns the guest-facing link is *not* in here — it is
+    # identical in every capsule, so it stays in net.nix above.
+    capsules = import ./capsules.nix;
+    # Where a capsule's way in lives, for the probes' throwaway capsules — which
+    # are not instances, and must not spell that path a second time.
+    inherit (capsules) socketOf;
+
     mkVm = name: module:
       lib.nixosSystem {
         inherit system;
@@ -186,16 +194,18 @@
           exit 1
         fi
 
-        # The other path, if this host runs it. The port check below cannot see
-        # the unit: it denies the host's address (the proxy denies RFC1918), so
-        # systemd drops the connect probe and the port looks free — after which
-        # the real bind fails and this composition serves nothing while appearing
-        # to run. systemd-shaped, so it is injected here rather than living in
-        # perimeter/.
+        # The other path, if this host runs it. It is no longer a port conflict
+        # — a unit-path proxy binds this address *inside a namespace*, so the
+        # two can both appear to work — which makes it worse rather than
+        # better: two perimeters, two logs, and no way to tell which one served
+        # a request. One shape at a time. systemd-shaped, so it is injected
+        # here rather than living in perimeter/.
         if command -v systemctl >/dev/null 2>&1 \
-          && systemctl is-active --quiet capsule-proxy; then
-          echo "capsule-host: capsule-proxy is active — the unit path owns the" >&2
-          echo "  port. Use one path or the other: systemctl stop capsule-proxy" >&2
+          && [ -n "$(systemctl list-units --state=active --no-legend \
+               'capsule-proxy-*.service' 2>/dev/null)" ]; then
+          echo "capsule-host: a capsule-proxy unit is active — the module path" >&2
+          echo "  owns the perimeter. Use one path or the other:" >&2
+          echo "  systemctl stop 'capsule-proxy-*'" >&2
           exit 1
         fi
 
@@ -241,95 +251,76 @@
     };
     capsule-host = perimeter.host;
 
-    # Host->guest ssh, for everything that is not the proxy. The guest's host
-    # keys live on its volume, so a *fresh* capsule has fresh keys at the same
-    # address — and freshness is the goal, not an accident (NOTES item 17). Since
-    # the git channel rides ssh, a changed key no longer merely annoys
-    # `just ssh`: it blocks provisioning. `accept-new` does not help, because it
-    # accepts *unknown* hosts and this is a *changed* one.
-    #
-    # So: no host-key check at all, and no record of one. That is sound only
-    # because of what this link is — a /30 this host created itself, with exactly
-    # one peer, and no third party on it to be in the middle. It stops being
-    # sound the moment the transport is a bridge, a LAN or another machine, and
-    # it must change in the same commit that does that. `/dev/null` rather than a
-    # capsule-scoped file on purpose: a file would accumulate one stale key per
-    # capsule and quietly reintroduce the failure. LogLevel=ERROR because
-    # otherwise every invocation announces the key it just accepted.
-    #
-    # The interactive paths — `just ssh`, `just admin` — deliberately do *not*
-    # use this. A human present to read the warning is the case where the strict
-    # default is still worth having.
-    #
-    # As argv rather than a command line, because `capsule-inject` runs ssh
-    # itself and the netns form carries a ProxyCommand with spaces in it — a
-    # string would have to be re-split by a shell that cannot know where the
-    # quoting was meant to go. `guestSsh` is the same thing for the consumers
-    # that want a command line: git parses `GIT_SSH_COMMAND` shell-style.
-    guestSshArgs = [
-      "ssh"
-      "-o"
-      "StrictHostKeyChecking=no"
-      "-o"
-      "UserKnownHostsFile=/dev/null"
-      "-o"
-      "LogLevel=ERROR"
-    ];
-    guestSsh = lib.escapeShellArgs guestSshArgs;
+    # Host->guest ssh, for everything that is not the proxy: no host-key check
+    # and no record of one, because a fresh capsule has fresh keys at the same
+    # address. The reasoning, and why it is its own file rather than a literal
+    # here, is in host/guest-ssh.nix — the units need the identical relaxation
+    # and a security default in two copies is one copy nobody edits.
+    guestSsh = import ./host/guest-ssh.nix {inherit lib;};
 
-    # Git in both directions, host-initiated. The one jail-shaped fact it takes
-    # is how to reach the guest's checkout: here, ssh over the p2p tap as the
-    # unprivileged guest user. Under netns the URL is the same and `sshCommand`
-    # grows a `ProxyCommand` against the capsule's unix socket (NOTES item 17),
-    # at which point the socket path is the identity and the relaxation above
-    # stops being needed.
-    # Who the host talks to when it talks to a capsule: the unprivileged guest
-    # user over the p2p tap. Named once — the git channel needs it as part of a
-    # URL, `capsule-inject` needs it as an ssh destination.
-    guestHost = "agent@${net.guest}";
-
-    # Where the guest's checkout is, as a URL. One binding: the git channel
-    # pushes and fetches against it, and probe-netns-boot asks the same question
-    # of it through a unix socket.
-    guestRepo = "ssh://${guestHost}${target.guestPath}";
-
-    gitChannel = import ./host/git-channel.nix {
-      inherit pkgs target guestRepo;
-      sshCommand = guestSsh;
+    # Everything the human runs at a capsule: the git channel both ways,
+    # `capsule-inject`, `capsule-baseline`. Built here to reach the guest
+    # straight over the tap, and built again in `host/services.nix` with the
+    # relay socket instead — one construction, two transports, which is the only
+    # thing that differs (host/programs.nix).
+    hostPrograms = import ./host/programs.nix {
+      inherit pkgs lib net target;
+      sshArgs = guestSsh.args;
     };
-    capsule-provision = gitChannel.provision;
-    capsule-collect = gitChannel.collect;
+    inherit (hostPrograms) guestHost guestRepo;
+    capsule-provision = hostPrograms.provision;
+    capsule-collect = hostPrograms.collect;
+    capsule-inject = hostPrograms.inject;
 
-    # The non-git half of provisioning: credentials and anything else a fresh
-    # capsule needs that no repository carries. The list is ./setup.nix, whose
-    # `tools` are nixpkgs attr names — resolved here for the same reason
-    # `target.extraTools` is, so a declaration file stays data.
-    capsule-inject = import ./host/inject.nix {
-      inherit pkgs guestHost;
-      sshArgs = guestSshArgs;
-      injections =
-        map (i: i // {tools = map (name: pkgs.${name}) i.tools;})
-        (import ./setup.nix);
-    };
+    # An attrset because the field is optional — a target that declares no
+    # baseline gets no program at all.
+    baselinePackages =
+      lib.optionalAttrs (hostPrograms.baseline != null)
+      {capsule-baseline = hostPrograms.baseline;};
 
-    # The last step of making a fresh capsule usable, and the only one that
-    # produces a figure: the target's own build-and-test, host-initiated, its
-    # record written on the volume rather than to a terminal. An attrset because
-    # the field is optional — a target that declares no baseline gets no program
-    # at all, which is a better absent path than one that cannot work.
-    baselinePackages = lib.optionalAttrs (target.baseline != null) {
-      capsule-baseline = import ./host/baseline.nix {
-        inherit pkgs guestHost;
-        sshArgs = guestSshArgs;
-        command = target.baseline;
-        workdir = target.guestPath;
-        # Beside the checkout, never inside it: a record written into the
-        # worktree is a dirty worktree, and a dirty worktree is what the next
-        # `capsule-provision` refuses on.
-        recordDir = "${target.volumePath}/baseline";
-        measure = [target.guestPath] ++ target.cachePaths;
+    # The host module has no build of its own — it is a NixOS module, and this
+    # repo cannot rebuild someone's host to try it. So *evaluate* it: a text
+    # file naming the units it generates drags the whole module through the
+    # evaluator, which is where a wrong option name, a bad interpolation or a
+    # failed assertion actually lives. Seconds, no NixOS build, and it is in
+    # `just build` — the alternative was finding those in a host rebuild.
+    hostModuleUnits = let
+      host = lib.nixosSystem {
+        inherit system;
+        modules = [
+          self.nixosModules.capsule-perimeter
+          {
+            system.stateVersion = "25.05";
+            # Only the unit graph is being read, so nothing here boots — but the
+            # base assertions about a root filesystem and a bootloader fire
+            # first and bury whatever the module itself has to say. Stubbed
+            # rather than answered with `boot.isContainer`, which mutes them by
+            # changing what kind of machine this is: that also turns on
+            # `useHostResolvConf`, which resolved then refuses, and would go on
+            # quietly moving defaults the units are read against.
+            boot.loader.grub.enable = false;
+            fileSystems."/" = {
+              device = "none";
+              fsType = "tmpfs";
+            };
+            # The module asserts on this: a capsule's only resolver is the stub
+            # resolved puts on the aggregator's host end.
+            services.resolved.enable = true;
+            services.capsule-perimeter = {
+              enable = true;
+              owner = "nobody";
+            };
+          }
+        ];
       };
-    };
+      failed = lib.filter (a: !a.assertion) host.config.assertions;
+      units =
+        lib.filter (n: lib.hasPrefix "capsule-" n || lib.hasPrefix "microvm" n)
+        (lib.attrNames host.config.systemd.services);
+    in
+      if failed != []
+      then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"
+      else pkgs.writeText "capsule-units.txt" (lib.concatStringsSep "\n" units + "\n");
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -468,26 +459,29 @@
     # making and destroying volumes, and a probe that did that to `.vm/capsule`
     # could be run once.
     #
-    # The socket path is the designed one rather than a mktemp, because
+    # The socket path is the designed one — `capsules.socketOf`, the same
+    # convention a declared instance gets — rather than a mktemp, because
     # `capsule-provision` has to be built with a ProxyCommand against it: the
     # probe exercises the real program on the real seam, which is the whole
-    # point of `sshCommand` being injected.
+    # point of `sshArgs` being injected.
     #
     # A function over the socket, because the pair probe needs two of these and
-    # the socket is the only thing that differs. That it *has* to be two programs
-    # rather than one program and an argument is the finding, not the plumbing:
-    # under netns a capsule's identity is its socket path, and here that path is
-    # baked into a store path. `capsule-collect` already takes its name as an
-    # argument; `capsule-provision` does not, and N capsules make that asymmetry
-    # cost something.
-    capsuleSocket = name: "/run/capsule/${name}/ssh.sock";
-    nsChannelFor = sock:
-      import ./host/git-channel.nix {
-        inherit pkgs target guestRepo;
-        sshCommand = "${guestSsh} -o ProxyCommand='socat - UNIX-CONNECT:${sock}'";
+    # the socket is the only thing that differs. That it *has* to be two sets of
+    # programs rather than one program and an argument is the finding, not the
+    # plumbing: under netns a capsule's identity is its socket path, and here
+    # that path is baked into a store path. `capsule-collect` already takes its
+    # name as an argument; nothing takes its *transport* as one, and N capsules
+    # make that asymmetry cost something.
+    nsProgramsFor = sock:
+      import ./host/programs.nix {
+        inherit pkgs lib net target;
+        sshArgs = guestSsh.viaSocket {
+          socat = "socat";
+          socket = sock;
+        };
       };
-    nsSocket = capsuleSocket "capsule";
-    nsGitChannel = nsChannelFor nsSocket;
+    nsSocket = capsules.instances.capsule.socket;
+    nsGitChannel = nsProgramsFor nsSocket;
     probe-freshness = probe {
       name = "probe-freshness";
       script = ./probe/freshness.sh;
@@ -527,8 +521,8 @@
     # problem rather than a hypothetical one.
     pairA = "pair-a";
     pairB = "pair-b";
-    pairChannelA = nsChannelFor (capsuleSocket pairA);
-    pairChannelB = nsChannelFor (capsuleSocket pairB);
+    pairChannelA = nsProgramsFor (socketOf pairA);
+    pairChannelB = nsProgramsFor (socketOf pairB);
     probe-two-capsules = probe {
       name = "probe-two-capsules";
       script = ./probe/two-capsules.sh;
@@ -540,8 +534,8 @@
         VM="capsule"
         NAME_A="${pairA}"
         NAME_B="${pairB}"
-        SOCKDIR_A="${builtins.dirOf (capsuleSocket pairA)}"
-        SOCKDIR_B="${builtins.dirOf (capsuleSocket pairB)}"
+        SOCKDIR_A="${builtins.dirOf (socketOf pairA)}"
+        SOCKDIR_B="${builtins.dirOf (socketOf pairB)}"
         PROVISION_A="${pairChannelA.provision}/bin/capsule-provision"
         PROVISION_B="${pairChannelB.provision}/bin/capsule-provision"
         COLLECT_A="${pairChannelA.collect}/bin/capsule-collect"
@@ -585,7 +579,7 @@
           # Same relaxed host-key handling as the git channel, and for the same
           # reason: a fresh capsule's new key would otherwise send this down the
           # API-socket fallback, which is a worse shutdown than the ssh poweroff.
-          if ${guestSsh} -o BatchMode=yes -o ConnectTimeout=4 \
+          if ${guestSsh.command} -o BatchMode=yes -o ConnectTimeout=4 \
                root@${net.guest} 'systemctl --no-block poweroff' 2>/dev/null; then
             echo "vm-stop: poweroff requested over ssh"
             stopped=1
@@ -628,13 +622,13 @@
     # host that wants it as its real posture. Opt-in: `capsule-host` in the
     # devshell stays the development path and needs no rebuild. Import it in the
     # host's config and set `services.capsule-perimeter.{enable,owner}`.
-    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target;};
+    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target capsules;};
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // baselinePackages
       // {
-        inherit vm vm-stop capsule-net capsule-host;
+        inherit vm vm-stop capsule-net capsule-host hostModuleUnits;
         inherit capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;
@@ -658,6 +652,9 @@
           probe-two-capsules
           pkgs.firecracker
           pkgs.just
+          # `just ssh` reaches a namespaced capsule through its relay socket, so
+          # the devshell needs the same tool the units do.
+          pkgs.socat
           microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
           # stdenv's PATH carries plain `pkgs.bash`, which is built without readline
           # or progcomp: running `bash` in here gave `complete: command not found`

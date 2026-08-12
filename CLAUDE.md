@@ -96,6 +96,12 @@ Break these and the confinement stops meaning anything:
   to start, and forwarding coming up mid-session kills egress. Don't soften
   that to a warning — a warning is what it had while the drop was in fact
   missing from the host config.
+  **All of that is the devshell path.** On the module path the tap is inside a
+  namespace `host/netns.nix` creates, so the control is that namespace's own
+  `ip_forward`, the sudoers rule and the `latent` state are gone, and the host
+  config's remaining job — forwarding, NAT, the resolver stub — the module
+  installs itself. Two shapes, one at a time: `capsule-host` refuses while a
+  `capsule-proxy-*` unit is active.
 - **No default route in the guest.** The only egress is the proxy. Adding NAT
   or a gateway would silently void the allowlist — and so would leaving the
   host forwarding for the tap, since guest root can add the route itself.

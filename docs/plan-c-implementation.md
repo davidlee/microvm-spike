@@ -11,7 +11,7 @@ Read this before touching anything; it is the whole surface.
 
 | file | what it hardcodes | becomes |
 | --- | --- | --- |
-| `net.nix` | one tap, one /30, one MAC, two ports | a function of the instance index |
+| `net.nix` | one tap, one /30, one MAC, one port | **unchanged** — under netns every capsule has that same link; what differs is in `capsules.nix` |
 | `flake.nix` `mkVm` | `specialArgs = {inputs, net, target}` | plus the instance record |
 | `flake.nix` `vms` | `hello`, `capsule` | `capsule-<name>` per instance, `hello` unchanged |
 | `flake.nix` `perimeter` | one import, one bind/client | one per instance, or one taking the set |
@@ -30,29 +30,37 @@ capsules wants to edit `perimeter/`, something has gone wrong: the perimeter has
 one instance's worth of parameters and should be *instantiated* N times, not
 taught about N.
 
-## `capsules.nix` sketch
+## `capsules.nix`
 
-```nix
-# The instances. One list, two consumers: the runners in flake.nix and the
-# host-side units through the flake input.
-#
-# Names, not a count — but the index is *declared*, not positional. Deriving it
-# from list position means deleting a name renumbers its neighbours, and an
-# existing volume, mirror, tap and known_hosts entry all silently change hands:
-# `beta` moves from 1 to 0 and inherits `alpha`'s state. The one property this
-# is supposed to have — instance 0 keeps the single-capsule addresses, so
-# today's state survives — is the first casualty.
-{
-  instances = {
-    alpha = {index = 0;}; # 0 keeps the addresses the single-capsule design used
-    beta = {index = 1;};
-  };
-}
-```
+Written — read the file rather than a sketch of it. What it settles, and why
+none of it was free:
 
-and the derivation of a net record, which replaces `net.nix`'s flat attrs — only
-needed if capsules share a routing domain. Under [netns](./plan-c-multi-capsule.md#netns-per-capsule)
-every capsule is `netOf 0` and this is a record again, not a function:
+- **The index is declared, not positional.** Deriving it from list position
+  means deleting a name renumbers its neighbours, and an existing volume,
+  socket and uplink /30 all silently change hands: `beta` moves from 1 to 0 and
+  inherits `alpha`'s state. The one property this is supposed to have —
+  instance 0 keeps the single-capsule addressing, so today's state survives —
+  is the first casualty. Two capsules declaring one index is an eval-time
+  refusal for the same reason.
+- **What an index buys is the uplink, and nothing else.** The aggregator has one
+  routing table, so each capsule leaves through its own `10.100.<i>.0/30` out of
+  a /16 the host routes and NATs whole. A name is on the wire twice
+  (`cap-<name>` in the aggregator, `up-<name>` in the capsule), so an
+  11-character limit is load-bearing — IFNAMSIZ is 15 and the prefix spends 4.
+  Asserted rather than commented.
+- **The aggregator is in there too**, as one record and not a per-capsule one:
+  it is the only place the capsules' networks meet, which is why the drops
+  between them belong to it. Its `linkPattern` comes from the same prefix the
+  per-capsule names do, so the wildcard rule cannot drift from the links it is
+  meant to match.
+- **`net.nix` is untouched.** The pre-netns plan had it becoming `netOf i`, a
+  derivation of tap name, /30 and MAC per instance — kept below, because it is
+  what the *tap* shape would still need.
+
+That derivation, kept because it is only dead while the shape is netns — it is
+what a shared routing domain would need, and
+[under netns](./plan-c-multi-capsule.md#netns-per-capsule) every capsule is
+`netOf 0`, which is a record and not a function:
 
 ```nix
 netOf = i: {
@@ -72,9 +80,8 @@ netOf = i: {
 };
 ```
 
-Keep `net.nix` as `netOf 0` for one release if that makes the transition
-readable, or delete it and update the two justfile recipes. Do not leave both as
-sources of truth.
+There is no transition to manage while that stays dead: `net.nix` is `netOf 0`
+already, spelled flat, and the justfile recipes that read it keep working.
 
 ## Per-instance units, not templates
 
@@ -117,7 +124,7 @@ ip saddr <capsule nets> ip daddr { 10/8, 172.16/12, 192.168/16 } drop
 ```
 
 And one host-config edit, which is not optional and is not a follow-up:
-`services.resolved.extraConfig` with `DNSStubListenerExtra=` on the
+`services.resolved.settings.Resolve.DNSStubListenerExtra` on the
 capsule-facing address, plus an input allow for port 53 on that link. Without it
 a capsule namespace has no resolver at all — `127.0.0.53` is the *root*
 namespace's loopback — and the tempting fix (a public resolver in
@@ -301,10 +308,16 @@ Say no to these in the plan, so they don't arrive as scope:
 2. How big is the guest image? (`nix path-info -Sh .#capsule`) — prices how much
    the netns machinery is worth versus simply paying for N closures. At 3-4
    capsules on a dev machine, N closures may still be the better trade.
-3. ~~Host module now or later?~~ **Now.** Namespace creation is root-side, so
-   the netns shape needs it. The remaining question is only whether `~/flakes`
-   grows the instance list (declarative `microvm.vms`) or state stays here
-   (imperative `microvm -c`).
+3. ~~Host module now or later?~~ **Now**, and ~~declarative or imperative~~
+   **imperative**, decided by a constraint that already existed: declaring
+   `microvm.vms.<name>` makes the host config evaluate the guest closure, and
+   `~/flakes` is fetchable from darwin only because it does not (the `git+file:`
+   target path exists on one machine). So `microvm.host.enable = true` in the
+   host config, `microvm -c <name> -f …#capsule` once per capsule, and the VMM
+   moves under systemd without `~/flakes` ever learning what a capsule contains.
+   It also keeps the one-image property literally rather than by luck: N state
+   directories, one runner store path, no `nixosConfigurations.<name>` per
+   instance.
 4. How does a capsule learn its **base commit**, concretely: the human at start
    time, or a field in the instance record? A field is eval-time, which puts it
    back in `~/flakes` for the ranch case; runtime is one more thing to pass. The

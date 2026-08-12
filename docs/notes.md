@@ -29,6 +29,7 @@ what stops it being proposed again.
 | 16 | target-agnostic | done for one target; a second is untested |
 | 17 | more than one capsule at a time | scoped — [Plan C](./plan-c-multi-capsule.md) |
 | 18 | which way the git channel points | measured, inverted, done |
+| 19 | the baseline build, and where a figure is allowed to live | built, run, measured |
 
 1. **What has actually been run.** The guest boots and the agent works over ssh;
    the perimeter has been exercised in both shapes — `capsule-host` in the
@@ -131,6 +132,18 @@ what stops it being proposed again.
    literally. No rule means no verdict, which resolves to `latent`: safe only
    while nothing forwards, and reported as such rather than passed.
 
+   **All of the above is the tap shape, and the module path has now left it.**
+   Under netns the tap is inside a namespace this repo's units create, so the
+   control is that namespace's own `ip_forward` — nobody else writes it, there
+   is no race with docker, no sudoers rule, and no `latent` state: unverifiable
+   is a refusal, because an answer these units cannot read is their own fault
+   and not someone else's config. What the host still owns is forwarding and
+   NAT for the *proxies'* egress, which the module installs itself and on which
+   nothing about a guest's confinement rests. This paragraph's machinery stays
+   exactly as it is for the devshell path, which still has a tap in the root
+   namespace and still needs every word of it (`host/netns.nix`,
+   `host/perimeter-check.nix`).
+
    Three states, one definition shared by `capsule-net` and `capsule-host`
    (`perimeterChecks` in `flake.nix` — Linux-shaped, hence at the call site and
    not in `perimeter/`): `dropped` verified, `latent` unverifiable but nothing
@@ -179,7 +192,13 @@ what stops it being proposed again.
 
     - The **VMM**: a firecracker escape lands on uid 1000, with ambient access
       to `~/.ssh`, `~/.claude`, every repo and every shell rc — precisely the
-      assets the capsule exists to keep away from the agent. Still open.
+      assets the capsule exists to keep away from the agent. **Written, unrun:**
+      the netns work needs `microvm@<name>` to be a unit anyway, so the module
+      now carries drop-ins for it and for its tap unit, and running the VMM
+      under microvm.nix's own uid is what that buys. It stops short of
+      *declaring* the VM — `microvm -c <name>` rather than `microvm.vms.<name>`
+      — because declaring it makes the host's config evaluate the guest
+      closure, which `~/flakes` must not do.
     - **`capsule-host`**: tinyproxy is C parsing guest-authored HTTP, and
       git-daemon runs `receive-pack`, both as you. Independent of the
       hypervisor, so it was worth doing first and on its own.

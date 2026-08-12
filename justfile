@@ -7,7 +7,7 @@
 # more than one command to answer.
 
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
-nix_paths := "flake.nix net.nix target.nix setup.nix perimeter host vm"
+nix_paths := "flake.nix net.nix target.nix capsules.nix setup.nix perimeter host vm"
 
 # addresses and ports come from net.nix or they drift
 # --json, not --raw: the ports are integers and --raw refuses to coerce one
@@ -70,7 +70,12 @@ build:
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
-    '.#capsule-baseline'
+    '.#capsule-baseline' '.#hostModuleUnits'
+
+# which units the host module generates, without rebuilding a host — the only
+# mechanical check the NixOS half has
+units:
+  @cat "$(nix build --no-link --print-out-paths '.#hostModuleUnits')"
 
 # the guest closure and its runner — the slow one
 build-vm:
@@ -81,22 +86,31 @@ verify:
   capsule-net verify
 
 # VM, tap, listener, perimeter, quarantine, units — one screen
+#
+# Two shapes answer this differently and both are shown. On the devshell shape
+# the tap and the proxy's listener are in the root namespace, where this can see
+# them; on the module shape they are inside a capsule's namespace and this
+# cannot, by construction — the namespaces and the sockets are what says a
+# capsule is up.
 status name="capsule":
   #!/usr/bin/env bash
   set -uo pipefail
   echo "== vm"
   pgrep -af 'microvm@' || echo "  no VM running"
-  echo "== tap"
-  ip -brief addr show "$(just _net tap)" 2>/dev/null || echo "  no tap — capsule-net up"
-  echo "== listener (only your own processes are named)"
+  echo "== tap (devshell shape only — a namespaced tap is invisible from here)"
+  ip -brief addr show "$(just _net tap)" 2>/dev/null || echo "  none in this namespace"
+  echo "== listener (devshell shape only; only your own processes are named)"
   ss -lntp "sport = :$(just _net proxyPort)" 2>/dev/null | tail -n +2 || echo "  none"
-  echo "== perimeter"
+  echo "== perimeter (devshell shape)"
   just verify 2>&1 | sed 's/^/  /'
-  echo "== units (unit path only)"
-  for u in capsule-perimeter-guard capsule-proxy; do
-    state=$(systemctl is-active "$u" 2>/dev/null || true)
-    [ -n "$state" ] && [ "$state" != inactive ] && echo "  $u: $state"
+  echo "== capsules (module shape)"
+  ip netns list 2>/dev/null | grep '^cap-' | sed 's/^/  ns /' || echo "  no namespaces"
+  for s in /run/capsule/*/ssh.sock; do
+    [ -S "$s" ] && echo "  in $s"
   done
+  echo "== units (module shape)"
+  systemctl list-units --no-legend --no-pager 'capsule-*' 2>/dev/null \
+    | awk '{printf "  %s: %s\n", $1, $3}' || true
   echo "== collected"
   q=$(just _quarantine {{name}} 2>/dev/null) \
     && echo "  $q ($(git --git-dir="$q" for-each-ref "refs/capsule/{{name}}/" | wc -l) refs)" \
@@ -123,15 +137,37 @@ allowed:
   @cat "${CAPSULE_ALLOWLIST:-$(just _target allowlist)}"
 
 # a shell in the guest as the agent — TUIs work here, not on the console
-ssh:
-  ssh "agent@$(just _net guest)"
+ssh name="capsule":
+  @just _guest-ssh agent {{name}}
 
 # root in the guest — admin from outside the jail; the agent has no path to it
-admin:
-  ssh "root@$(just _net guest)"
+admin name="capsule":
+  @just _guest-ssh root {{name}}
+
+# One door, two transports. On the module shape the guest is not routable from
+# here at all and the way in is the capsule's relay socket — which is also its
+# identity, so `HostKeyAlias` files each capsule's host key under its own name
+# instead of N capsules fighting over one address's entry. The interactive paths
+# keep strict host-key checking on purpose: a human is present to read it.
+_guest-ssh user name:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  guest=$(just _net guest)
+  sock="/run/capsule/{{name}}/ssh.sock"
+  if [ -S "$sock" ]; then
+    exec ssh -o HostKeyAlias="capsule-{{name}}" \
+      -o ProxyCommand="socat - UNIX-CONNECT:$sock" "{{user}}@$guest"
+  fi
+  exec ssh "{{user}}@$guest"
 
 # a fresh capsule has fresh host keys at the same address, because they live on
 # its volume — so the interactive paths above refuse. The programs don't: they
-# check no keys at all and keep no record (flake.nix, `guestSsh`), deliberately.
-reset-known-hosts:
-  ssh-keygen -R "$(just _net guest)"
+# check no keys at all and keep no record (host/guest-ssh.nix), deliberately.
+reset-known-hosts name="capsule":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ -S "/run/capsule/{{name}}/ssh.sock" ]; then
+    ssh-keygen -R "capsule-{{name}}"
+  else
+    ssh-keygen -R "$(just _net guest)"
+  fi

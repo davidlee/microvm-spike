@@ -220,8 +220,8 @@ discovered later:
    `/etc/resolv.conf` naming it resolves nothing. Confirmed blocked; an explicit
    reachable resolver works. The fix keeps the chain rather than dropping to a
    public resolver, which would silently lose the DoT hop: give resolved an
-   extra stub address on the capsule-facing link (`DNSStubListenerExtra=` via
-   `services.resolved.extraConfig`) and each namespace an
+   extra stub address on the capsule-facing link
+   (`services.resolved.settings.Resolve.DNSStubListenerExtra`) and each namespace an
    `/etc/netns/<ns>/resolv.conf` naming it. Two lines, and the proxy still does
    lookups as the host through the host's own chain.
 

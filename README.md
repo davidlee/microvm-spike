@@ -54,6 +54,15 @@ security.sudo.extraRules = lib.mkAfter [{
 }];
 ```
 
+All of that belongs to the **devshell shape**, whose tap is in the host's own
+namespace. The module path does not use it: its taps are inside per-capsule
+namespaces, where a forward drop written here would never see a packet, and its
+control is that namespace's own `ip_forward` instead. Leave this config in
+place — it is what keeps the devshell path honest — and note that the module
+turns *global* forwarding on for the proxies' egress, so the check below reports
+`dropped` rather than `latent` and would report `open` if you ever removed the
+table.
+
 **These are verified, not assumed.** `capsule-net up` and `capsule-host` both
 call the same check and report one of three states:
 
@@ -98,12 +107,13 @@ The *allow* half of the firewall config is not verified, and doesn't need to be:
 omit it and the guest reaches nothing, loudly. Only the silent-failure half
 (the forward drop) is checked.
 
-### The proxy under a dedicated uid
+### The module path: a dedicated uid, and a namespace per capsule
 
 `capsule-host` runs tinyproxy as **you** — a bug in its HTTP parser lands on an
 account holding `~/.ssh`, `~/.claude` and every repo on the machine. The flake
 exports a NixOS module that gives it its own system uid, namespace and cgroup
-ceiling instead:
+ceiling instead — and, since the same rebuild is what can create namespaces,
+puts **each capsule in a network namespace of its own**:
 
 ```nix
 imports = [inputs.microvm-spike.nixosModules.capsule-perimeter];
@@ -111,54 +121,90 @@ services.capsule-perimeter = {
   enable = true;
   owner = "david"; # runs the git channel; reads the egress log by group
 };
+microvm.host.enable = true; # the microvm@ template these units hang drop-ins on
+```
+
+The namespace is what makes more than one capsule possible, and it moves the
+control this whole thing rests on *into this repo*: `net.ipv4.ip_forward` is
+per-namespace, so the guest's confinement is a sysctl these units own rather
+than a global one docker and tailscale also write. The host is now *required* to
+forward and NAT — for the proxies' egress, with nothing about a guest resting on
+it. The module sets that up itself, along with the resolver stub a namespaced
+capsule needs (`DNSStubListenerExtra` on `10.101.0.1`, plus the firewall allow
+for it); `services.resolved` must be on or it refuses to evaluate.
+
+**The VM stays imperative.** Nothing here declares `microvm.vms.<name>`,
+deliberately: that makes the host config evaluate the guest closure, and this
+host's config is fetchable from darwin only because it does not (the `git+file:`
+target path exists on one machine). So:
+
+```
+microvm -c capsule -f /home/david/dev/microvm-spike#capsule   # once
+systemctl start microvm@capsule                              # every time
 ```
 
 Wired in on Sleipnir: `~/flakes/modules/nixos/capsule.nix`, imported from
 `hosts/Sleipnir/config.nix`, with the input taking `inputs.target.follows =
 "nixpkgs"` so the graph is fetchable from darwin (the `git+file:` target path
 exists on one machine only, and nothing in the host config evaluates the guest).
-That shim has to be undone if the VMM ever moves to microvm.nix's host module —
-NOTES item 11.
+That shim is exactly why the VM is created imperatively above: the VMM moves
+under systemd without the host config ever learning what a capsule contains.
 
-Opt-in, and `capsule-host` stays exactly as it was — it needs no root and no
-rebuild, which is what makes it the development path. **Run one or the other,
-never both:** they bind the same port, so together you get a port fight. What
-the module changes:
+Starting the VM is all of it: the drop-ins pull the namespace in first, and the
+VM wants its proxy and its ssh relay, so `just ssh` works as soon as the guest
+is up. Opt-in, and `capsule-host` stays exactly as it was — it needs no root and
+no rebuild, which is what makes it the development path. **Run one or the other,
+never both:** they no longer fight over a port (the unit's is inside a
+namespace), which is worse rather than better — two perimeters, two logs, and no
+way to tell which one served a request. `capsule-host` refuses if a
+`capsule-proxy-*` unit is active.
 
-| | `capsule-host` | the unit |
+| | `capsule-host` | the units |
 | --- | --- | --- |
 | runs as | you | `capsule-proxy` |
-| proxy log | `.vm/host/tinyproxy.log` | `/var/lib/capsule-proxy/tinyproxy.log`, rotated weekly |
+| where the tap is | root namespace | `cap-<name>`, with the guest |
+| the forward control | the host's global sysctl, read back through sudo | `ip_forward=0` inside each capsule's namespace |
+| way in | `ssh 10.99.0.2` | `/run/capsule/<name>/ssh.sock` (`just ssh <name>`) |
+| proxy log | `.vm/host/tinyproxy.log` | `/var/lib/capsule-proxy/<name>/tinyproxy.log`, rotated weekly |
 | quarantine | `.vm/host/collect/` | `/var/lib/capsule/collect/` |
 | perimeter check | sudo read + supervised watch | `capsule-perimeter-guard.service`, root, no sudo rule needed |
 | ceilings | none | `MemoryMax`, `CPUQuota`, `TasksMax`, `IOWeight` |
 
-```
-capsule-net up                     # or `vm capsule`; the tap first
-systemctl start capsule-proxy      # pulls in the guard first
-```
+The units, per capsule and per host:
+
+| unit | what |
+| --- | --- |
+| `capsule-egress-ns` | one per host: the aggregating namespace every capsule's proxy leaves through, and where the drops between them live |
+| `capsule-netns-<name>` | the capsule's namespace, its `ip_forward=0`, its resolver, its uplink and its input drop |
+| `capsule-proxy-<name>` | tinyproxy, joined to that namespace |
+| `capsule-ssh-relay-<name>` | the unix socket that is the way in, owned by `owner` |
+| `capsule-perimeter-guard` | one per host: verifies every namespace, every 10s, `BindsTo` from every proxy |
 
 - The module installs `capsule-provision` and `capsule-collect` **wrapped** with
   the units' `CAPSULE_STATE` and `CAPSULE_REPO`, because unwrapped they default
   to `$PWD/.vm/host` — the foreground path's — and would quarantine wherever you
   happened to be standing. The devshell's copies still shadow them inside this
   repo, so each path keeps its own state; both print the path they used, so read
-  that line rather than assuming.
-- **The guard is a start dependency (`BindsTo`)**, so the services cannot come
-  up while the perimeter is unverifiable-and-forwarding, and stop when it goes.
-  It does not restart itself: a refusal stays a refusal until you fix the cause
-  and start it again. Exercised on the live host — deleting the table and
-  setting `ip_forward=1` under a running guest stopped both services within the
-  10s poll and took the guest's egress with them. To repeat it, restore with
-  `sudo systemctl restart nftables`, put `ip_forward` back, then start the two
-  services again; the guard is left `failed` and needs the explicit start.
-- The proxy unit is conditional on the tap existing, so start it after
-  `capsule-net up`. It is not enabled at boot.
+  that line rather than assuming. Their transport is the relay socket of the
+  lowest-indexed capsule; a second capsule needs that to become an argument.
+- **The guard is a start dependency (`BindsTo`)**, so no proxy can come up while
+  a namespace is missing, forwarding, or missing a drop — and all of them stop
+  when one does. It does not restart itself: a refusal stays a refusal until you
+  fix the cause and start it again.
+- **Stopping.** `systemctl stop microvm@capsule` is a hard stop: the guest
+  ignores SendCtrlAltDel (NOTES item 11), so the VMM waits out
+  `TimeoutStopSec` and is killed with the volume's ext4 still mounted. Power the
+  guest off first — `just admin` then `systemctl poweroff` — and stop the unit
+  after. `Restart=no` is set for the same reason: microvm.nix's default would
+  bring a deliberately stopped capsule straight back.
+- `capsule-netns-<name>` **refuses to stop while a VMM is in its namespace**,
+  because deleting the namespace takes the tap and a tap cannot be swapped under
+  a running VM. Stop the VM first; that is also the ordering systemd uses.
 - Adding this repo as an input to the host config means host rebuilds read its
   committed HEAD, same as the `git+file:` gotcha for doctrine.
 
-Still as you: the VMM. NOTES item 11 has the microvm.nix host-module
-option and what it does and doesn't fix.
+`just units` prints the units the module would generate, without rebuilding a
+host — the only mechanical check this half has.
 
 ## Quickstart
 
@@ -234,8 +280,10 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-collect [NAME]` | fetch the guest's refs into a quarantine repo.          |
 | `capsule-inject [NAME...] [--force]` | push the payloads declared in `setup.nix` into `/work/home`. |
 | `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
-| `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). |
-| `vm-stop [name]`    | clean shutdown over the firecracker API socket.             |
+| `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). Devshell shape. |
+| `vm-stop [name]`    | clean shutdown over the firecracker API socket. Devshell shape. |
+| `just ssh [name]`   | a shell in the guest — over the relay socket if the capsule has one. |
+| `just units`        | the units the host module generates, without rebuilding a host. |
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |
 | `sudo probe-netns-boot` | evidence: does the capsule boot with its tap in one?     |
 | `sudo probe-netns-egress` | evidence: does the perimeter survive the move into one? |
