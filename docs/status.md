@@ -5,8 +5,8 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-12, after the pair probe's first run and the static-config
-change.
+Last updated 2026-08-12, after the pair probe's first run, the static-config
+change, and the first capsule-inject.
 
 ## Where it got to
 
@@ -47,7 +47,8 @@ change.
   over the same ssh channel, as the human. `setup.nix` declares what leaves this
   host; the program knows no filename, format or key name. Two payloads: the
   token whole (`.credentials.json` is nothing else), and four keys of
-  `.claude.json`'s ninety. Built and shellchecked, **not yet run**.
+  `.claude.json`'s ninety. **Run, and the agent starts signed in** — so four
+  keys is enough and no capsule needs its own credential.
 - **The capsule has static build config**, rendered from `target.sizes` into the
   closure and linked onto the volume by the seed (`target.nix`'s `guestConfig`).
   Until now it built with full debuginfo and an incremental cache — the untuned
@@ -75,29 +76,26 @@ change.
 The round in progress is *make one capsule usable interactively, then size it
 honestly*. Each step is there because the next is meaningless without it.
 
-1. **Rebuild and boot at 4 vCPU / 8 GiB**, which is also what puts the new
-   `guestConfig` on the volume. A sizing run before this measures an untuned
-   build on a machine the capsule is not.
-2. **Measure the high-water mark**, harness and build resident together in one
+Booting at 4 vCPU / 8 GiB with `guestConfig` on the volume and a signed-in
+agent in it is done — that was the precondition for all of the below.
+
+1. **Measure the high-water mark**, harness and build resident together in one
    `systemd-run --scope` (`MemoryMax=7G`, `AllowedCPUs=0-3`, `--uid=agent`,
    `bash -lc` — proxy vars are login-shell scope) and read `memory.peak` plus
    `memory.events`. Three outcomes, not two: `oom_kill 0` with a large `max`
    count means it survived by thrashing reclaim. This is the figure that says
    whether 8 GiB is the right declaration — and, per the withdrawal above, the
    first memory number here that will have been measured at all.
-3. **Run `capsule-inject`** — built (below), never run. It is what makes step 2
-   possible at all: the measurement needs a signed-in agent, and this capsule
-   has no `~/.claude`.
-4. **`capsule-baseline`** — host-initiated `just web-build test` to green, which
+2. **`capsule-baseline`** — host-initiated `just web-build test` to green, which
    seeds the caches and yields the **cold build** figure. That figure is
    unmeasurable *by the freshness probe*, whose namespace has no upstream — not
    unmeasurable in general, and this is where it comes from.
 
 Then Plan C:
 
-5. `capsules.nix` — under netns it is a name list and little else.
+3. `capsules.nix` — under netns it is a name list and little else.
    [Sketch](./plan-c-implementation.md#capsulesnix-sketch).
-6. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
+4. Host-module netns wiring: `capsule-netns@` (root oneshot, `ip netns add/del`,
    before `microvm-tap-interfaces@%i`), `NetworkNamespacePath` drop-ins on both
    units, the ssh relay unit, `host/perimeter-check.nix` rewritten around the
    namespace's own `ip_forward`. Bookkeeping against a known-good result now.
@@ -121,7 +119,7 @@ Then the rest of Plan C's
 - **Quarantine retention** (doctrine has DEC-193 proposed).
 - **Throughput over the unix socket.** The tap did ~100 MiB/s each way.
 - **The cold build under freshness** is unmeasured and cannot be measured by that
-  probe — see [probes.md](./probes.md). Step 4 above is where it comes from.
+  probe — see [probes.md](./probes.md). Step 2 above is where it comes from.
 - **What N capsules cost under load.** The pair probe priced two *idle* capsules
   and that is cheap; two concurrent builds against their ceilings is the question
   it did not ask, and it is what replaced the withdrawn 16 GiB figure.
