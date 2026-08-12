@@ -126,3 +126,9 @@ ssh:
 # root in the guest — admin from outside the jail; the agent has no path to it
 admin:
   ssh "root@$(just _net guest)"
+
+# a fresh capsule has fresh host keys at the same address, because they live on
+# its volume — so the interactive paths above refuse. The programs don't: they
+# check no keys at all and keep no record (flake.nix, `guestSsh`), deliberately.
+reset-known-hosts:
+  ssh-keygen -R "$(just _net guest)"
