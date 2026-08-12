@@ -92,7 +92,7 @@ in
           echo "capsule [<name>|all] <verb> [args…]"
           echo
           echo "  capsules:  ''${declared[*]}   (default ${capsules.default})"
-          echo "  lifecycle: start | stop | created"
+          echo "  lifecycle: start | stop | created       (start injects too)"
           echo "  ask:       status | branches | fetch     (these take 'all')"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
@@ -252,6 +252,20 @@ in
           "''${ssh_argv[@]}" "agent@${net.guest}" true >/dev/null 2>&1
         }
 
+        # Bounded on wall clock rather than on attempts, because a failing attempt
+        # costs anything from nothing (no route) to `ConnectTimeout`
+        # (host/guest-ssh.nix), so N tries is not a duration. A boot to a guest
+        # that answers is seconds (docs/probes.md); a minute is the generous end
+        # of that, and past it something is wrong rather than slow.
+        waitAnswers() {
+          local deadline=$((SECONDS + 60))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if answers "$1"; then return 0; fi
+            sleep 1
+          done
+          return 1
+        }
+
         # Where this capsule's collected work landed, if anywhere. A search rather
         # than a derivation, deliberately: which state directory holds it depends on
         # which shape did the collecting, and looking for the artefact answers that
@@ -352,6 +366,21 @@ in
               journalctl -u "$unit" -n 15 --no-pager -o cat >&2
               exit 1
             fi
+            # A running VMM is not the promise. Credentials and secrets are a push
+            # over ssh (host/inject.nix) and `$HOME` is on the volume that
+            # freshness deletes, so a capsule that has only been *started* is one
+            # nobody can work in — and at N that is a ritual per capsule rather
+            # than a step someone forgets once (docs/plan-c-multi-capsule.md,
+            # "Secrets and home at N"). Write-if-absent, so this is a no-op on a
+            # capsule that already has them, and a payload with no source on this
+            # host says so and is skipped.
+            if ! waitAnswers "$name"; then
+              echo "capsule $name: up, but the guest did not answer ssh within a minute," >&2
+              echo "  so nothing was injected. 'capsule $name status' for what is running," >&2
+              echo "  and 'capsule $name inject' once it answers." >&2
+              exit 1
+            fi
+            work "$name" inject
             journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null || true
             ;;
 
@@ -421,6 +450,10 @@ in
           # which is also what makes a fresh capsule usable. Ends attached to the
           # baseline, so it finishes when the build does — Ctrl-C leaves that run
           # going in the guest and `capsule <name> baseline` re-attaches.
+          #
+          # The inject is still here although `start` does it: a guest that was
+          # started by hand, or that has rebooted since, has had no start of ours.
+          # Write-if-absent makes the repeat a no-op rather than a second answer.
           setup)
             work "$name" provision ''${1+"$@"}
             work "$name" inject

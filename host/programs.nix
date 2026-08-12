@@ -39,15 +39,16 @@ in {
 
   inherit (gitChannel) provision collect;
 
-  # The non-git half of provisioning: credentials and anything else a fresh
-  # capsule needs that no repository carries. The list is ./setup.nix, whose
-  # `tools` are nixpkgs attr names — resolved here so that a declaration file
-  # stays data.
+  # The non-git half of provisioning: credentials, secrets and anything else a
+  # fresh capsule needs that no repository carries. The list is ./setup.nix,
+  # which is handed the volume's mount point — a payload's destination is in the
+  # guest, and `/work` is `target.nix`'s to say. Its `tools` are nixpkgs attr
+  # names, resolved here so that a declaration file stays data.
   inject = import ./inject.nix {
     inherit pkgs guestHost transport;
     injections =
       map (i: i // {tools = map (name: pkgs.${name}) i.tools;})
-      (import ../setup.nix);
+      (import ../setup.nix {inherit (target) volumePath;});
   };
 
   # The last step of making a fresh capsule usable, and the only one that

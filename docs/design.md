@@ -299,7 +299,14 @@ its own. **Divergence**: those jails share one *file*, whereas a capsule holds a
 neither is authoritative. Hence write-if-absent with an explicit `--force`
 rather than a merge or a clobber: replacing a capsule's credential discards
 whatever it has written since, and that should be a decision. The `/work/.env`
-API-key path in item 2 still works and needs none of this.
+API-key path in item 2 still works, and it is a declared payload now too — same
+mechanism, an `optional` one, because a source for it is a property of the host
+rather than of the design (NOTES item 22).
+
+**And a start injects.** A running VMM was the old promise and it left a capsule
+nobody can work in, since `$HOME` is on the volume freshness deletes — so
+`capsule <name> start` waits for the guest to answer and pushes the declared
+list. Write-if-absent is what makes that safe to do every time.
 
 **`$HOME` is on the volume, so setup is paid per fresh capsule.** Freshness is
 implemented by deleting volumes, and `/work/home` is on one — so setup and

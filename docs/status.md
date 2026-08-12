@@ -5,7 +5,8 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-13, after the `capsule` CLI and the load figure before it,
+Last updated 2026-08-13, after secrets at start — which closes Plan C item 7 —
+the `capsule` CLI, and the load figure before it,
 and before that 2026-08-12,
 when the units ran at N=1 and `probe-netns-egress`
 re-ran 27/27 behind them — and then after the one bug that stood between N=1 and
@@ -21,6 +22,22 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
 
 ## Where it got to
 
+- **A start now leaves a capsule you can work in, and it cost no mechanism.**
+  Plan C item 7's last piece: `capsule <name> start` waits for the guest to answer
+  and then pushes every payload `setup.nix` declares, so a `/work/.env` is no
+  longer typed into each capsule by hand. The whole of it is a third declared
+  payload — `$HOME/.config/capsule/<name>.env`, else `.../env`, to `/work/.env`,
+  with `op inject` as the same interface and one line away — plus two changes
+  around it: `optional`, so a host with no source for a payload skips it by name
+  instead of failing, and a bounded wait in `start`, because a running VMM was the
+  old promise and it left a capsule nobody can work in. Absence and emptiness
+  became one fact in `capsule-inject` on the way past, which is one control flow
+  per payload instead of two. Write-if-absent is what makes injecting at every
+  start safe, and it is also the cost: a secret changed on this host does not
+  reach a capsule that already has one without `capsule <name> inject env
+  --force` ([notes](./notes.md) item 22). **Unrun** — `just build` and a host
+  rebuild, since the module's copies of `capsule` and `capsule-inject` are the
+  ones a start uses.
 - **There is a `capsule` CLI, and the justfile got smaller rather than larger.**
   `host/cli.nix` — `capsule [<name>] <verb> [args…]`, name first, omitted meaning
   `capsules.default`: `start`, `stop`, `created`, `ssh`, `admin`, `setup`, and the
@@ -322,9 +339,16 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    - ~~`status` and the aggregates~~ **written and run**, and the blindness is
      closed by naming the guard as the witness rather than by finding a way into a
      namespace.
-   - **Per-capsule secret injection at start**, so a capsule is usable without a
-     separate `capsule-inject` step ([plan C](./plan-c-multi-capsule.md#secrets-and-home-at-n)
-     has the two shapes and the one interface). Nothing blocks it.
+   - ~~Per-capsule secret injection at start~~ **written, unrun.** The two shapes
+     turned out to be one interface that already existed — a `produce` fragment in
+     `setup.nix` — so what was built is a declaration, an `optional` field for a
+     payload no host is required to have, and the wait that lets `start` push the
+     list ([notes](./notes.md) item 22). Needs `just build` and a host rebuild
+     before a start on this host does any of it.
+
+   **So item 7 is closed.** Next is Plan C's
+   [order of work](./plan-c-multi-capsule.md#order-of-work) item 8 — a second
+   target, if it is still wanted.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
@@ -344,6 +368,12 @@ Then the rest of Plan C's
   and how long a capsule's copy stays good is unknown. `capsule-inject --force`
   is the answer until it is measured. (The transport half of "non-git
   provisioning inputs" is closed: `capsule-inject` uses it.)
+- **A rotated secret does not reach a running capsule either**, and for the same
+  reason: every payload is write-if-absent, which is what makes injecting at every
+  start a no-op rather than a clobber. Editing this host's `.env` changes nothing
+  until `capsule <name> inject env --force`, which discards what the guest wrote
+  into that file. Refreshing at start would do that discarding silently, N times,
+  so it is not policy ([notes](./notes.md) item 22).
 - **Quarantine retention** (doctrine has DEC-193 proposed). Two pieces of stale
   state on this host are the near-term case for it: `/var/lib/capsule/collect/`
   holds a `faux.git` from before a capsule named its own quarantine, and

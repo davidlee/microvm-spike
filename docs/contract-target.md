@@ -87,7 +87,7 @@ the same for every target.
 | tools | `toolsPackage` + `extraTools` + `git` + `claude-code` where nixpkgs has it |
 | git | `user.name`/`user.email` set, `init.defaultBranch` = `defaultBranch`, and `receive.denyCurrentBranch = updateInstead` so a provision checks out rather than moving a ref |
 | static config | every `guestConfig` entry symlinked onto the volume from the closure — a link, so a rebuild replaces it and a fresh capsule cannot start with a stale copy |
-| secrets | `<volumePath>/.env`, sourced at login, persisting on the volume |
+| secrets | `<volumePath>/.env`, sourced at login, persisting on the volume — and pushed there at `capsule <name> start` if this host declares a source for it (`setup.nix`, which is not the target's) |
 | user | `agent`, uid 1000, no sudo and no su; root reachable by key from the host only |
 
 Four limits that shape what a `baseline` — or any command run in the guest — can

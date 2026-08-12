@@ -14,6 +14,10 @@
 #   - **It is a push.** Nothing listens, the guest cannot ask for any of this,
 #     and it runs as you — the same seam as `capsule-provision`, and the reason
 #     NOTES item 18's inversion deleted the port this used to want.
+#   - **It is idempotent, and safe to run at every start.** Write-if-absent per
+#     payload, so `capsule <name> start` runs the whole list (host/cli.nix) and a
+#     restarted capsule keeps what it has. That is what makes a declared payload
+#     something a human does not have to remember N times.
 #
 # Jail-agnostic in the same sense as `perimeter/` and `git-channel.nix`: it knows
 # an ssh destination and a fragment that reaches it, and nothing about taps,
@@ -29,22 +33,31 @@
   # netns form carries a ProxyCommand with spaces inside it. Jail-shaped, so
   # injected — and required, since without it this program has no capsule.
   transport,
-  # [{name, dest, produce, tools}] — ./setup.nix, with `tools` already resolved
-  # to packages by the call site.
+  # [{name, dest, produce, tools, optional ? false}] — ./setup.nix, with `tools`
+  # already resolved to packages by the call site.
   injections,
 }: let
   inherit (pkgs) lib;
 
-  # One block per declared payload. The produce fragment is the entry's, so it
-  # is spliced rather than parameterised: a payload is a program, not a value.
+  # One block per declared payload, and the only thing that varies between two
+  # of them is what `produce` is and whether a missing source is fatal. The
+  # fragment is spliced as a *function body* rather than parameterised, because a
+  # payload is a program and not a value — and defining it here rather than
+  # inlining it at the push is what keeps one copy of the control flow below for
+  # every entry. Its consequence, which is why `offer` is the caller: a fragment
+  # sees the environment and `$capsule`, not argv.
   step = i: ''
     if wanted ${lib.escapeShellArg i.name}; then
-      tmp="$tmpdir"/${lib.escapeShellArg i.name}
-      {
+      produce() {
         ${i.produce}
-      } > "$tmp"
-      push ${lib.escapeShellArg i.name} ${lib.escapeShellArg i.dest} \
-        ${lib.escapeShellArg (builtins.dirOf i.dest)} "$tmp"
+      }
+      offer ${lib.escapeShellArg i.name} ${lib.escapeShellArg i.dest} \
+        ${lib.escapeShellArg (builtins.dirOf i.dest)} \
+        ${
+      if i.optional or false
+      then "optional"
+      else "required"
+    }
     fi
   '';
 in
@@ -87,17 +100,27 @@ in
       tmpdir=$(mktemp -d)
       trap 'rm -rf "$tmpdir"' EXIT
 
-      # The destination directory is resolved at build time rather than with a
-      # remote `dirname`: it is a declared path, so it is known here, and the
-      # guest end stays one shell command with nothing to quote twice.
-      push() {
-        local name=$1 dest=$2 dir=$3 file=$4 bytes
-        bytes=$(wc -c < "$file")
-        # A filter that matched nothing writes an empty file, and an empty
-        # credential replaces a working one with nothing. Refused here rather
-        # than in every entry, because every entry would forget.
+      # Produce one payload and push it, or say why it did not go. The
+      # destination directory is resolved at build time rather than with a remote
+      # `dirname`: it is a declared path, so it is known here, and the guest end
+      # stays one shell command with nothing to quote twice.
+      offer() {
+        local name=$1 dest=$2 dir=$3 kind=$4 file bytes=0
+        file="$tmpdir/$name"
+
+        # Absence and emptiness are one fact: a source that is not on this host
+        # and a filter that matched nothing both mean there is no payload here,
+        # and pushing what came of either replaces a working credential with
+        # nothing. So neither is ever pushed, and the only question left is
+        # whether it is a failure — which the declaration answers, once, rather
+        # than every entry answering it and one of them forgetting.
+        if produce > "$file"; then bytes=$(wc -c < "$file"); fi
         if [ "$bytes" -lt 2 ]; then
-          echo "capsule-inject: $name produced $bytes bytes — refusing to push it" >&2
+          if [ "$kind" = optional ]; then
+            echo "capsule-inject: $name: nothing to produce on this host — skipped."
+            return 0
+          fi
+          echo "capsule-inject: $name: produced nothing — refusing to push it" >&2
           exit 1
         fi
 
@@ -106,9 +129,8 @@ in
         # of a credential, not one shared file — so replacing one is a decision
         # rather than a default. See docs/design.md.
         if [ -z "$force" ] && "''${ssh_cmd[@]}" "$host" "test -e '$dest'"; then
-          echo "capsule-inject: $name: $dest is already there — skipped."
-          echo "  'capsule-inject $name --force' to replace it, which discards"
-          echo "  whatever the capsule has written into it since."
+          echo "capsule-inject: $name: $dest is already there — skipped ('capsule-inject" \
+            "$name --force' replaces it, discarding what the capsule wrote since)."
           return 0
         fi
 

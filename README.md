@@ -188,6 +188,13 @@ inject | baseline | collect | setup`, installed on the host by the module, so a
 human logged in with no repo has the whole lifecycle. The recipes delegate to it
 rather than keeping a second copy.
 
+**`start` waits for the guest and injects.** A running VMM is not a capsule you
+can work in: `$HOME` is on the volume, so credentials and secrets have to be
+pushed in (`setup.nix`, below). Every payload is write-if-absent, so a restart
+keeps what the capsule has, and a payload with no source on this host is named
+and skipped. If the guest does not answer ssh within a minute, `start` says so
+and fails rather than reporting a start it did not finish.
+
 **A second capsule is a name and a create, not a second image.** Declare it in
 `capsules.nix` (its own index; at most 11 characters), rebuild the host so its
 namespace, proxy and relay units exist, then create and start it exactly as
@@ -316,7 +323,17 @@ capsule-inject             # all of them; add a payload name to pick one
 
 It refuses to replace anything already there: a capsule's copy of a credential
 drifts from this host's once the agent uses it. `capsule-inject PAYLOAD --force`
-when you mean it.
+when you mean it — including after you change a secret on this host, which
+otherwise does not reach a capsule that already has one.
+
+**Secrets are a payload too.** `$HOME/.config/capsule/<name>.env`, or
+`$HOME/.config/capsule/env` for every capsule, lands at `/work/.env` — which the
+guest's login shell already sources. Neither file is a requirement: that payload
+is declared `optional`, so a host with no source for it says which payload it
+skipped and carries on. For 1Password, swap the entry's `produce` for `op inject`
+(the line is written out in `setup.nix`): `op` reaches a *host* socket, and
+firecracker has no shares, so the environment is rendered here and pushed — it is
+never fetched from inside.
 
 A provisioned capsule still has empty caches, so the first build in it is the
 slow one. Take it deliberately, and keep the number:
@@ -360,7 +377,7 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-host`      | tinyproxy + the perimeter watch. Foreground, unprivileged.   |
 | `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
 | `capsule-collect`   | fetch the guest's refs into a quarantine repo named for it.  |
-| `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` into `/work/home`. |
+| `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` — credentials into `/work/home`, secrets to `/work/.env`. `capsule <name> start` runs it. |
 | `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
 
 Those four take `--capsule <name>` (or `CAPSULE_NAME`, or the default `capsule`)
