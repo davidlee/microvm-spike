@@ -209,40 +209,44 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    acceptance test is the probe that exposed the bug, and it now runs one set of
    programs twice. What that run does *not* cover is the module path's copy of the
    same programs, which needs a host rebuild.
-5. N=2 through the module. **Declared and wired; unrun** — `capsule-b` is index
+5. N=2 through the module. **Run, and it holds** — two capsules on one image
+   through the units, both provisioned, injected and cold-baselined green
+   (115 s and 104 s, two different base commits, [probes](./probes.md)); the
+   unit's `ExecStop` green on both; the guard reporting two namespaces. What it
+   cost is below and in [CLAUDE.md](../CLAUDE.md): the drop-in carrying the stop
+   had never parsed. **What is left of this step is the load figure** — two cold
+   baselines at once, on fresh volumes, against those three sequential runs as
+   the control, with `just load` sampling the host. The first thing that sampler
+   measured is already a finding: a capsule that has built once holds ~6–7 GiB
+   until it is stopped ([probes](./probes.md)).
+
+   The wiring, for the record: `capsule-b` is index
    1 in `capsules.nix`, and every declared capsule is now an attribute of
    `nixosConfigurations` bound to *one* value, because `microvm -c <name>`
    resolves the instance's name as a flake attribute and the per-instance
    `mkVm` that would satisfy it is a second guest image
    ([notes](./notes.md) item 21). The same rebuild carries one small fix: the
    ssh relay declares `SuccessExitStatus=143`, since socat exits on SIGTERM
-   itself and left the unit `failed` after every ordinary stop. What remains is
-   the host's, in order — and **the first attempt at it found that the
-   `microvm@<name>` drop-in had never parsed**: the stop-key `ExecStartPre` was
-   multi-line, which systemd reads as unbalanced quoting, so the namespace, the
-   `ExecStop` and `Restart=no` behind it were dropped and both capsules
-   crash-looped in the root namespace while every other unit reported health.
-   Fixed by naming a store script (`stopKeyCheck`), and `just build` refuses that
-   shape now — but it means the rebuild below has to happen twice, and nothing
-   after it has run yet:
-   - rebuild, then **`just refresh capsule`** — which stops it, and that stop is
-     the unit `ExecStop`'s only test. The journal it prints should show `reboot
-     requested` and then microvm.nix's own command returning, not a 120 s
-     timeout. A timeout means the guest never took the request: check
-     `/var/lib/capsule-stop/key` first (0400 `microvm:kvm`, present on Sleipnir).
-   - **`just up capsule-b`** — it creates on first sight and starts. Expect
-     `capsule-perimeter-guard` to report 2 namespaces verified, and the same
-     runner store path under both state directories, which is the claim the
-     one-value mapping makes.
-   - provision, inject and baseline the second one **through the module's
-     copies** (`/run/current-system/sw/bin/capsule-provision`, or leave the
-     devshell — CLAUDE.md), which is also what closes item 20's unrun half.
-   - then two `capsule-baseline`s at once, which is the load question below and
-     cannot be asked before this.
+   itself and left the unit `failed` after every ordinary stop.
 
-   The stop that had to be settled first is settled (above); a power cut
-   mid-cold-build is how a 109 s figure becomes a corrupted volume, which is why
-   the `ExecStop` is tested before anything is asked to build.
+   **It took two rebuilds, because the first one found that the `microvm@<name>`
+   drop-in had never parsed**: the stop-key `ExecStartPre` was multi-line, which
+   systemd reads as unbalanced quoting, so the namespace, the `ExecStop` and
+   `Restart=no` behind it were dropped and both capsules crash-looped in the root
+   namespace — while both proxies, both relays, both sockets and the guard all
+   reported health. That is the whole reason it cost an evening, and it is why
+   `just up` now asserts the VM stayed up and `hostModuleUnits` refuses a newline
+   in any `serviceConfig` value. Also closed on the way past: item 20's unrun
+   half — the module's copies of all four programs are what provisioned, injected
+   and baselined both capsules.
+
+6. **The load figure, and nothing before it.** Two cold baselines at once, which
+   needs fresh volumes on both capsules — a capsule that has built holds ~6–7 GiB
+   and would price a state nobody starts from ([probes](./probes.md)). The control
+   is the three sequential cold runs; the instrument is `just load <out> capsule
+   capsule-b` beside them. Then what is left of Plan C item 7: the `capsule` CLI,
+   per-capsule secret injection at start, and `just status`/`fetch`/`branches`
+   aggregating.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).

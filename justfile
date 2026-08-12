@@ -278,6 +278,64 @@ fetch name="capsule":
   git -C "${CAPSULE_REPO:-$(just _target path)}" fetch "$(just _quarantine {{name}})" \
     'refs/capsule/*:refs/capsule/*'
 
+# What the host pays while capsules work — the question the withdrawn "16 GiB per
+# capsule" left behind, since what binds at N is what capsules *touch*.
+#
+# A VMM is identified by its unit, never by its name: one image means every one of
+# them is `microvm@capsule` in the process table, so `MainPID` of `microvm@<name>`
+# is the only unprivileged answer that cannot pick the wrong sibling (CLAUDE.md).
+# Everything read here is world-readable, so no root and no probe — this attaches
+# to the real instances rather than booting throwaways, which is the one thing a
+# probe must not do.
+#
+# Sampled to a file *and* summarised, because a figure whose only copy is
+# terminal scrollback is not a figure (docs/probes.md). Ctrl-C ends it and prints
+# the peaks; the TSV is what a figure gets quoted from.
+#
+# what the host pays while these capsules work: RSS per VMM, host pressure
+load out=".vm/load.tsv" +names="capsule":
+  #!/usr/bin/env bash
+  set -uo pipefail
+  mkdir -p "$(dirname {{out}})"
+  read -ra names <<<"{{names}}"
+  {
+    printf 'elapsed\t'
+    printf '%s_rss_mib\t' "${names[@]}"
+    printf 'mem_avail_mib\tmem_some_avg10\tcpu_some_avg10\tio_some_avg10\n'
+  } >{{out}}
+  declare -A peak
+  for n in "${names[@]}"; do peak[$n]=0; done
+  peak_mem=0
+  trap 'break' INT TERM
+  start=$SECONDS
+  while :; do
+    row=$((SECONDS - start))
+    line="$row"
+    for n in "${names[@]}"; do
+      pid=$(systemctl show "microvm@$n" -P MainPID)
+      rss=0
+      if [ "$pid" != 0 ] && [ -r "/proc/$pid/status" ]; then
+        rss=$(( $(awk '/^VmRSS:/{print $2}' "/proc/$pid/status") / 1024 ))
+      fi
+      [ "$rss" -gt "${peak[$n]}" ] && peak[$n]=$rss
+      line+=$'\t'"$rss"
+    done
+    avail=$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))
+    m=$(awk '/^some/{print $2}' /proc/pressure/memory | cut -d= -f2)
+    c=$(awk '/^some/{print $2}' /proc/pressure/cpu | cut -d= -f2)
+    i=$(awk '/^some/{print $2}' /proc/pressure/io | cut -d= -f2)
+    # Pressure is the whole reason a peak can be trusted: a high-water mark taken
+    # while the kernel was reclaiming is a floor, not a peak.
+    awk -v m="$m" -v p="$peak_mem" 'BEGIN{exit !(m>p)}' && peak_mem=$m
+    printf '%s\t%s\t%s\t%s\t%s\n' "$line" "$avail" "$m" "$c" "$i" >>{{out}}
+    sleep 2
+  done
+  echo
+  echo "peak RSS, MiB:"
+  for n in "${names[@]}"; do printf '  %-12s %s\n' "$n" "${peak[$n]}"; done
+  echo "peak memory pressure (some avg10): $peak_mem"
+  echo "samples in {{out}} — quote figures from there, not from this screen"
+
 # every egress attempt, live — unlisted hostnames show up here as denials
 proxy-log:
   tail -f "$(just _proxy-log)"

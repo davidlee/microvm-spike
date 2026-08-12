@@ -334,6 +334,65 @@ the head of the log. The `bash -l` in `capsule-baseline` is load-bearing exactly
 as [notes](./notes.md) item 6 says — without it nothing would have fetched, and
 the failure would have looked like the network.
 
+**It is three runs now, on two capsules, through the module path.** Runs 2 and 3
+came out of the N=2 bring-up: each capsule provisioned to a *different* base
+commit and baselined cold on its own fresh volume, one after the other, both
+`status 0`. Read from each volume's own `history.tsv`, which is the only copy.
+
+| run | capsule | commit | seconds | MiB before → after |
+| --- | --- | --- | --- | --- |
+| 1 | devshell, `20260812T055327Z` | `4662e64e` | 109 | 123 → 1253 |
+| 2 | `capsule` | `ebb555fb0` | 115 | 124 → 1254 |
+| 3 | `capsule-b` | `ccc6ddc64` | 104 | 124 → 1253 |
+
+So the cold build is **109 s ± ~5%** rather than one reading, and the ~1.1 GiB of
+volume it costs reproduced twice to within a MiB. Each of the three proves its own
+coldness by the same arithmetic — `.cargo` after exceeds all three caches before.
+What is still n = 1 is *sequential*: nothing here says what two of these cost run
+at once, which is the [open](./status.md) load question and the reason these three
+are the control for it.
+
+## What a capsule holds after it has built
+
+The ratchet the pair probe predicted — no balloon, so a capsule is charged its
+high-water mark and never returns it — measured for the first time, and it is
+large. `just load`, sampling each VMM's `VmRSS` by its unit's `MainPID` (a VMM
+cannot be found by name; CLAUDE.md) plus `/proc/pressure` to a TSV. Both capsules
+**idle**, no agent running, hours after their cold baselines above.
+
+| figure | value | note |
+| --- | --- | --- |
+| `capsule` VMM resident, idle after one baseline | **6033 MiB** | against a declared ceiling of 8192 |
+| `capsule-b`, same | **6908 MiB** | |
+| host memory available | 13.1 GiB of 60.4 | with both capsules idle and nothing else large running |
+| host memory pressure | **0.00** at `some` and `full`, `avg300` | so nothing here is a reclaim-suppressed reading |
+
+**Read these as an upper bound per capsule, not as a charge that adds up.** RSS
+counts the read-only guest image where it is mapped, and that image is one store
+path shared by every capsule (12175 MiB, [freshness](#freshness)), so two RSS
+figures double-count whatever both have touched of it. `smaps_rollup`, which would
+give PSS and settle it, is not readable for another uid's process by the human, and
+everything host-side here runs as the human on purpose ([notes](./notes.md) item
+11). The host-level term that is not double-counted is `MemAvailable`.
+
+Two consequences, both of which shape the load question rather than answering it:
+
+- **A capsule that has built once holds most of its ceiling until it is stopped.**
+  Freshness returns it; nothing else does. So "what N capsules cost" has two
+  different answers — at peak, and afterwards — and the second one is the one that
+  decides how many fit.
+- **The concurrency figure has to be taken on fresh volumes**, with three cold
+  builds as its control, and not on capsules that have already built. Measuring
+  two warm builds on ratcheted VMMs would price a state nobody starts from.
+
+One instrument is unusable until someone explains it: `/proc/pressure/io` reads
+`some avg10=93.6 full avg10=89.6`, sustained across `avg300`, with two *idle*
+capsules and a host that feels perfectly responsive. That is either firecracker's
+async file IO threads — which it announces as a dev preview at every boot — or a
+kernel accounting artefact, and until it is one or the other, **do not quote io
+pressure in any figure here**. Memory pressure, on the same host at the same
+moment, reads a clean zero.
+
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the guest
