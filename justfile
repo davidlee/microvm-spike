@@ -138,6 +138,7 @@ allowed:
 
 # a shell in the guest as the agent — TUIs work here, not on the console
 ssh name="capsule":
+  stty sane # in case echo got stuck on
   @just _guest-ssh agent {{name}}
 
 # root in the guest — admin from outside the jail; the agent has no path to it

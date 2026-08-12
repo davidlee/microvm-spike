@@ -259,7 +259,11 @@
       bindsTo = [(netnsUnit c)];
       after = [(netnsUnit c)];
       serviceConfig = {
-        ExecStart = "${pkgs.socat}/bin/socat UNIX-LISTEN:${c.socket},fork,mode=0600 TCP:${net.guest}:22";
+        # `nodelay` because socat does not set TCP_NODELAY and ssh cannot set it
+        # on a socket it did not open, so Nagle clumps keystroke echo on this leg
+        # (docs/probes.md, "keystroke echo through the relay socket"). Interactive
+        # traffic is all this socket carries, so nothing here wants coalescing.
+        ExecStart = "${pkgs.socat}/bin/socat UNIX-LISTEN:${c.socket},fork,mode=0600 TCP:${net.guest}:22,nodelay";
         # As the human, so the socket is hers and no sudo stands between her and
         # the guest. It carries no privilege of its own: one socket, one
         # destination, and nothing else reachable.

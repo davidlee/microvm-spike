@@ -188,6 +188,20 @@ which shape nearly every decision here:
   console is for boot and admin.
 - **A dead guest does not mean a dead VM.** Check `pgrep -af 'microvm@'`, not
   whether the console returned or the guest answers ping.
+- **On the module path, a missing `microvm -c` fails as a dependency, not as
+  itself.** microvm.nix's templates are gated on
+  `ConditionPathExists=/var/lib/microvms/%i/current/bin/tap-up`, so with no
+  create the tap unit is *skipped* — logged as `finished successfully` — and the
+  proxy's `BindsTo` on a unit that never went active fails. The only message is
+  `A dependency job for microvm@capsule.service failed`, naming neither. Read
+  `ls /var/lib/microvms/<name>/current/bin` before anything else. Same trap when
+  the state dir is stale rather than absent: the VM tracks that directory, not
+  the flake, so a guest change needs `sudo microvm -u <name>`.
+- **`microvm -c … -f <flake>` takes no fragment.** The CLI appends
+  `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
+  `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error
+  reads as a missing output. It also needs root, for `/var/lib/microvms` and the
+  gcroots.
 - **`capsule-host` children orphan easily.** A Ctrl-C could leave tinyproxy
   holding the port. It preflights the port, reaps a stray matching its own
   config path, and uses `wait -n` with an INT/TERM trap; if a bind fails anyway,

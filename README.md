@@ -151,7 +151,23 @@ target path exists on one machine). So:
 # root for /var/lib/microvms and the gcroots.
 sudo microvm -c capsule -f /home/david/dev/microvm-spike   # once
 sudo systemctl start microvm@capsule                       # every time
+sudo microvm -u capsule                                    # after a guest change
 ```
+
+The cost of imperative is that the state directory is not derived from anything:
+a guest closure edit reaches the VM when `microvm -u` rebuilds
+`/var/lib/microvms/<name>/current`, and not before. A rebuild of the *host* moves
+the units, not the guest.
+
+**A missing or stale create fails as a dependency, not as itself.** Both
+`microvm@<name>` and its tap unit carry microvm.nix's
+`ConditionPathExists=/var/lib/microvms/%i/current/bin/tap-up`. With no create the
+condition is unmet, so the tap unit is **skipped** — which systemd logs as
+`finished successfully` — and the proxy's `BindsTo` on a unit that never became
+active fails. All you are told is `A dependency job for microvm@capsule.service
+failed`, naming neither the tap unit nor the absent directory. So read
+`ls /var/lib/microvms/<name>/current/bin` first; `tap-up`, `tap-down`,
+`microvm-run` and `microvm-shutdown` are the whole of what should be there.
 
 Wired in on Sleipnir: `~/flakes/modules/nixos/capsule.nix`, imported from
 `hosts/Sleipnir/config.nix`, with the input taking `inputs.target.follows =

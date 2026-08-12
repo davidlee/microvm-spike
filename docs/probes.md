@@ -134,6 +134,8 @@ because two samples say more about the noise than either says alone.
 | the price of freshness | +0.07 s | −0.02 | freshness | cold minus warm **at boot**. It changed sign between runs, which is the finding: boot is free to within ~1%. The real price of freshness is the discarded cache, and that is [the cold build](#the-cold-build) — 109 s, three orders of magnitude larger than this row |
 | teardown | 3.63 s | void | freshness | guest halts over ssh, then the VMM is terminated |
 | git channel, both directions | ~100 MiB/s, 66.4k objects / 32 MiB | — | hand-measured, item 18 | the link is not the cost |
+| ssh through the relay socket | 13 ms to banner, 60-90 ms for a whole `ssh … true` | — | hand-measured, unit path, n=3 | the socket is not the cost either. Interactive prompt at 0.56 s |
+| keystroke echo through the relay socket | 18-20 ms a character | — | hand-measured, pty round trip, n=7 in one session | Nagle on the relay's TCP leg: socat sets no `TCP_NODELAY` and ssh cannot set it on a socket it did not open. The first character was 1 ms and the rest clumped, which is the signature. `,nodelay` is now on the unit and **the post-fix figure is unmeasured** |
 
 **Two figures from run 1 were the harness's, not the capsule's** (`572a303`), and
 the corrections are the reason this file exists. Run 2 carries both, and both
