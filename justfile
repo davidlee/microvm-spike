@@ -10,7 +10,16 @@
 # Everything else about a running capsule is `capsule <name> <verb>`
 # (host/cli.nix) and the recipes below delegate to it, because a capsule outlives
 # this checkout: the units are on the host and a human logged into it has no repo.
-# Where a recipe still exists, it is for its default or its comment.
+# Where a recipe still exists, it is for its comment or for the flake it needs.
+#
+# **No recipe spells a capsule's name.** The delegating ones default it to the
+# empty string and let `capsule` resolve an unnamed verb to whatever is up — one
+# answer, in one place, rather than the word `capsule` fifteen times here, which
+# was invisible while the default capsule was called that and wrong the moment it
+# was not. The recipes that use the name for something of their own — creating,
+# updating, a log path, a cgroup — **require** it, which is also the right
+# posture: making and destroying a slot is not a thing to do to whichever one
+# happens to be running.
 
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
 nix_paths := "flake.nix net.nix target.nix capsules.nix setup.nix perimeter host vm"
@@ -28,7 +37,7 @@ _target key:
 # the module's proxy state — one proxy per capsule since the units went
 # per-namespace — so this takes the name; the devshell path has one proxy and one
 # log, and ignores it.
-_proxy-log name="capsule":
+_proxy-log name:
   #!/usr/bin/env bash
   set -euo pipefail
   for f in "/var/lib/capsule-proxy/{{name}}/tinyproxy.log" \
@@ -101,7 +110,7 @@ verify:
 # them (host/cli.nix).
 #
 # create if this host has never seen this capsule, then start it (root)
-up name="capsule":
+up name:
   #!/usr/bin/env bash
   set -euo pipefail
   tap=$(just _net tap)
@@ -124,7 +133,7 @@ up name="capsule":
   capsule {{name}} start
 
 # stop it cleanly, and show what the stop actually did (root)
-down name="capsule":
+down name="":
   @capsule {{name}} stop
 
 # Nothing reaches a created VM until its state directory is rebuilt, because
@@ -132,7 +141,7 @@ down name="capsule":
 # lands under a mounted volume, and back up only if it was up.
 #
 # after a guest change: rebuild its state directory, restart if it was running
-refresh name="capsule":
+refresh name:
   #!/usr/bin/env bash
   set -euo pipefail
   # Not `is-active`, which is false for a unit in `auto-restart` — the one state
@@ -172,36 +181,36 @@ status:
   just verify 2>&1 | sed 's/^/  /'
 
 # The capsule comes first in every one of these, as everywhere else here, so
-# `just provision capsule-b edge` cannot be read the other way round. The ref is
+# `just provision b main` cannot be read the other way round. The ref is
 # not defaulted: `capsule-provision` refuses without one, and that refusal should
 # have one home.
 #
 # push a ref into a capsule's checkout
-provision name="capsule" ref="" *flags:
+provision name="" ref="" *flags:
   @capsule {{name}} provision {{ref}} {{flags}}
 
 # the non-git half: credentials and anything else setup.nix declares
-inject name="capsule" *args:
+inject name="" *args:
   @capsule {{name}} inject {{args}}
 
 # the target's own build-and-test in the guest, with its record on the volume
-baseline name="capsule" *flags:
+baseline name="" *flags:
   @capsule {{name}} baseline {{flags}}
 
 # what the capsule has produced, into this host's quarantine
-collect name="capsule":
+collect name="":
   @capsule {{name}} collect
 
 # a fresh capsule to green: provision, inject, baseline
-setup name="capsule" ref="":
+setup name="" ref="":
   @capsule {{name}} setup {{ref}}
 
 # what a capsule has produced, as collected — `all` for every capsule
-branches name="capsule":
+branches name="":
   @capsule {{name}} branches
 
 # the second step: quarantine -> the repo you work in, once you have looked
-fetch name="capsule":
+fetch name="":
   @capsule {{name}} fetch
 
 # What the host pays while capsules work — the question the withdrawn "16 GiB per
@@ -224,10 +233,15 @@ fetch name="capsule":
 # scrollback is not a figure (docs/probes.md). Ctrl-C ends it.
 #
 # what these capsules cost while they work: cgroup memory, their own pressure
-load out=".vm/load.tsv" +names="capsule":
+load +names:
   #!/usr/bin/env bash
   set -uo pipefail
-  mkdir -p "$(dirname {{out}})"
+  # A parameter until the capsule name stopped having a default: a
+  # variadic list has to come last, and just refuses a required parameter after
+  # a defaulted one. An environment variable keeps the override without putting
+  # a second positional in front of the names.
+  out="${CAPSULE_LOAD_TSV:-.vm/load.tsv}"
+  mkdir -p "$(dirname "$out")"
   read -ra names <<<"{{names}}"
   declare -A cg
   for n in "${names[@]}"; do
@@ -285,7 +299,7 @@ load out=".vm/load.tsv" +names="capsule":
       printf '\t%s_mib\t%s_cpu_some\t%s_io_some\t%s_io_full' "$n" "$n" "$n" "$n"
     done
     printf '\tslice_mib\thost_avail_mib\n'
-  } >{{out}}
+  } >"$out"
   trap 'break' INT TERM
   start=$SECONDS
   while :; do
@@ -301,14 +315,14 @@ load out=".vm/load.tsv" +names="capsule":
     done
     line+=$'\t'"$(mib "$slice/memory.current")"
     line+=$'\t'"$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))"
-    printf '%s\n' "$line" >>{{out}}
+    printf '%s\n' "$line" >>"$out"
     sleep 2
   done
   elapsed=$((SECONDS - start))
   # Written as well as printed, for the same reason the samples are: the peaks are
   # the figure this recipe exists to produce, and until now they existed only in
   # scrollback (docs/probes.md).
-  peaks="{{out}}.peak"
+  peaks="$out.peak"
   # Stall time this run is responsible for, as seconds and as a share of the
   # window they fell in — the share is what makes two capsules, or two runs of
   # different length, comparable at all.
@@ -360,10 +374,10 @@ load out=".vm/load.tsv" +names="capsule":
         "$(stalled "$(psi "$c/io.pressure" full total)" "${iofull_stall0[$n]}" "$elapsed")"
     done
   } | tee "$peaks"
-  echo "samples in {{out}}, peaks in $peaks — quote figures from there, not from this screen"
+  echo "samples in $out, peaks in $peaks — quote figures from there, not from this screen"
 
 # every egress attempt, live — unlisted hostnames show up here as denials
-proxy-log name="capsule":
+proxy-log name:
   tail -f "$(just _proxy-log {{name}})"
 
 # hostnames the proxy will resolve — a destination control, not an exfil one
@@ -380,17 +394,17 @@ allowed:
 # command it runs that instead, which is the only way to ask a capsule something
 # without becoming a human reading a prompt: every capsule is the same image, so
 # every one of them says `agent@capsule` and the prompt identifies nothing.
-ssh name="capsule" *cmd:
+ssh name="" *cmd:
   @capsule {{name}} ssh {{cmd}}
 
 # root in the guest — admin from outside the jail; the agent has no path to it
-admin name="capsule" *cmd:
+admin name="" *cmd:
   @capsule {{name}} admin {{cmd}}
 
 # a fresh capsule has fresh host keys at the same address, because they live on
 # its volume — so the interactive paths above refuse. The programs don't: they
 # check no keys at all and keep no record (host/guest-ssh.nix), deliberately.
-reset-known-hosts name="capsule":
+reset-known-hosts name:
   #!/usr/bin/env bash
   set -euo pipefail
   if [ -S "/run/capsule/{{name}}/ssh.sock" ]; then

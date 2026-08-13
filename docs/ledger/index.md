@@ -50,3 +50,4 @@ time it is touched.
 | [25](./025-assignment-is-a-perimeter-verb.md) | assignment is a perimeter-mutating verb | open — scoped in [contract-assignment.md](../contract-assignment.md) |
 | [26](./026-project-nix-runs-on-the-host.md) | a project's flake is code that runs on the host | open — scoped in [contract-flavour.md](../contract-flavour.md) |
 | [27](./027-a-class-is-not-always-a-kilobyte.md) | a class is a kilobyte only over reservations the profile derives nothing from | settled for `mem` by eval, `vcpu` read from source |
+| [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built, unrun — wants the rename's rebuild |

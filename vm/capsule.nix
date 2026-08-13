@@ -4,6 +4,13 @@
   inputs,
   net,
   target,
+  # The branch the checkout sits on. A constant, and not the target's to name:
+  # what the work is called does not identify the project, and two slices of one
+  # project at once is what refutes any version that lets a project say
+  # (docs/contract-target.md). The host's `capsule-provision` is built with the
+  # same one and verifies it, because a mismatch here lands history without
+  # touching the worktree and says nothing.
+  workBranch,
   ...
 }: let
   # The two paths the host also knows, so both come from target.nix rather than
@@ -171,7 +178,7 @@ in {
     config = {
       user.name = "capsule";
       user.email = "capsule@localhost";
-      init.defaultBranch = target.defaultBranch;
+      init.defaultBranch = workBranch;
       # What makes `capsule-provision` land in the worktree and not just move a
       # ref: the host pushes the branch the guest has checked out, which git
       # refuses by default. `updateInstead` accepts it and checks it out, and
@@ -260,10 +267,10 @@ in {
         # `receive.denyCurrentBranch` only governs a push to the branch HEAD
         # names. Seeded on any other branch, a provision creates the ref, skips
         # the guard entirely, never checks anything out, and leaves a repo with
-        # history and no files — silently. The two values are the same one from
-        # target.nix, and provision verifies it besides.
+        # history and no files — silently. The two values are the one
+        # `workBranch`, and provision verifies it besides.
         runuser -u agent -- git init --quiet \
-          --initial-branch=${target.defaultBranch} ${repo}
+          --initial-branch=${workBranch} ${repo}
         echo "capsule-seed: ${repo} is empty — run capsule-provision on the host"
       fi
     '';

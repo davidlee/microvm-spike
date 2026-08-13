@@ -6,8 +6,10 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after Plan D §9 step 2's eval settled where a class
-lives, and before that the same day after the fleet's contracts were drafted
+Last updated 2026-08-13, after Plan D §9 step 3 — the rename to slots, the `mem`
+drop and `defaultBranch`'s deletion, all three in one guest-affecting change and
+**none of it run yet** — and before that the same day after §9 step 2's eval
+settled where a class lives, and before that after the fleet's contracts were drafted
 against a review of [Plan D](./plan-d-fleet.md) — design only, nothing else
 built — and before that after secrets at start — which closes Plan C item 7 —
 the `capsule` CLI, and the load figure before it, and before that 2026-08-12,
@@ -29,6 +31,39 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **The capsules are slots now — `a` and `b` — and the change carries two others
+  that wanted the same rebuild.** `sizes.mem` is 6144
+  ([plan-d](./plan-d-fleet.md) §0), and `target.nix` has no branch field at all:
+  the guest's branch is the constant `work`, spelled once as `workBranch` in
+  `flake.nix` and threaded to its two consumers, which closes L13 by subtraction
+  ([contract-target.md](./contract-target.md)). **The guest closure builds
+  (`just build-vm`) and nothing has run.** Still owed: `just build` and `just
+  units`, then a host rebuild — deferred behind a nixpkgs upgrade — and then the
+  existing capsules recreated rather than migrated, since they are expendable and
+  their state directories are named after names that no longer exist.
+
+  What the rename cost beyond `capsules.nix` is the interesting half, and it is
+  [item 28](./ledger/028-a-slot-has-no-default.md): **`capsules.default` is
+  deleted**. A default was defensible while the one capsule was called `capsule`
+  and becomes a verb acting on a slot nobody chose the moment a name carries no
+  meaning. So the four programs take `--capsule`/`CAPSULE_NAME` and refuse
+  without one; the `capsule` front end resolves an unnamed verb to *the slot that
+  is up*, refusing when none or several are — a host-state answer, which is a
+  front end's latitude and never a program's
+  ([item 20](./ledger/020-which-capsule-a-program-means.md)); and the justfile's
+  fifteen literal `capsule` strings are gone, the delegating recipes passing no
+  name and the lifecycle ones (`up`, `refresh`, `load`, `proxy-log`,
+  `reset-known-hosts`) requiring one. `vm`/`vm-stop` lost their defaults with
+  them, and `vm-stop` now asks *any* declared slot's guest to halt rather than
+  the one literally named `capsule` — which had quietly become a power cut for
+  every other name.
+
+  One thing had to come back under a different noun: `.#capsule` is the guest
+  **image**, declared beside the slots, because a runner is `microvm@capsule` in
+  the process table and every probe both builds that attribute and matches that
+  string. A side effect worth having: a probe's namespace is `cap-capsule`, which
+  is no slot's, so `probe-freshness` can no longer land on a declared slot's
+  socket.
 - **Plan D §9 step 2 is done: `mem` is runner-only, and `vcpu` is not.** Two
   `toplevel.drvPath`s, with and without a forced `microvm.mem`, came back
   **identical** — so capsules at 6144 and 8192 share one erofs, the mem drop is
@@ -473,7 +508,48 @@ takes a fresh one to green and says what that cost. Next is Plan C:
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
 
+### And then Plan D, whose first three steps are where this now is
+
+[Plan D §9](./plan-d-fleet.md#9-order-of-work). Step 1 is done — `~/flakes`
+overrides the input with `git+file:///home/david/dev/microvm-spike` on
+`system-switch`, so declaring a slot is commit-then-switch and no longer a push.
+Step 2 is done and narrower than it was asked to be (above). **Step 3 is written
+and unrun**, and it is a sequence rather than a rebuild, because the two live
+capsules are named after names that no longer exist:
+
+1. `just build` — the host-side programs, where shellcheck runs.
+2. Stop both capsules **first**. The units are generated per declared slot, so a
+   host rebuild carrying the rename leaves two VMMs whose namespace, proxy and
+   relay units have gone, and a stop needs the `ExecStop` that went with them.
+3. Host rebuild (`~/flakes`), then `sudo microvm -c a` / `-c b` from this
+   checkout, since a slot is created by name against a flake attribute
+   ([item 21](./ledger/021-declared-capsule-flake-attribute.md)). The old state
+   directories under `/var/lib/microvms/capsule{,-b}` are then dead weight —
+   recreate rather than migrate, which is [plan-d](./plan-d-fleet.md) §0's call:
+   a `mv` would want both gcroot symlinks re-pointed and the volumes are worth
+   less than the care.
+4. A fresh `capsule a setup <ref>`, and **a per-unit `memory.peak` off that first
+   cold build** — no capsule has ever run at a 6144 ceiling, so §0's four-hot
+   recommendation is the old ceiling's figures reasoned forward.
+
+Then **D1 + D5** — the assignment record and the status columns — against
+[contract-assignment.md](./contract-assignment.md).
+
 ## Open, and nothing should claim these closed
+
+- **6144 has never run.** The drop is [plan-d](./plan-d-fleet.md) §0's
+  arithmetic, not a measurement: five cold builds peaked 6801-7845 MiB *per
+  unit* at the old 8192 ceiling, and once 8365 against a declared 8192. So the
+  first cold build after the rebuild is the figure that says whether the cut
+  costs anything, and until it is taken nothing here may quote a per-slot cost at
+  the new ceiling.
+- **`microvm -c capsule` would create a capsule with no perimeter.** The guest
+  image is a flake attribute beside the slots — it has to be, since probes build
+  `.#capsule` and match `microvm@capsule` — and `microvm -c` resolves any
+  attribute. That instance would have no namespace, proxy or relay unit, so it
+  boots into the root namespace. `capsule` and `just up` refuse the name because
+  it is not declared; nothing else guards it
+  ([item 28](./ledger/028-a-slot-has-no-default.md)).
 
 - ~~**Egress under netns is unproven.**~~ Proven, 27/27
   ([probes.md](./probes.md)). What replaces it is narrower: the same perimeter
@@ -541,10 +617,14 @@ Then the rest of Plan C's
   needed here. The reasoning stands in
   [item 20](./ledger/020-which-capsule-a-program-means.md) — a socket is the
   identity, and a unit bound only to a namespace outlives its guest.
-- **`capsule-baseline`'s login-shell fix is in-tree and unshipped**, which is
+- **`capsule-baseline`'s login-shell fix is in-tree and shipping**, which is
   the same shape one line up: the module path runs the installed copy, so until
-  `~/flakes` relocks again every `capsule <name> baseline` on this host exits 1
-  after correctly starting the run
+  `~/flakes` switches again every `capsule <name> baseline` on this host exits 1
+  after correctly starting the run. What changed is that it now *can*: `~/flakes`
+  overrides the input with `git+file:` at `system-switch`, which reads this
+  repo's committed HEAD, so the fix and secrets-at-start ride the next switch
+  rather than a push. A switch carrying them was running as this was written and
+  is not confirmed here
   ([item 24](./ledger/024-set-u-not-login-shell.md)). The workaround is to
   disbelieve the exit status and read the record — `capsule <name> ssh cat
   /work/baseline/history.tsv`, whose last line is the truth.

@@ -22,6 +22,10 @@
   pkgs,
   net,
   target,
+  # The guest's branch, a constant threaded from `flake.nix` rather than a
+  # target's field: only the git channel reads it, but both this file's callers
+  # have to hand it the same one the guest was built with.
+  workBranch,
   transport,
 }: let
   # Who the host talks to when it talks to a capsule. Named once: the git
@@ -32,7 +36,7 @@
   guestRepo = "ssh://${guestHost}${target.guestPath}";
 
   gitChannel = import ./git-channel.nix {
-    inherit pkgs target guestRepo transport;
+    inherit pkgs target workBranch guestRepo transport;
   };
 in {
   inherit guestHost guestRepo;

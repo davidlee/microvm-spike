@@ -118,9 +118,21 @@ Break these and the confinement stops meaning anything:
 - **`net` in `flake.nix` is the single source of truth** for tap name, both
   addresses, MAC and the proxy port. It is threaded to the guest via
   `specialArgs`. Don't hardcode an address anywhere else.
+- **A slot has no default, and its name means nothing.** `capsules.nix` declares
+  which slots exist (`a`, `b`) and nothing anywhere names one implicitly: the
+  four host programs take `--capsule <name>` or `CAPSULE_NAME` and **refuse**
+  without one, the `capsule` front end resolves an unnamed verb to the slot that
+  is *up* (refusing when none or several are), and no `just` recipe spells a
+  name — the delegating ones pass none and the lifecycle ones require one
+  (NOTES item 28). `capsule` as a flake attribute is the guest **image**, not a
+  slot: probes build `.#capsule` and match `microvm@capsule`, so it has to stay
+  a real attribute even though it is not declared in `capsules.nix`.
 - **`target.nix` is the same deal for the repo under confinement** — name, path,
-  tools package, allowlist file, caches, default branch, sizes. Threaded the
-  same way. `doctrine` may appear in exactly two places: `target.nix`, and
+  tools package, allowlist file, caches, sizes. Threaded the same way. It has
+  **no branch field** and gets none back: the guest's branch is `workBranch` in
+  `flake.nix`, a constant, because a name that identifies the work is not
+  project state (docs/contract-target.md). `capsule-provision <ref>` is a ref in
+  the target repo and is the other thing called a branch here. `doctrine` may appear in exactly two places: `target.nix`, and
   `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
   `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a
   value. And nothing target-shaped is ever read *out of the target repo* — the

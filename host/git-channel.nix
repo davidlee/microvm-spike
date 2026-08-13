@@ -24,9 +24,14 @@
 # call site.
 {
   pkgs,
-  # Which repo is confined: `path` to push from, `defaultBranch` to land on,
-  # `collectMaxBytes` as the ceiling on what a fetch may write.
+  # Which repo is confined: `path` to push from, `collectMaxBytes` as the
+  # ceiling on what a fetch may write.
   target,
+  # The branch a capsule's work lives on inside the guest — a constant, and not
+  # the target's to name (docs/contract-target.md). The guest's seed sets the
+  # same one; they must agree or a provision moves a ref and checks nothing out,
+  # which is why it is threaded from one place rather than spelled here.
+  workBranch,
   # The guest's checkout as a git URL. Jail-shaped, so injected.
   guestRepo,
   # Which capsule, and how to reach it: a shell fragment that sets `$capsule` and
@@ -83,10 +88,11 @@
         esac
       done
 
-      # Required, deliberately not defaulted to ${target.defaultBranch}: the base
-      # commit is the one thing a capsule is pinned to, and it should be stated
-      # at every provision rather than inherited from whatever the branch happens
-      # to be pointing at today.
+      # Required, and there is nothing left to default it to: `<ref>` is a ref in
+      # the *target repo* and `${workBranch}` is the guest's, which is the whole
+      # separation that let the target's branch field be deleted. The base commit
+      # is the one thing a capsule is pinned to, so it is stated at every
+      # provision rather than inherited from whatever a branch points at today.
       if [ -z "$ref" ]; then
         echo "usage: capsule-provision [--capsule <name>] <ref> [--force]" >&2
         echo "  <ref> is any commit-ish in $src — a branch, a tag or a sha." >&2
@@ -120,16 +126,16 @@
           guestHead=''${guestHead%%$'\t'*}
           ;;
       esac
-      if [ -n "$guestHead" ] && [ "$guestHead" != refs/heads/${target.defaultBranch} ]; then
+      if [ -n "$guestHead" ] && [ "$guestHead" != refs/heads/${workBranch} ]; then
         echo "capsule-provision: the guest has HEAD at $guestHead, not" >&2
-        echo "  refs/heads/${target.defaultBranch}. A push would move the ref and leave the" >&2
+        echo "  refs/heads/${workBranch}. A push would move the ref and leave the" >&2
         echo "  worktree alone. Collect anything worth keeping, then in the guest:" >&2
-        echo "  git checkout ${target.defaultBranch}" >&2
+        echo "  git checkout ${workBranch}" >&2
         exit 1
       fi
 
       echo "capsule-provision: $src $ref ($(git -C "$src" rev-parse --short "$commit")) -> ${guestRepo}"
-      # Always onto the guest's own default branch, whatever the source ref was
+      # Always onto the guest's `${workBranch}`, whatever the source ref was
       # called: `receive.denyCurrentBranch=updateInstead` only checks out a push
       # to the branch the guest has checked out, and a provision that moved a
       # ref without touching the worktree would be a silent no-op.
@@ -140,13 +146,13 @@
       # worktree is dirty — that is `updateInstead`, and it is the behaviour we
       # want.
       if ! git -C "$src" push "${guestRepo}" \
-             "$force$commit:refs/heads/${target.defaultBranch}"; then
+             "$force$commit:refs/heads/${workBranch}"; then
         echo "capsule-provision: push refused. Either the guest's worktree is" >&2
         echo "  dirty (finish or collect first), or this would discard commits" >&2
         echo "  the guest has made — 'capsule-provision $ref --force' to insist." >&2
         exit 1
       fi
-      echo "capsule-provision: guest is at $commit on ${target.defaultBranch}"
+      echo "capsule-provision: guest is at $commit on ${workBranch}"
     '';
   };
 

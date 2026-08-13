@@ -198,16 +198,18 @@ and fails rather than reporting a start it did not finish.
 **A second capsule is a name and a create, not a second image.** Declare it in
 `capsules.nix` (its own index; at most 11 characters), rebuild the host so its
 namespace, proxy and relay units exist, then create and start it exactly as
-above under its own name. Every declared capsule is the *same*
+above under its own name. The declared names are **slots** — `a` and `b` today
+— and a slot's name carries no meaning on purpose: what a capsule is working on
+is a record this repo does not keep yet (docs/contract-assignment.md). Every declared capsule is the *same*
 `nixosConfigurations` value, so they share one runner store path and one 12 GiB
 image — what differs is the namespace, the volume and the state directory. The
 hostname is `capsule` in all of them for that reason, so the shell prompt inside
 one does not say which one you are in.
 
 ```
-sudo microvm -c capsule-b -f /home/david/dev/microvm-spike
-capsule capsule-b start
-capsule capsule-b setup main            # provision, inject, baseline
+sudo microvm -c b -f /home/david/dev/microvm-spike
+capsule b start
+capsule b setup main            # provision, inject, baseline
 ```
 
 The cost of imperative is that the state directory is not derived from anything:
@@ -269,15 +271,17 @@ The units, per capsule and per host:
   repo, so each path keeps its own state; both print the path they used, so read
   that line rather than assuming.
 - **Which capsule** is an argument, not a build: `--capsule <name>` on any of the
-  four, else `CAPSULE_NAME`, else `capsule`. One store path serves every capsule,
+  four, else `CAPSULE_NAME`, else a refusal. One store path serves every capsule,
   because the only thing that differs between two of them is a relay socket and
-  that path is derived from the name. `export CAPSULE_NAME=edge` for a session's
-  worth of it.
+  that path is derived from the name. `export CAPSULE_NAME=a` for a session's
+  worth of it. There is no default slot: the name says nothing about what is in
+  the capsule, so a program acting on one nobody chose would have nothing to
+  give the mistake away (NOTES item 28).
 - **The guard is a start dependency (`BindsTo`)**, so no proxy can come up while
   a namespace is missing, forwarding, or missing a drop — and all of them stop
   when one does. It does not restart itself: a refusal stays a refusal until you
   fix the cause and start it again.
-- **Stopping** is `systemctl stop microvm@capsule`, and it is clean because the
+- **Stopping** is `systemctl stop microvm@<slot>`, and it is clean because the
   unit's `ExecStop` asks the guest to *reboot* over ssh first, with the host's
   stop key (above). The guest unmounts and resets; `reboot=k` turns that reset
   into a VMM exit, which is the one thing firecracker's i8042 stub does
@@ -309,7 +313,7 @@ The guest boots with an **empty** `/work/doctrine`. Give it history from the
 host, naming the base commit — any branch, tag or sha in the target repo:
 
 ```
-capsule-provision edge
+capsule-provision main
 ```
 
 History is not everything a capsule needs. `$HOME` is on the volume, and
@@ -380,19 +384,20 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` — credentials into `/work/home`, secrets to `/work/.env`. `capsule <name> start` runs it. |
 | `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
 
-Those four take `--capsule <name>` (or `CAPSULE_NAME`, or the default `capsule`)
-to say which capsule they mean. On the devshell path there is only one, and a
-second name is refused rather than quietly served. `capsule <name> <verb>` is the
+Those four take `--capsule <name>`, or `CAPSULE_NAME`, to say which capsule they
+mean — and refuse without one, since a slot's name gives nothing away. On the
+devshell path there is only one guest, and an undeclared name is refused rather
+than quietly served. `capsule <name> <verb>` is the
 front end that supplies the flag and picks the copy of each that can reach the
 capsule named — the programs refuse rather than guess, so choosing is a front
 end's job.
 
 | command             | what                                                       |
 | ------------------- | ---------------------------------------------------------- |
-| `capsule [name] <verb>` | resolve a capsule and run a verb at it: `start`, `stop`, `created`, `status`, `branches`, `fetch`, `ssh`, `admin`, `setup`, or any of the four above. |
+| `capsule [name] <verb>` | resolve a capsule — named, or `CAPSULE_NAME`, or whichever one is up — and run a verb at it: `start`, `stop`, `created`, `status`, `branches`, `fetch`, `ssh`, `admin`, `setup`, or any of the four above. |
 | `capsule all <verb>`| the same, over every declared capsule. Questions only — `status`, `branches`, `fetch`. |
-| `vm [name]`         | run a VM (`capsule` by default; `hello` is the smoke test). Devshell shape. |
-| `vm-stop [name]`    | clean shutdown over the firecracker API socket. Devshell shape. |
+| `vm <name>`         | run a VM: `capsule` is the guest image, `hello` the smoke test, and a slot name is the same image under that slot's state directory. Devshell shape. |
+| `vm-stop <name>`    | ask that guest to reboot, then account for the VMM. Devshell shape. |
 | `just ssh [name]`   | `capsule <name> ssh`, from the checkout — over the relay socket if the capsule has one. |
 | `just units`        | the units the host module generates, without rebuilding a host. |
 | `sudo probe-netns`  | evidence: is a netns per capsule sound? No VM, seconds.      |

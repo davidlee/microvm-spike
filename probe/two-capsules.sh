@@ -44,8 +44,9 @@
 #
 # Run: sudo probe-two-capsules [REF_A] [REF_B]
 #
-# The refs default to the target's branch and its parent — any two commit-ish
-# will do, they only have to differ.
+# The refs default to the target repo's HEAD and its parent — any two commit-ish
+# will do, they only have to differ. Not the guest's branch: the target declares
+# no branch any more, and `$WORK_BRANCH` is the other thing called one here.
 #
 # `probe/harness.sh` is concatenated ahead of this by flake.nix along with the
 # values it takes from net.nix and target.nix, and it carries the boot fixture
@@ -57,8 +58,12 @@ PROG=probe-two-capsules
 NS_A="cap-$NAME_A"
 NS_B="cap-$NAME_B"
 RUNNER=""
-REF_A=${1:-$DEFAULT_BRANCH}
-REF_B=${2:-"$DEFAULT_BRANCH~1"}
+# Two base commits, from the *target repo*, defaulting to its HEAD and its
+# parent: the target declares no branch any more, and the guest's
+# `$WORK_BRANCH` — what both capsules land on and what their collected refs are
+# named after below — is the other thing called a branch here.
+REF_A=${1:-HEAD}
+REF_B=${2:-"HEAD~1"}
 
 need_root "$PROG"
 human_from_sudo "$PROG"
@@ -297,9 +302,9 @@ check "capsule B collects into its own quarantine" ok \
   as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_B"
 
 q_a=$(as_human git -C "$STATE/collect/$NAME_A.git" \
-  rev-parse "refs/capsule/$NAME_A/$DEFAULT_BRANCH" 2>/dev/null)
+  rev-parse "refs/capsule/$NAME_A/$WORK_BRANCH" 2>/dev/null)
 q_b=$(as_human git -C "$STATE/collect/$NAME_B.git" \
-  rev-parse "refs/capsule/$NAME_B/$DEFAULT_BRANCH" 2>/dev/null)
+  rev-parse "refs/capsule/$NAME_B/$WORK_BRANCH" 2>/dev/null)
 check "what came out of A is what went into A" ok test "$q_a" = "$COMMIT_A"
 check "what came out of B is what went into B" ok test "$q_b" = "$COMMIT_B"
 

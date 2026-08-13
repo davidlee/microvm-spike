@@ -80,7 +80,7 @@ changes until they are built.
 | `allowlist` | **policy** | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
 | `caches` | profile | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
-| `defaultBranch` | profile | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — , and **the only field with no run-time override at all**: it is interpolated into `capsule-provision`, so the module path's copy keeps the old target's branch until the host is rebuilt, and a provision against it refuses (NOTES item 23). `capsule-collect` does **not** read it — it fetches `+refs/heads/*`, so it is already branch-agnostic. **Decided: deleted outright, nothing replaces it — the guest's branch becomes the constant `work`** — see below |
+| ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
@@ -105,9 +105,13 @@ assigner may never spell: `capsule-provision` reads that repo **as the human**
 ([item 11](./ledger/011-host-side-runs-as-you.md)), so a freely-named path is a
 local-repository read primitive with a delivery mechanism attached.
 
-**And `defaultBranch` is being deleted outright — decided, unbuilt.** Nothing
-replaces it. The guest's branch becomes the constant `work`, a capsule
-constant beside the volume's mount point, and no contract has a field for it.
+**And `defaultBranch` is deleted outright — decided, and now done.** Nothing
+replaces it. The guest's branch is the constant `work`, a capsule constant
+beside the volume's mount point, and no contract has a field for it. It lives as
+`workBranch` in `flake.nix`, which is the wiring layer rather than a fourth
+value file: it is not addressing (`net.nix`), not a slot's (`capsules.nix`) and
+emphatically not the target's, and its two consumers — the guest's seed and
+`capsule-provision` — are both already fed from there.
 
 The first draft of this decision kept an optional `workBranch` on the profile,
 on the reasoning that a project might care what its work is called. That is
@@ -172,7 +176,7 @@ is the same for every target.
 | caches | one env var per `caches` entry, pointing at a directory the seed has created and chowned |
 | egress | `HTTP(S)_PROXY`/`http(s)_proxy` at the host's allowlist proxy, `NO_PROXY` for the host and loopback. No default route and no resolver in the guest |
 | tools | `toolsPackage` + `extraTools` + `git` + `claude-code` where nixpkgs has it |
-| git | `user.name`/`user.email` set, `init.defaultBranch` = `defaultBranch`, and `receive.denyCurrentBranch = updateInstead` so a provision checks out rather than moving a ref |
+| git | `user.name`/`user.email` set, `init.defaultBranch` = the constant `work`, and `receive.denyCurrentBranch = updateInstead` so a provision checks out rather than moving a ref |
 | static config | every `guestConfig` entry symlinked onto the volume from the closure — a link, so a rebuild replaces it and a fresh capsule cannot start with a stale copy |
 | secrets | `<volumePath>/.env`, sourced at login, persisting on the volume — and pushed there at `capsule <name> start` if this host declares a source for it (`setup.nix`, which is not the target's) |
 | foreign binaries | a loader for generic-linux dynamically linked executables (nix-ld), so a toolchain that *downloads* a prebuilt binary — a pypi wheel's, an npm package's, a Go module's vendored one — can run it. NixOS ships no `/lib64` loader, and without this the failure is `Could not start dynamically linked executable`, one second into an otherwise healthy run |
@@ -226,9 +230,10 @@ the capsule as an argument rather than being built per capsule
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
 | `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
 
-`<ref>` is required and deliberately not defaulted to `defaultBranch`: a
-capsule's base commit is the one thing it is pinned to, and it should be stated
-at every provision.
+`<ref>` is required, and there is nothing left it could be defaulted to: it is
+a ref in the *target repo*, and `work` is the guest's branch, which is the whole
+separation the deleted field turned on. A capsule's base commit is the one thing
+it is pinned to, and it should be stated at every provision.
 
 Environment, in the order a program consults it:
 
@@ -259,7 +264,8 @@ different one. Nothing else generic moved. In order:
 
 1. `inputs.target.url` in `flake.nix`, and `path` in `target.nix` — the two
    literals above. Check `~/flakes` if you renamed the input.
-2. `name`, `defaultBranch`, `commands`, `baseline`.
+2. `name`, `commands`, `baseline`. Not a branch: there is no such field, and
+   the guest's is the constant `work` whatever the target calls its own.
 3. Its own `allowlist` file. Half of any such list is that target's dependency
    hosts, so it is a new file rather than an edit to doctrine's.
 4. `toolsPackage`. `null` plus a filled-out `extraTools` is the absent path on

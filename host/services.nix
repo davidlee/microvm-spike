@@ -32,6 +32,10 @@
   net,
   target,
   capsules,
+  # The guest's branch, threaded through to the git channel exactly as the
+  # devshell path does it (flake.nix): the installed programs and the guest image
+  # have to agree on it, and neither of them may spell it.
+  workBranch,
 }: {
   config,
   lib,
@@ -84,9 +88,8 @@
   guestSsh = import ./guest-ssh.nix {inherit lib;};
 
   hostPrograms = import ./programs.nix {
-    inherit pkgs net target;
+    inherit pkgs net target workBranch;
     transport = guestSsh.viaSocket {
-      inherit (capsules) default;
       socat = "${pkgs.socat}/bin/socat";
       socket = capsules.socketOf ''"$capsule"'';
     };
@@ -545,7 +548,9 @@ in {
       # `capsule-baseline` write nothing host-side, so they go on PATH as they
       # are. All four reach the guest through a relay socket, which is the only
       # way in on this path — `--capsule <name>` or `CAPSULE_NAME` picks whose,
-      # falling back to `capsules.default`.
+      # and there is no fallback: a slot's name says nothing about what is in it,
+      # so a program with a default acts on a slot nobody chose. `capsule` itself
+      # resolves an unnamed invocation from what is running (host/cli.nix).
       environment.systemPackages =
         [
           # Wrapped for the same reason the two stateful programs are, and it is the

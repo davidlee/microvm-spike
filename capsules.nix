@@ -24,23 +24,25 @@
 # (docs/probes.md) — the probe builds its own links because it must run without
 # the units, so the names differ there and the shape does not.
 let
-  # The instances. Names, not a count — and the index is *declared*, not taken
-  # from list position: deriving it from position means deleting a name
-  # renumbers its neighbours, and an existing volume, socket and uplink /30 all
-  # silently change hands. `capsule` is index 0 and stays named that, so the
-  # single-capsule state this host already has survives becoming instance zero.
+  # The slots. Names, not a count — and the index is *declared*, not taken from
+  # list position: deriving it from position means deleting a name renumbers its
+  # neighbours, and an existing volume, socket and uplink /30 all silently change
+  # hands.
+  #
+  # A slot's name is abstract and carries no meaning (docs/plan-d-fleet.md §0),
+  # which is the decision the rest of this file's shape now rests on: `a` is not
+  # doctrine's and `b` is not the spare, so nothing may infer what a slot holds
+  # from what it is called. What a slot is assigned to is a record, and it does
+  # not exist yet (docs/contract-assignment.md) — until it does, the honest
+  # statement is that these two names say nothing at all.
+  #
+  # Two, not the ten `a`…`j` the plan settles on: the guard `requires` every
+  # declared namespace unit, so a slot that cannot come up denies the whole host
+  # (plan-d L12), and a pool wants that degraded mode in the same change.
   declared = {
-    capsule = {index = 0;};
-    capsule-b = {index = 1;};
+    a = {index = 0;};
+    b = {index = 1;};
   };
-
-  # The capsule a program means when nothing names one. Every host-side program
-  # takes `--capsule <name>` or `CAPSULE_NAME` and falls back to this, and every
-  # `just` recipe defaults to the same word — so it is a value here rather than a
-  # literal in five places. Declared rather than read off index zero: which
-  # capsule is the default and which carves the first /30 are two facts, and only
-  # the first one is a habit.
-  default = "capsule";
 
   # Carved into a /30 per capsule by index, so the aggregator's route and NAT
   # cover every capsule without enumerating them.
@@ -91,10 +93,9 @@ let
 in
   assert rejected
   == []
-  || throw "capsules.nix: '${builtins.head rejected}' cannot name a capsule — over 11 characters (IFNAMSIZ), or the aggregator's own name";
-  assert !reused || throw "capsules.nix: two capsules declare the same index, so they would share an uplink /30";
-  assert builtins.hasAttr default declared || throw "capsules.nix: the default capsule '${default}' is not declared, so every program's default names nothing"; {
-    inherit uplinkNet socketOf default;
+  || throw "capsules.nix: '${builtins.head rejected}' cannot name a slot — over 11 characters (IFNAMSIZ), or the aggregator's own name";
+  assert !reused || throw "capsules.nix: two slots declare the same index, so they would share an uplink /30"; {
+    inherit uplinkNet socketOf;
 
     instances = builtins.mapAttrs recordOf declared;
 

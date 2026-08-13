@@ -61,7 +61,14 @@
   # between two of them is a socket path — and building N programs over that is N
   # store paths differing in one string, which is what left `capsule-provision`
   # able to reach exactly one capsule. So the name is a *run-time* value:
-  # `--capsule <name>`, else `CAPSULE_NAME`, else the default.
+  # `--capsule <name>`, else `CAPSULE_NAME`, else a refusal.
+  #
+  # There is no default, and its deletion is the other half of slots being
+  # abstract: `capsules.default` was defensible while a capsule was called
+  # `capsule`, and once a name carries no meaning a default is a program acting
+  # on a slot nobody chose — with nothing in the name to say it was the wrong
+  # one. Resolving an unnamed invocation from what is running is a *front end's*
+  # latitude and lives in `host/cli.nix`; a program refuses (NOTES item 20).
   #
   # The parse lives here rather than in each program's own flag loop for two
   # reasons: all four need it identically, and it strips itself out of `"$@"`
@@ -71,8 +78,8 @@
   # An `--capsule=NAME` form as well as `--capsule NAME`, because `CAPSULE_NAME=x
   # prog` is not a thing every shell has (nushell wants `with-env`), so the flag
   # is the one-off form and has to be pleasant.
-  selectCapsule = default: ''
-    capsule="''${CAPSULE_NAME:-${default}}"
+  selectCapsule = ''
+    capsule="''${CAPSULE_NAME:-}"
     unnamed=()
     while [ "$#" -gt 0 ]; do
       case "$1" in
@@ -90,12 +97,27 @@
       shift
     done
     set -- ''${unnamed[@]+"''${unnamed[@]}"}
+
+    if [ -z "$capsule" ]; then
+      echo "''${0##*/}: which capsule? '--capsule <name>', or CAPSULE_NAME in the" >&2
+      echo "  environment. A slot's name carries no meaning, so there is nothing to" >&2
+      echo "  guess from — or say it once, as 'capsule <name> <verb>'." >&2
+      exit 1
+    fi
   '';
 
   # The devshell path: one capsule, on a tap in the root namespace, reached
-  # straight. It has nothing else to name, so a second name is a refusal rather
-  # than a silent success — the failure it would otherwise be is "I provisioned
-  # `edge`" while the bytes went to the only capsule there is.
+  # straight. It has nothing else to name, so a name it does not know is a
+  # refusal rather than a silent success — the failure it would otherwise be is
+  # "I provisioned slot `c`" while the bytes went to the only capsule there is.
+  #
+  # What it can check is that the name is a *declared* slot, and no longer which
+  # one: every slot resolves to the same guest at the same address here, so the
+  # name selects nothing but where collected refs and the quarantine land. That
+  # is weaker than the refusal this had while one capsule was named `capsule`,
+  # and it is the honest form — a typo still cannot invent a slot, and knowing
+  # which of two declared slots you booted is `.vm/<name>`, i.e. host state,
+  # which is a front end's business and not a program's.
   #
   # `socket` is here for the *second* refusal, which is not about naming: inside
   # the repo the devshell's copies shadow the module's on PATH, same name and
@@ -107,15 +129,21 @@
   # that can try both has both baked in, which is the thing NOTES item 20
   # decided against.
   direct = {
-    default,
+    names,
     socket,
   }:
-    selectCapsule default
+    selectCapsule
     + ''
-      if [ "$capsule" != ${lib.escapeShellArg default} ]; then
-        echo "no capsule '$capsule' here: the devshell path runs one, named ${default}." >&2
-        echo "  More than one is the module path, where the way in is a relay socket" >&2
-        echo "  per capsule (README, 'The module path')." >&2
+      declared=(${lib.concatMapStringsSep " " lib.escapeShellArg names})
+      known=no
+      for d in "''${declared[@]}"; do
+        [ "$capsule" = "$d" ] && known=yes
+      done
+      if [ "$known" = no ]; then
+        echo "no capsule '$capsule' here: the slots this host declares are" >&2
+        echo "  ''${declared[*]}, and the devshell path runs one guest between them." >&2
+        echo "  More than one at a time is the module path, where the way in is a" >&2
+        echo "  relay socket per capsule (README, 'The module path')." >&2
         exit 1
       fi
       sock=${socket}
@@ -136,17 +164,20 @@
   # routable from the root namespace at all: the way in is the relay socket, and
   # that socket path is the capsule's identity.
   #
+  # No list of declared names here, unlike `direct`: a probe's throwaway capsule
+  # is not an instance and reaches its guest through exactly this fragment, so
+  # the socket's existence is the whole check (docs/probes.md).
+  #
   # `socket` is a *shell expression*, not a path: the path is a pure function of
   # a name this program only learns at run time, so the call site passes
   # `capsules.socketOf ''"$capsule"''` and the convention keeps exactly one
   # definition. `socat` is passed rather than assumed on PATH, because one caller
   # is a systemd unit.
   viaSocket = {
-    default,
     socat,
     socket,
   }:
-    selectCapsule default
+    selectCapsule
     + ''
       sock=${socket}
       if [ ! -S "$sock" ]; then

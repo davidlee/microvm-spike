@@ -51,6 +51,17 @@
     # rule again. Under netns the guest-facing link is *not* in here — it is
     # identical in every capsule, so it stays in net.nix above.
     capsules = import ./capsules.nix;
+
+    # The branch a capsule's checkout sits on, everywhere and always. Not a value
+    # file of its own and not a field of any of the three above: it is not
+    # addressing, it is not a slot's, and it is emphatically not the target's —
+    # `target.nix`'s `defaultBranch` was deleted rather than given the run-time
+    # override it lacked, because a name that identifies the work is not project
+    # state and two slices of one project at once is what shows it (plan-d L13,
+    # docs/contract-target.md). Two consumers, the guest's seed and
+    # `capsule-provision`, and they must agree — so it is spelled here, where the
+    # wiring already is, and threaded to both.
+    workBranch = "work";
     # Where a capsule's way in lives, for the probes' throwaway capsules — which
     # are not instances, and must not spell that path a second time.
     inherit (capsules) socketOf;
@@ -60,7 +71,7 @@
     mkVm = hostName: module:
       lib.nixosSystem {
         inherit system;
-        specialArgs = {inherit inputs net target;};
+        specialArgs = {inherit inputs net target workBranch;};
         modules = [
           microvm.nixosModules.microvm
           ./vm/common.nix
@@ -76,6 +87,15 @@
       {
         # Smoke test: does firecracker boot at all on this host. No network.
         hello = mkVm "hello" ./vm/hello.nix;
+
+        # The guest itself, under the hostname it carries — as against a *slot*,
+        # which is one of the names below and is where a capsule's namespace,
+        # socket and units live. They are the same value, and this one exists
+        # because a runner is `microvm@<hostName>` in the process table: every
+        # probe matches on that string and builds `.#capsule` to get it, so the
+        # attribute and the process name have to be the one word. `.#capsule` is
+        # also what `vm capsule` and `just build-vm` have always meant.
+        capsule = capsuleVm;
       }
       # An attribute per declared capsule, because `microvm -c <name> -f .` is
       # what creates one and it resolves `nixosConfigurations.<name>` (CLAUDE.md
@@ -278,12 +298,12 @@
     # relay socket instead — one construction, two transports, which is the only
     # thing that differs (host/programs.nix).
     hostPrograms = import ./host/programs.nix {
-      inherit pkgs net target;
+      inherit pkgs net target workBranch;
       # The same socket expression the units inject, for the opposite purpose:
       # there it is the way in, here its existence is what says this copy is the
       # wrong one (host/guest-ssh.nix).
       transport = guestSsh.direct {
-        inherit (capsules) default;
+        names = builtins.attrNames capsules.instances;
         socket = socketOf ''"$capsule"'';
       };
     };
@@ -388,7 +408,14 @@
     vm = pkgs.writeShellApplication {
       name = "vm";
       text = ''
-        name="''${1:-capsule}"
+        # No default, since `capsules.default` went with slots being abstract:
+        # every argument is a VM name and an omitted one used to mean the capsule
+        # that was called `capsule`.
+        name="''${1:-}"
+        if [ -z "$name" ]; then
+          echo "usage: vm <name>   (capsule | hello | a slot)" >&2
+          exit 1
+        fi
         root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
         dir="$root/.vm/$name"
         mkdir -p "$dir"
@@ -533,9 +560,8 @@
     # a run-time argument now. `socat` is bare here: a probe has it in
     # `runtimeInputs`, where a unit has no PATH to trust.
     nsPrograms = import ./host/programs.nix {
-      inherit pkgs net target;
+      inherit pkgs net target workBranch;
       transport = guestSsh.viaSocket {
-        inherit (capsules) default;
         socat = "socat";
         socket = socketOf ''"$capsule"'';
       };
@@ -551,10 +577,12 @@
         VM="capsule"
         GUEST_PATH="${target.guestPath}"
         TARGET_PATH="${target.path}"
-        DEFAULT_BRANCH="${target.defaultBranch}"
         CACHES="${lib.concatStringsSep " " (lib.attrValues target.caches)}"
         PROVISION="${nsPrograms.provision}/bin/capsule-provision"
-        SOCKDIR="${builtins.dirOf (socketOf capsules.default)}"
+        # Its own name, not a slot's: this probe makes and destroys volumes, so
+        # it must not land on a declared slot's socket — and `socketOf` is what
+        # keeps the convention single even for a capsule nobody declared.
+        SOCKDIR="${builtins.dirOf (socketOf "capsule")}"
       '';
       runtimeInputs = [
         pkgs.iproute2
@@ -598,7 +626,7 @@
         COLLECT="${nsPrograms.collect}/bin/capsule-collect"
         GUEST_PATH="${target.guestPath}"
         TARGET_PATH="${target.path}"
-        DEFAULT_BRANCH="${target.defaultBranch}"
+        WORK_BRANCH="${workBranch}"
         MEM_MIB="${toString target.sizes.mem}"
       '';
       runtimeInputs = [
@@ -627,15 +655,26 @@
       name = "vm-stop";
       runtimeInputs = [capsule-halt pkgs.procps pkgs.coreutils];
       text = ''
-        name="''${1:-capsule}"
+        name="''${1:-}"
+        if [ -z "$name" ]; then
+          echo "usage: vm-stop <name>   (capsule | hello | a slot)" >&2
+          exit 1
+        fi
 
         # One link, one guest: the devshell path runs a single capsule at
-        # ${net.guest}, so any other name is a VM this cannot talk to and is
-        # reaped rather than asked.
+        # ${net.guest}, and every name below is that same guest — the image under
+        # its own name, and each declared slot, which are one value in this flake.
+        # Anything else (`hello`) is a VM this cannot talk to and is reaped rather
+        # than asked. The list follows the slots because the alternative is a
+        # literal that silently stops asking the moment a slot is renamed, and a
+        # stop that does not ask is a power cut on a mounted volume.
+        guests=(capsule ${lib.concatStringsSep " " (builtins.attrNames capsules.instances)})
         halted=0
-        if [ "$name" = capsule ] && capsule-halt; then
-          halted=1
-        fi
+        for g in "''${guests[@]}"; do
+          [ "$name" = "$g" ] || continue
+          if capsule-halt; then halted=1; fi
+          break
+        done
 
         # Only VMMs this shell can prove are its own. Every capsule is
         # `microvm@capsule` in the process table, so a bare `pkill -f` is a power
@@ -694,7 +733,7 @@
     # host that wants it as its real posture. Opt-in: `capsule-host` in the
     # devshell stays the development path and needs no rebuild. Import it in the
     # host's config and set `services.capsule-perimeter.{enable,owner}`.
-    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target capsules;};
+    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target capsules workBranch;};
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms

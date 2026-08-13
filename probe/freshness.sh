@@ -29,7 +29,7 @@
 #      namespace, i.e. the host module. Recorded as not-measured rather than
 #      estimated. The discarded cache is asserted here; its price is not.
 #
-# Run: sudo probe-freshness [REF]     (REF defaults to the target's branch)
+# Run: sudo probe-freshness [REF]     (REF defaults to the target repo's HEAD)
 #
 # Takes several minutes: two boots, a 32 MiB provision and two shutdowns. It
 # needs an ssh identity the guest authorises, for the same reason and with the
@@ -45,7 +45,10 @@ PROG=probe-freshness
 NS="cap-$VM"
 RUNNER=""
 LOG=""
-REF=${1:-$DEFAULT_BRANCH}
+# A ref in the *target repo*, and its default is that repo's HEAD: the target
+# no longer declares a branch, and the branch the guest lands it on is a
+# different thing that is never a source (docs/contract-target.md).
+REF=${1:-HEAD}
 
 need_root "$PROG"
 human_from_sudo "$PROG"

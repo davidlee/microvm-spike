@@ -65,12 +65,12 @@ rec {
   # recorded build checkably cold or warm. Derived, so a cache is declared once.
   cachePaths = map (dir: "${volumePath}/${dir}") (builtins.attrValues caches);
 
-  # The branch the guest works on, and the branch `capsule-provision` lands a
-  # base commit onto — which is *any* ref in the target repo, so a capsule's
-  # base is an argument rather than a value in the guest's closure. The guest's
-  # HEAD must name this branch or a provision silently does not check out; the
-  # seed sets it, and provision verifies it.
-  defaultBranch = "edge";
+  # No branch field, deliberately, and nothing replaces it. The guest's branch is
+  # the constant `work` (`workBranch` in flake.nix): a name that identifies the
+  # work is not project state, which is what two slices of one project at once
+  # refutes any version of this field with. `capsule-provision <ref>` is still a
+  # ref in *this* repo and is untouched — the two things called "branch" are
+  # separate (docs/contract-target.md, plan-d L13).
 
   # Largest packfile one `capsule-collect` may write, as `ulimit -f`. A backstop
   # on the file, not a bound on the transfer — many small objects or a delta bomb
@@ -105,7 +105,13 @@ rec {
   # first busy thread. NOTES item 12.
   sizes = {
     vcpu = 4;
-    mem = 8192; # / is tmpfs, so guest RAM also pays for /tmp and rootfs
+    # 6144 because of the fleet, not because of a measurement: a ceiling is free
+    # per capsule and a reservation per fleet, since nothing hands memory back
+    # until a stop (docs/plan-d-fleet.md §0). Five cold builds peaked 6801-7845
+    # MiB per *unit* at the old 8192, so this is a real cut and not slack being
+    # trimmed — what it costs wants re-measuring, since no capsule has yet run at
+    # this ceiling.
+    mem = 6144; # / is tmpfs, so guest RAM also pays for /tmp and rootfs
     volume = 32768; # sparse; holds the checkout, target/, caches
   };
 

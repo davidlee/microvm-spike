@@ -1,11 +1,16 @@
 # `capsule` — the human's front end, and nothing else.
 #
 # NOTES item 20 decided the naming ahead of this: which capsule a program means
-# is `--capsule <name>`, else `CAPSULE_NAME`, else `capsules.default`, and the
-# transport is derived from the name rather than baked into a store path. That
-# left a front end with exactly three jobs: resolve a name, pick the copy of a
-# program that can reach it, and exec. It owns no transport, no socket path of
-# its own and no second implementation of anything below it.
+# is `--capsule <name>`, else `CAPSULE_NAME`, and the transport is derived from
+# the name rather than baked into a store path. That left a front end with
+# exactly three jobs: resolve a name, pick the copy of a program that can reach
+# it, and exec. It owns no transport, no socket path of its own and no second
+# implementation of anything below it.
+#
+# Resolving is now slightly more than reading a value, and deliberately so: the
+# declared default went with slots being abstract, so an unnamed verb here means
+# *the capsule that is up*, refusing when none or several are. That is a
+# host-state answer, which the four programs must not have — see below.
 #
 # Why a program rather than more `just` recipes: the recipes need this checkout
 # and a devshell, and on the module path a capsule outlives both — the units are
@@ -91,7 +96,7 @@ in
         usage() {
           echo "capsule [<name>|all] <verb> [args…]"
           echo
-          echo "  capsules:  ''${declared[*]}   (default ${capsules.default})"
+          echo "  capsules:  ''${declared[*]}   (omitted: the one that is up)"
           echo "  lifecycle: start | stop | created       (start injects too)"
           echo "  ask:       status | branches | fetch     (these take 'all')"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
@@ -105,10 +110,12 @@ in
             ;;
         esac
 
-        # Name first, as everywhere here, so `capsule capsule-b provision main`
-        # cannot be read the other way round (NOTES item 20). Omitted means the
-        # default, which is a value rather than a habit (`capsules.nix`).
-        name=${lib.escapeShellArg capsules.default}
+        # Name first, as everywhere here, so `capsule b provision main` cannot be
+        # read the other way round (NOTES item 20). Omitted is resolved below,
+        # once the helpers that can answer it exist — there is no declared
+        # default any more, because a slot's name says nothing about what is in
+        # it and a default is then a verb acting on a slot nobody chose.
+        name=""
         if [ "$#" -gt 0 ]; then
           for d in "''${declared[@]}" all; do
             if [ "$1" = "$d" ]; then
@@ -119,8 +126,22 @@ in
           done
         fi
 
+        # The one-off form, for a shell that is working in a capsule: same
+        # variable the four programs read, checked here rather than passed on, so
+        # a typo is a refusal and not a capsule this host does not have.
+        if [ -z "$name" ] && [ -n "''${CAPSULE_NAME:-}" ]; then
+          for d in "''${declared[@]}"; do
+            [ "$CAPSULE_NAME" = "$d" ] && name="$CAPSULE_NAME"
+          done
+          if [ -z "$name" ]; then
+            echo "capsule: CAPSULE_NAME='$CAPSULE_NAME' is not a capsule on this host." >&2
+            echo "  declared: ''${declared[*]}" >&2
+            exit 1
+          fi
+        fi
+
         if [ "$#" -eq 0 ]; then
-          echo "capsule: no verb — what should '$name' do?" >&2
+          echo "capsule: no verb — what should ''${name:-a capsule} do?" >&2
           usage >&2
           exit 1
         fi
@@ -135,21 +156,6 @@ in
           echo "capsule: '$verb' is neither a verb nor a capsule on this host." >&2
           usage >&2
           exit 1
-        fi
-
-        targets=("$name")
-        if [ "$name" = all ]; then
-          aggregable=no
-          for v in ${lib.concatMapStringsSep " " lib.escapeShellArg aggregable}; do
-            [ "$verb" = "$v" ] && aggregable=yes
-          done
-          if [ "$aggregable" = no ]; then
-            echo "capsule: 'all $verb' is an action on every capsule, not a question about" >&2
-            echo "  them, and what to do when the third of five fails is undecided. Name one:" >&2
-            echo "  ''${declared[*]}" >&2
-            exit 1
-          fi
-          targets=("''${declared[@]}")
         fi
 
         sockOf() { printf '%s' ${sockOfArg}; }
@@ -187,7 +193,7 @@ in
 
         # `--capsule` is what this hands on, so a second one in the arguments is
         # two answers to one question — and the program's own parse takes the last,
-        # which would make `capsule capsule-b provision --capsule capsule` succeed
+        # which would make `capsule b provision --capsule a` succeed
         # against the wrong capsule quietly. Refuse rather than resolve.
         work() {
           local n="$1" prog arg
@@ -327,6 +333,53 @@ in
           journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null \
             | sed 's/^/  /' || true
         }
+
+        # Which capsule an unnamed verb means: the one that is up, and only when
+        # exactly one is. A slot's name carries no meaning, so there is nothing to
+        # default to — but the capsule a human is working in is nearly always the
+        # only one running, and asking the host is cheap. Resolving from host
+        # state is a *front end's* latitude and belongs here rather than in the
+        # four programs, for the same reason picking between their two copies
+        # does: a program that guesses has the guess in its store path (NOTES item
+        # 20). Up means a way in or a running VMM — the devshell shape has
+        # neither, so there it is a refusal and `CAPSULE_NAME` is the answer.
+        if [ -z "$name" ]; then
+          up=()
+          for d in "''${declared[@]}"; do
+            if [ -S "$(sockOf "$d")" ] \
+              || [ "$(unitState "$(unitOf "$d")")" = running ]; then
+              up+=("$d")
+            fi
+          done
+          case "''${#up[@]}" in
+            1) name="''${up[0]}" ;;
+            0)
+              echo "capsule: no capsule is up, so an unnamed '$verb' means nothing here." >&2
+              echo "  Name one — ''${declared[*]} — or set CAPSULE_NAME." >&2
+              exit 1
+              ;;
+            *)
+              echo "capsule: ''${up[*]} are up, so an unnamed '$verb' is ambiguous." >&2
+              echo "  Name one, or 'all' if it is a question." >&2
+              exit 1
+              ;;
+          esac
+        fi
+
+        targets=("$name")
+        if [ "$name" = all ]; then
+          aggregable=no
+          for v in ${lib.concatMapStringsSep " " lib.escapeShellArg aggregable}; do
+            [ "$verb" = "$v" ] && aggregable=yes
+          done
+          if [ "$aggregable" = no ]; then
+            echo "capsule: 'all $verb' is an action on every capsule, not a question about" >&2
+            echo "  them, and what to do when the third of five fails is undecided. Name one:" >&2
+            echo "  ''${declared[*]}" >&2
+            exit 1
+          fi
+          targets=("''${declared[@]}")
+        fi
 
         case "$verb" in
           created) created "$name" ;;
