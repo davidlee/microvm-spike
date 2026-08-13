@@ -600,7 +600,9 @@ only place a repo name appears.
 
 ## 7. Directions
 
-- **D1 — the assignment record.** `/var/lib/capsule/<slot>/`, and the field list
+- **D1 — the assignment record. Built, unrun** ([status](./status.md),
+  [item 29](./ledger/029-the-record-is-front-end-written.md)) — at
+  `/var/lib/capsule/slot/<slot>/`, and the field list
   is [contract-assignment.md](./contract-assignment.md)'s rather than this
   file's. Written by `capsule`, read by status, pushed to the guest as identity.
   It is what makes an abstract slot legible, and every other direction here
@@ -656,7 +658,9 @@ only place a repo name appears.
   dirty`. The mechanism belongs here (worktree dirty, `HEAD != base sha`,
   `$HOME` touched since baseline, or an interactive session opened); the
   *policy* about what may be reused is doctrine's.
-- **D5 — status answers the steering questions.** Add columns fed by the ssh
+- **D5 — status answers the steering questions. Built, unrun**, and built
+  *before* D1 because the guest round trip is what settles where `base.oid` comes
+  from. Add columns fed by the ssh
   round trip `answers` already pays for: base sha, dirty/ahead, `df /work`, last
   baseline verdict and age, current-versus-peak memory — the last because the
   ratchet means a capsule holds its high-water until stopped, so `stop` is a
@@ -664,10 +668,12 @@ only place a repo name appears.
   existing discipline — no root, bounded, a dead guest is a row and not a hang —
   which argues for one guest-side script returning one line rather than five ssh
   calls per capsule. One caveat on the baseline column: read the *record*, never
-  the exit status. `capsule-baseline`'s login-shell bug is fixed in-tree and
-  unshipped on this host, so the installed copy still exits 1 on green builds
-  ([status](./status.md), NOTES item 24) — and the record on the volume was
-  right throughout, which is the property that column should inherit.
+  the exit status. The reason is no longer a live bug — item 24's login-shell fix
+  has shipped — but it is the same reason: the record on the volume was right
+  throughout the period the exit status was wrong, because `capsule-baseline`
+  writes it before the shell that runs it can lose the status
+  ([status](./status.md), NOTES item 24). That is the property the column should
+  inherit, and it does not depend on the bug still existing.
 - **D6 — detached agent sessions.** Generalise `host/baseline.nix`'s pattern
   with a pty: a multiplexer in the guest closure and `capsule <slot> attach`.
   What makes N > 2 workable for a human, and independent of everything above.

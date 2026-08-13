@@ -34,6 +34,53 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **Plan D D1 and D5 are built and unrun on this host** — the assignment record
+  and the status columns, the pair Plan D calls cheapest-useful because a fleet
+  has to be legible before it can be administered. Three new files and no second
+  implementation of anything: [host/observe.nix](../host/observe.nix) is the
+  observed half, [host/record.nix](../host/record.nix) the desired half, and
+  `host/cli.nix` reads both onto one row. **Needs `just build` and a host
+  rebuild.**
+
+  **D5 first, then D1**, inverting the plan's order for a reason that paid off:
+  the guest round trip is what settles where `base.oid` comes from, and D1 is the
+  half that is expensive to retrofit. The probe is pushed over the door on stdin
+  rather than baked into the guest closure — `host/baseline.nix`'s own runner set
+  that precedent and gave the two reasons (host-side policy about a measurement,
+  and a volume outlives any program), and it means a status column can change
+  without `microvm -u` per slot. It leaves nothing on the volume at all, unlike
+  baseline's, because a question should not.
+
+  Six observed columns — `head`, `dirty`, `baseline`, `age`, `disk`, `mem
+  cur/peak` — for **one** ssh per row rather than one per column: the probe's own
+  reply is the reachability proof, so `answers` stopped costing a round trip of
+  its own. A dead guest is still a row of `-` and never a hang. Two of them are
+  worth naming: `age` is arithmetic on **one** clock, because a baseline stamp is
+  minted host-side precisely so both ends agree on a run's name, so the
+  guest-is-UTC-and-this-host-is-AEST trap has no way in; and `mem cur/peak` earns
+  its place from the 6144 finding, since nothing hands memory back until a stop
+  and peak is how a human picks which idle slot to reap.
+
+  D1 is the record at `/var/lib/capsule/slot/<name>/assignment.json` —
+  `flock`-guarded read-modify-write, generation bumped by the write and not by any
+  caller, `schema` and the four absent fields appended after the caller's filter
+  so neither can be forgotten or forged. Verified: twenty concurrent writers land
+  on generation twenty with no lost update and no half-written document, and a
+  `purpose` containing jq syntax or shell metacharacters is stored as data —
+  values reach jq as `--arg`, never as filter text. Two verbs, `record` and
+  `purpose`; the writer of `base` is `capsule <slot> provision`.
+
+  What the contract left to the implementation was four questions of mechanism,
+  and all four were answered from rules already here rather than from anything new
+  ([item 29](./ledger/029-the-record-is-front-end-written.md)): `base.oid` is
+  **measured** off the guest's HEAD rather than resolved a second time host-side;
+  the **front end** writes the record and `capsule-provision` still does not, so
+  calling the program directly bypasses it exactly as it bypasses every other
+  thing a front end does; the record is **module-path only** and under `slot/`,
+  which a reader may search for and a writer may not; and `generation` is written
+  but not yet **checked**, because the field is the expensive half to retrofit and
+  the check is an argument added to a verb once anything detached exists. No field
+  moved, which is the artifact doing its job.
 - **The capsules are slots now — `a` and `b` — and the change carries two others
   that wanted the same rebuild.** `sizes.mem` is 6144
   ([plan-d](./plan-d-fleet.md) §0), and `target.nix` has no branch field at all:
@@ -579,11 +626,16 @@ capsules were named after names that no longer exist:
    and shellchecked, which is not the same as shellcheck running at build, so the
    ordering was luck rather than coverage.
 
-**So step 3 is closed.** Then **D1 + D5** — the assignment record and the status
-columns — against
-[contract-assignment.md](./contract-assignment.md). §0's four-hot
-recommendation wants rewriting first, since a fleet plan that sizes slots by
-ceiling is now known to size them wrong.
+**So step 3 is closed.** ~~Then **D1 + D5**~~ — **written against
+[contract-assignment.md](./contract-assignment.md), unrun** (above). §0's four-hot
+recommendation is rewritten, since a fleet plan that sizes slots by ceiling was
+sizing them wrong.
+
+Next after those land: **D2, the pool** — declare `a`…`j` once and make assignment
+run-time state, which is what turns the record's three inert fields (`policy`,
+`extras`, `image`) into ones something selects. It wants L12's degraded guard mode
+in the same change: on the first start of *any* capsule the guard pulls in every
+declared namespace, so one of ten that will not come up denies the whole host.
 
 ## Open, and nothing should claim these closed
 

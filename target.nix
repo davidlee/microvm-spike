@@ -108,9 +108,11 @@ rec {
     # 6144 because of the fleet, not because of a measurement: a ceiling is free
     # per capsule and a reservation per fleet, since nothing hands memory back
     # until a stop (docs/plan-d-fleet.md §0). Five cold builds peaked 6801-7845
-    # MiB per *unit* at the old 8192, so this is a real cut and not slack being
-    # trimmed — what it costs wants re-measuring, since no capsule has yet run at
-    # this ceiling.
+    # MiB per *unit* at the old 8192, so it reads as a real cut. **Measured, and
+    # it is not one**: a built slot holds ~6.1 GiB of `anon` at either ceiling,
+    # because the VMM holds every page the build ever touched rather than a share
+    # of what the guest was offered. Free — no wall clock, no guest pressure — and
+    # not a saving (docs/probes.md#the-first-cold-build-at-a-6144-ceiling).
     mem = 6144; # / is tmpfs, so guest RAM also pays for /tmp and rootfs
     volume = 32768; # sparse; holds the checkout, target/, caches
   };

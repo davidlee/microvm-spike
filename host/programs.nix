@@ -35,11 +35,21 @@
   # Where the guest's checkout is, as a URL.
   guestRepo = "ssh://${guestHost}${target.guestPath}";
 
+  # Where `capsule-baseline` writes its record. Beside the checkout, never inside
+  # it: a record in the worktree is a dirty worktree, and that is what the next
+  # `capsule-provision` refuses on.
+  #
+  # Exported, because `capsule status` reads the same record from the other side
+  # (host/observe.nix) and two spellings of one path is how the two ends drift.
+  # Well-defined even when `baseline` below is `null` — a target with no baseline
+  # has no records, which is what a status reporting `none` forever means.
+  baselineRecord = "${target.volumePath}/baseline";
+
   gitChannel = import ./git-channel.nix {
     inherit pkgs target workBranch guestRepo transport;
   };
 in {
-  inherit guestHost guestRepo;
+  inherit guestHost guestRepo baselineRecord;
 
   inherit (gitChannel) provision collect;
 
@@ -68,10 +78,7 @@ in {
         inherit pkgs guestHost transport;
         command = target.baseline;
         workdir = target.guestPath;
-        # Beside the checkout, never inside it: a record written into the
-        # worktree is a dirty worktree, and a dirty worktree is what the next
-        # `capsule-provision` refuses on.
-        recordDir = "${target.volumePath}/baseline";
+        recordDir = baselineRecord;
         measure = [target.guestPath] ++ target.cachePaths;
       };
 }

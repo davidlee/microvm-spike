@@ -42,9 +42,13 @@
   # when the target declares none (host/programs.nix), and an unknown verb should
   # say so rather than exec a command that is not there.
   programVerbs,
+  # The guest-side half of a status, as a store path pushed over the door
+  # (host/observe.nix). A path and not a set of guest paths, deliberately: this
+  # file asks a capsule what is true and does not know what `/work` is.
+  observe,
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.
-  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch"];
+  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose"];
 
   # Verbs `all` may be applied to. A question aggregates: N answers on one screen,
   # and a failure on one capsule is a row rather than a decision. An *action* does
@@ -85,11 +89,17 @@
   # convention still has exactly one definition.
   sockOfArg = capsules.socketOf ''"$1"'';
   everySock = capsules.socketOf "*";
+
+  # The assignment record's mechanism, injected rather than reimplemented
+  # (host/record.nix). Desired state only — the observed half is `observe`.
+  record = import ./record.nix {inherit pkgs;};
 in
   assert collide == [] || throw "host/cli.nix: '${builtins.head collide}' is both a capsule and a verb (or `all`), so `capsule ${builtins.head collide} …` cannot be read either way";
     pkgs.writeShellApplication {
       name = "capsule";
-      runtimeInputs = [pkgs.coreutils pkgs.systemd pkgs.openssh pkgs.socat pkgs.git pkgs.gnused];
+      runtimeInputs =
+        [pkgs.coreutils pkgs.systemd pkgs.openssh pkgs.socat pkgs.git pkgs.gnused]
+        ++ record.inputs;
       text = ''
         declared=(${lib.concatMapStringsSep " " lib.escapeShellArg names})
 
@@ -99,6 +109,7 @@ in
           echo "  capsules:  ''${declared[*]}   (omitted: the one that is up)"
           echo "  lifecycle: start | stop | created       (start injects too)"
           echo "  ask:       status | branches | fetch     (these take 'all')"
+          echo "  assigned:  record | purpose [text…]"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
         }
@@ -292,25 +303,149 @@ in
           git --git-dir="$1" for-each-ref --format='%(refname)' "refs/capsule/$2/" | wc -l
         }
 
+        # **The record lives on the module path and only there.** A slot is a
+        # `capsules.nix` declaration and the units around it are the module's, so an
+        # assignment record for a devshell capsule would describe a slot that does
+        # not exist. That is why this is `moduleState` and not `statePaths`' two
+        # homes: `quarantineOf` has to *search* because either shape can write a
+        # quarantine, and a record is written by exactly one.
+        recordRoot=${moduleState}
+        ${record.fragment}
+
+        # What the guest says about itself: one round trip, one line, the field
+        # order defined in host/observe.nix and nowhere else. This *is* the
+        # reachability probe — a line back is the proof — so a row costs one ssh
+        # rather than one per column, which is what Plan D D5 asks for.
+        observed() {
+          local ssh_argv=()
+          door "$1" probe || return 1
+          "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' < ${observe} 2>/dev/null
+        }
+
+        # A baseline stamp is **the host's** UTC, minted host-side so both ends
+        # agree on the name of a run (host/baseline.nix). So this subtracts two
+        # readings of one clock, and the guest-is-UTC-while-this-host-is-AEST trap
+        # (CLAUDE.md) has no way in — no guest clock is involved.
+        ageOf() {
+          local s="$1" t0 now d
+          [ "$s" = - ] && { echo -; return 0; }
+          t0=$(date -u -d "''${s:0:8} ''${s:9:2}:''${s:11:2}:''${s:13:2}" +%s 2>/dev/null) \
+            || { echo '?'; return 0; }
+          now=$(date -u +%s)
+          d=$((now - t0))
+          if [ "$d" -lt 3600 ]; then echo "$((d / 60))m"
+          elif [ "$d" -lt 86400 ]; then echo "$((d / 3600))h"
+          else echo "$((d / 86400))d"
+          fi
+        }
+
+        # Current and peak, MiB, from the unit's own cgroup — the instrument `just
+        # load` settled on, for its reasons: per-process RSS double-counts the one
+        # image every capsule maps, and a host-wide figure on a shared host is not
+        # a capsule figure at all (docs/probes.md).
+        #
+        # **Peak is the column that earns its place.** Nothing hands memory back
+        # until a stop — a built slot holds ~6.1 GiB whatever its ceiling
+        # (docs/probes.md#the-first-cold-build-at-a-6144-ceiling) — so `stop` is a
+        # resource verb and this is how a human picks which idle slot to reap.
+        #
+        # The empty-`ControlGroup` guard is not defensive noise: `systemctl show`
+        # answers empty for a dead unit, and `/sys/fs/cgroup` + "" is the **root**
+        # cgroup, whose `memory.current` is the whole host. A stopped capsule would
+        # otherwise report 40 GiB of its own.
+        memOf() {
+          local cg cur peak
+          cg=$(systemctl show "$(unitOf "$1")" -P ControlGroup 2>/dev/null || true)
+          [ -n "$cg" ] || { echo -; return 0; }
+          cg="/sys/fs/cgroup$cg"
+          [ -r "$cg/memory.current" ] || { echo -; return 0; }
+          cur=$(($(cat "$cg/memory.current") / 1048576))
+          if [ -r "$cg/memory.peak" ]; then
+            peak=$(($(cat "$cg/memory.peak") / 1048576))
+          else
+            peak='?'
+          fi
+          echo "$cur/$peak"
+        }
+
+        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %s\n'
+
         statusHeader() {
-          printf '%-11s %-7s %-11s %-8s %-8s %-6s %-7s %s\n' \
-            capsule created vm proxy relay door answers refs
+          # shellcheck disable=SC2059
+          printf "$statusFmt" \
+            capsule created vm proxy relay door answers \
+            head dirty baseline age disk 'mem cur/peak' refs gen purpose
         }
 
         yesno() { if "$@"; then echo yes; else echo no; fi; }
 
         statusRow() {
-          local n="$1" q refs=-
+          local n="$1" q refs=- line ans=no
+          local head=- dirty=- baseline=- stamp=- disk=-
           if q=$(quarantineOf "$n"); then refs=$(refsIn "$q" "$n"); fi
-          printf '%-11s %-7s %-11s %-8s %-8s %-6s %-7s %s\n' \
+          # A dead guest is a row of `-` and never a hang, which is the discipline
+          # `answers` established and the reason every field has an unknown value.
+          if line=$(observed "$n") && [ -n "$line" ]; then
+            ans=yes
+            IFS=$'\t' read -r head dirty baseline stamp disk <<<"$line"
+          fi
+          # `gen` and `purpose` are the *desired* side, read from the record rather
+          # than measured — the two objects stay apart on one row, which is the
+          # whole point of keeping them apart in the first place
+          # (docs/contract-assignment.md). `purpose` is last because it is free text
+          # this repo never parses, so it is the one column with no width.
+          # shellcheck disable=SC2059
+          printf "$statusFmt" \
             "$n" \
             "$(yesno created "$n")" \
             "$(unitState "$(unitOf "$n")")" \
             "$(unitState "capsule-proxy-$n")" \
             "$(unitState "capsule-ssh-relay-$n")" \
             "$(yesno test -S "$(sockOf "$n")")" \
-            "$(yesno answers "$n")" \
-            "$refs"
+            "$ans" \
+            "''${head:0:9}" "$dirty" "$baseline" "$(ageOf "$stamp")" "$disk" \
+            "$(memOf "$n")" \
+            "$refs" \
+            "$(recordField "$n" generation)" \
+            "$(recordField "$n" purpose)"
+        }
+
+        # After a provision, and never instead of one: the record follows the fact,
+        # so a failed provision leaves the previous base pinned rather than a claim
+        # about work that did not land.
+        #
+        # The two halves of `base` come from different places on purpose. `base.ref`
+        # is what was *asked for* and this front end has it in argv; `base.oid` is
+        # what that ref *resolved to*, read back out of the guest rather than
+        # resolved a second time here. That is the contract's rule — nothing
+        # resolves against a ref twice — and it is also less code: the guest's HEAD
+        # after a successful provision **is** that commit, and `observed` already
+        # reads it, in full, for exactly this.
+        #
+        # **Written by the front end and never by `capsule-provision`.** That keeps
+        # the program deterministic and free of host state, which is item 20's rule
+        # and item 28's. The cost is real and stated rather than hidden: running
+        # `capsule-provision --capsule a <ref>` directly provisions without
+        # recording, the same way it bypasses every other thing a front end does.
+        recordProvisioned() {
+          local n="$1" ref="''${2--}" oid
+          oid=$(observed "$n" | cut -f1)
+          if [ -z "$oid" ] || [ "$oid" = - ]; then
+            echo "capsule: provisioned, but the guest did not answer for its HEAD, so" >&2
+            echo "  no base was recorded. 'capsule $n status', then provision again." >&2
+            return 0
+          fi
+          # SC2016: `$ref`, `$oid`, `$profile` and `$class` are *jq* variables,
+          # bound by the `--arg`/`--argjson` below. Not expanding in the shell is
+          # the entire point — a value interpolated into a filter would be jq code.
+          # shellcheck disable=SC2016
+          recordWrite "$n" \
+            '.base = {ref: $ref, oid: $oid} | .profile = $profile | .class = $class' \
+            --arg ref "$ref" \
+            --arg oid "$oid" \
+            --arg profile ${lib.escapeShellArg target.name} \
+            --argjson class ${lib.escapeShellArg (builtins.toJSON {inherit (target.sizes) mem vcpu;})} \
+            > /dev/null
         }
 
         # What is inside a capsule's namespace — its own `ip_forward=0`, the tap's
@@ -320,15 +455,19 @@ in
         # audits every namespace every 10 s and exits — taking every proxy's egress
         # with it — the moment one of them stops holding, so its being active *is* the
         # per-namespace verdict, for all capsules at once.
+        # `guard` and not `state`: the record's fragment reads a `$state` in this
+        # scope (above), and a local of the same name here would shadow it for
+        # anything this function later grew to call. Cheaper to rename than to
+        # remember.
         perimeter() {
-          local state
-          state=$(unitState capsule-perimeter-guard)
-          if [ "$state" = "--" ]; then
+          local guard
+          guard=$(unitState capsule-perimeter-guard)
+          if [ "$guard" = "--" ]; then
             echo "perimeter: no guard unit — the module path is not installed on this host."
             echo "  The devshell shape's answer is 'capsule-net verify'."
             return 0
           fi
-          echo "perimeter: capsule-perimeter-guard is $state — it audits every namespace"
+          echo "perimeter: capsule-perimeter-guard is $guard — it audits every namespace"
           echo "  every 10 s, and nothing else here can see inside one."
           journalctl -u capsule-perimeter-guard -n 1 --no-pager -o cat 2>/dev/null \
             | sed 's/^/  /' || true
@@ -528,8 +667,38 @@ in
           # Write-if-absent makes the repeat a no-op rather than a second answer.
           setup)
             work "$name" provision ''${1+"$@"}
+            recordProvisioned "$name" ''${1+"$@"}
             work "$name" inject
             ${lib.optionalString (builtins.elem "baseline" programVerbs) ''work "$name" baseline''}
+            ;;
+
+          # Explicit, rather than falling through to the program dispatcher below,
+          # because provisioning is the one verb that changes what a slot *is* and
+          # so the one that has something to record.
+          provision)
+            work "$name" provision ''${1+"$@"}
+            recordProvisioned "$name" ''${1+"$@"}
+            ;;
+
+          # The whole record, for when a column is not enough. `jq .` rather than
+          # raw bytes: it is a document and reading it should not require knowing
+          # that.
+          record)
+            recordRead "$name" | jq .
+            ;;
+
+          # The one assigner-owned field with a use before D2 exists: free text,
+          # displayed and never parsed (docs/contract-assignment.md). `"$*"` so a
+          # sentence needs no quoting, and it reaches jq as an `--arg` value rather
+          # than as filter text.
+          purpose)
+            if [ "$#" -eq 0 ]; then
+              recordField "$name" purpose
+            else
+              # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
+              echo "capsule $name: generation $(recordWrite "$name" \
+                '.purpose = $p' --arg p "$*")"
+            fi
             ;;
 
           *) work "$name" "$verb" ''${1+"$@"} ;;

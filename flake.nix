@@ -331,8 +331,19 @@
     # nothing for a second instantiation to differ in, and one store path is the
     # honest statement of that. `capsule-cli` as an attribute, `capsule` as a
     # program: `.#capsule` is the guest runner and has been all along.
+    # What a capsule answers about itself, pushed over the door at each status
+    # rather than baked into the guest (host/observe.nix). Built here so the front
+    # end takes a store path and never learns a guest path: `capsule status` asks
+    # a question it does not have to understand the inside of.
+    observe = import ./host/observe.nix {
+      inherit pkgs lib;
+      workdir = target.guestPath;
+      recordDir = hostPrograms.baselineRecord;
+      inherit (target) volumePath;
+    };
+
     capsule-cli = import ./host/cli.nix {
-      inherit pkgs lib net target capsules guestSsh;
+      inherit pkgs lib net target capsules guestSsh observe;
       programVerbs =
         ["provision" "collect" "inject"]
         ++ lib.optional (hostPrograms.baseline != null) "baseline";

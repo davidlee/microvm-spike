@@ -1,10 +1,25 @@
 # Contract — what a slot is assigned, and who may say so
 
-**Nothing here is built.** [status.md](./status.md) owns the present tense and
-says so; this file is the shape being fixed *before* [Plan D](./plan-d-fleet.md)
-D1 writes a persistent record, because a record is the most likely place for
-today's one-target assumptions to survive a transition that was meant to remove
-them. Plan D §9 has the sequencing; this is the artifact that step produces.
+**Part of this is built now.** [status.md](./status.md) owns the present tense and
+is where to read what; this file stays the shape rather than the report. It was
+fixed *before* [Plan D](./plan-d-fleet.md) D1 wrote a persistent record, because a
+record is the most likely place for today's one-target assumptions to survive a
+transition that was meant to remove them — and that worked: what D1 had to decide
+on top of it was four questions about *mechanism*, answered from rules this repo
+already had, and no field moved
+([item 29](./ledger/029-the-record-is-front-end-written.md)).
+
+Two things D1 settled that this file states differently, both deliberate:
+
+- **the path is `/var/lib/capsule/slot/<slot>/`**, not `/var/lib/capsule/<slot>/`
+  as the table below has it. The state root already holds `collect/` and a slot
+  called `collect` is a legal name, so one namespacing directory replaces a list
+  of reserved words that nothing would remind anyone to extend;
+- **`base.oid` is measured, not resolved.** This file says nothing resolves
+  against `base.ref` twice; the implementation goes further and resolves it *zero*
+  times host-side, reading the guest's `HEAD` after a successful provision
+  instead. The commit a capsule is working on is the only commit an assignment can
+  honestly claim to have pinned.
 
 **No version numbers.** The shape is in negotiation between this repo and
 doctrine, and a version is a compatibility promise neither can make yet. What is
