@@ -36,6 +36,19 @@ the devshell path nothing matches, so an unnamed verb refuses there and
 `CAPSULE_NAME` is the answer; that path runs one guest and never needed a name
 for anything but the quarantine.
 
+**What the refusal was missing was a diagnosis, and it showed the first time two
+slots were up.** `capsule ssh a` is the transposition to expect — verb-first is
+what `git` and `systemctl` teach — and the refusal it produced was correct and
+unhelpful: name-first means `a` was read as a command to run in the guest, so
+the message said an unnamed `ssh` was ambiguous without mentioning the name
+sitting in argv. Both refusal branches now name the likely reading when the
+first remaining argument is a declared slot. What they deliberately do *not* do
+is accept it: `ssh` and the four programs take a passthrough argument, so `a` is
+something a caller could genuinely mean, and a front end that silently accepts
+both argv shapes has both readings baked into it — item 20's smell one level up
+from the transport it was originally about. Say what it looks like, act on one
+order only.
+
 **The justfile is where this pays.** The word `capsule` was a literal in fifteen
 recipes — invisible while the default capsule was called that, and wrong the
 moment it was not. The delegating recipes now pass no name at all and let the

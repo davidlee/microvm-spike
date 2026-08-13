@@ -44,10 +44,10 @@ time it is touched.
 | [19](./019-baseline-build-and-figures.md) | the baseline build, and where a figure is allowed to live | built, run, measured |
 | [20](./020-which-capsule-a-program-means.md) | which capsule a host program is talking to | decided, built, run at N=2 on both paths |
 | [21](./021-declared-capsule-flake-attribute.md) | a declared capsule needs a flake attribute, and all of them are one value | built and run at N=2 |
-| [22](./022-secrets-at-start.md) | secrets at start, and a payload that may be absent | built, unrun on this host |
+| [22](./022-secrets-at-start.md) | secrets at start, and a payload that may be absent | built and run at N=2 |
 | [23](./023-second-target.md) | a second target, and what the parameterisation actually cost | done on branch `second-target` |
-| [24](./024-set-u-not-login-shell.md) | a `set -u` script must not *be* the login shell | fixed in-tree, unshipped on this host |
+| [24](./024-set-u-not-login-shell.md) | a `set -u` script must not *be* the login shell | fixed and shipped, unwitnessed |
 | [25](./025-assignment-is-a-perimeter-verb.md) | assignment is a perimeter-mutating verb | open — scoped in [contract-assignment.md](../contract-assignment.md) |
 | [26](./026-project-nix-runs-on-the-host.md) | a project's flake is code that runs on the host | open — scoped in [contract-flavour.md](../contract-flavour.md) |
 | [27](./027-a-class-is-not-always-a-kilobyte.md) | a class is a kilobyte only over reservations the profile derives nothing from | settled for `mem` by eval, `vcpu` read from source |
-| [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built, unrun — wants the rename's rebuild |
+| [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built and run at N=2 |

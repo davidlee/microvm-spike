@@ -35,16 +35,33 @@ Decided in conversation, so the rest of the file can lean on it. Not built.
   the *unit's* cgroup peak: 7169 / 7510 / 7774 / 6801 / 7845 MiB across five
   cold builds, and once **8365 against a declared 8192**, where the +173 MiB is
   host page cache for the VMM's image and volume reads — charged to the unit,
-  reclaimable, with `memory.events` zero throughout. So a slot costs `mem` plus
-  ~0.2 GiB observed, and six at 6144 is ~36-37 GiB.
-- **Six hot is the arithmetic; four is the recommendation.** 36 GiB against 60.4
-  GiB of host RAM is not what binds. What binds is that this host had **13.1 GiB
-  available with both capsules idle** and ordinary work running, and that an
-  idle built capsule holds 6141 MiB of `anon` while the guest inside it reports
-  481 MiB used ([probes](./probes.md#what-a-capsule-holds-after-it-has-built)) —
-  the ratchet, which only a stop closes. No capsule has run at a 6144 ceiling
-  yet, so the per-unit peak wants re-taking after the drop; until then four hot
-  is the number with evidence under it.
+  reclaimable, with `memory.events` zero throughout. ~~So a slot costs `mem` plus
+  ~0.2 GiB observed, and six at 6144 is ~36-37 GiB.~~
+
+  **Struck — the cut is free but it is not a saving, and the arithmetic above is
+  the part that was wrong.** A built slot holds ~6.1 GiB of `anon` at *either*
+  ceiling (6141 of 8192, 6095 of 6144), because the VMM holds every distinct page
+  the build ever touched rather than a share of what the guest was offered
+  ([probes](./probes.md#the-first-cold-build-at-a-6144-ceiling)). Two things
+  follow. **`mem` is not a term in what a slot costs** until it drops below the
+  workload's touched footprint, at which point it stops being free and starts
+  squeezing the guest — 6144 did not, and nothing says where that boundary is.
+  And **`+0.2 GiB` was one instance, not a constant**: the page-cache half has
+  read 173, 965 and 1493 MiB, so the honest form is ~6.1 GiB of hard `anon` plus
+  0.2-1.5 GiB of reclaimable cache. Six hot is therefore ~45 GiB by the same
+  addition, worse than the 36-37 it replaces — **but that addition is itself
+  suspect**, because one guest image means the cache pages are largely the *same*
+  pages, charged to whichever slot faulted them first, and summing them per slot
+  double-counts. That is the measurement N=2-at-6144 would settle and no run has.
+- **Four hot is the recommendation, and now for a different reason.** Not
+  because six fits the arithmetic — the arithmetic above is withdrawn — but
+  because the term that binds was never `mem`: this host had **13.1 GiB available
+  with both capsules idle** and ordinary work running, and an idle built capsule
+  holds ~6.1 GiB of `anon` while the guest inside it reports a few hundred MiB
+  used ([probes](./probes.md#what-a-capsule-holds-after-it-has-built)) — the
+  ratchet, which only a stop closes and which a smaller ceiling does not shorten.
+  Four is the number with evidence under it; what would move it is a hot-slot
+  count measured directly, not a per-slot figure multiplied.
 - **`~/flakes` takes this repo locally.** The `github:davidlee/oubliette` input
   exists so darwin can evaluate the flake, not because the host wants a round
   trip; Sleipnir overrides it with `git+file:///home/david/dev/microvm-spike` at
@@ -738,9 +755,11 @@ Not answerable from doctrine, and worth asking before the first one arrives:
    both need the same rebuild. The two existing capsules are expendable, so
    recreate rather than migrate — a `mv` of the state directory would also want
    its two gcroot symlinks re-pointed, and the volumes are worth less than the
-   care. Take a per-unit `memory.peak` off the first cold build afterwards: no
-   capsule has ever run at a 6144 ceiling, so §0's four-hot recommendation is
-   the old ceiling's figures reasoned forward. What the rename actually touches,
+   care. Take a per-unit `memory.peak` off the first cold build afterwards,
+   because §0's arithmetic is the old ceiling's figures reasoned forward — and
+   that peak is now taken, and it withdrew the arithmetic rather than confirming
+   it (§0, [probes](./probes.md#the-first-cold-build-at-a-6144-ceiling)). What the
+   rename actually touches,
    beyond `capsules.nix`:
    - **the devshell path's assumptions.** `vm <name>` resolves a flake
      attribute,

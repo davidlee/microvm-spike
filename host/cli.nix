@@ -334,6 +334,23 @@ in
             | sed 's/^/  /' || true
         }
 
+        # `capsule ssh a` is the transposition to expect, because verb-first is
+        # what git and systemctl teach. It is also *legal*: `ssh` and the four
+        # programs take a passthrough argument, so `a` is something a caller
+        # could genuinely mean to run in the guest. So this says what it looks
+        # like and never reorders — a front end that silently accepts both argv
+        # shapes has both readings baked into it, which is the smell NOTES item
+        # 20 is about. Always succeeds, so a call site is one word.
+        nameFirstHint() {
+          [ "$#" -gt 0 ] || return 0
+          for d in "''${declared[@]}" all; do
+            if [ "$1" = "$d" ]; then
+              echo "  Name first: you may mean 'capsule $1 $verb'." >&2
+              return 0
+            fi
+          done
+        }
+
         # Which capsule an unnamed verb means: the one that is up, and only when
         # exactly one is. A slot's name carries no meaning, so there is nothing to
         # default to — but the capsule a human is working in is nearly always the
@@ -356,11 +373,13 @@ in
             0)
               echo "capsule: no capsule is up, so an unnamed '$verb' means nothing here." >&2
               echo "  Name one — ''${declared[*]} — or set CAPSULE_NAME." >&2
+              nameFirstHint ''${1+"$@"}
               exit 1
               ;;
             *)
               echo "capsule: ''${up[*]} are up, so an unnamed '$verb' is ambiguous." >&2
               echo "  Name one, or 'all' if it is a question." >&2
+              nameFirstHint ''${1+"$@"}
               exit 1
               ;;
           esac

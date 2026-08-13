@@ -276,11 +276,16 @@ which shape nearly every decision here:
   choosing — a program that can try both transports has both baked in (NOTES
   item 20). `just provision | inject | baseline | collect | setup <name>` picks
   the reachable copy, which is a recipe's latitude and not a program's.
-- **`microvm -c … -f <flake>` takes no fragment.** The CLI appends
+- **`microvm -c … -f <flake>` takes no fragment, and omitting `-f` is worse than
+  forgetting it.** The CLI appends
   `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
   `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error
-  reads as a missing output. It also needs root, for `/var/lib/microvms` and the
-  gcroots.
+  reads as a missing output. With no `-f` at all it defaults to the flake at
+  `/etc/nixos` — not a git repo on this host — and fails as
+  `fatal: '/etc/nixos' does not appear to be a git repository`, naming neither
+  the missing flag nor the fact that it substituted a path you never typed. Use
+  `just up <name>`, which passes `{{justfile_directory()}}`. It also needs root,
+  for `/var/lib/microvms` and the gcroots.
 - **`capsule-host` children orphan easily.** A Ctrl-C could leave tinyproxy
   holding the port. It preflights the port, reaps a stray matching its own
   config path, and uses `wait -n` with an INT/TERM trap; if a bind fails anyway,

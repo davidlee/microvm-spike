@@ -587,6 +587,80 @@ into both guests throughout the window the totals cover. The rest of the host's
 load was not recorded for this run, which is a real limit on the io figure
 specifically — a quiet host is the easy case for io.
 
+## The first cold build at a 6144 ceiling
+
+The measurement [plan-d](./plan-d-fleet.md) §0 owed once it cut `sizes.mem` from
+8192 to 6144 by arithmetic: slot `a`, freshly created after the rename, fresh
+volume, `20260813T080959Z`, `capsule a setup edge` resolving to commit
+`c5f7ca7f2` — one command from created to green, and the first run of `setup` as
+a verb rather than as its three parts. The live
+`firecracker-capsule.json` reads `mem_size_mib` **6144** and `vcpu_count` 4, so
+the cut is in the closure the guest booted — and one config path serves both
+slots, which is why both are `microvm@capsule` in the process table.
+
+The control is [what a capsule holds after it has built](#what-a-capsule-holds-after-it-has-built),
+the same reading at the old ceiling. Both are one capsule, idle, after one cold
+baseline.
+
+| figure | 8192 ceiling | **6144 ceiling** |
+| --- | --- | --- |
+| `just web-build test`, cold, to green | 109 / 115 / 104 s sequential | **110 s**, exit 0 |
+| MiB of volume, before → after | 124 → 1253 | 124 → **1254** |
+| unit `memory.peak` | 7168 MiB | **7664 MiB** |
+| `anon` | 6141 MiB | **6095 MiB** |
+| page cache (`file`) | 965 MiB | 1493 MiB, of which 1491 `inactive_file` |
+| slab | 29 MiB | 43 MiB |
+| `memory.events`, every field | all 0 | all **0** |
+| guest `free -m`, used / buff-cache / free | 481 / 2383 / 5373 of 7943 | **539 / 2325 / 3419** of 5927 |
+| guest `/proc/pressure/memory` total, whole life | not read | **7.2 ms** `some`, 5.6 ms `full` |
+| unit cpu stall total, whole life | not read at N=1 | 31.8 ms `some`, 31.1 ms `full` |
+| unit io stall total, whole life | 544 µs | 4.4 ms both |
+
+**Lowering the ceiling did not lower the charge, and that is the finding.**
+`anon` moved 46 MiB against a 2048 MiB cut. A slot still costs ~7.5 GiB
+ratcheted after one build, so **four hot slots cost what four would have cost at
+8192** — ~30 GiB, not 4 × 6. §0's four-hot recommendation was per-unit peak
+scaled by the ceiling, and the ceiling is not the term the peak follows.
+
+**What `anon` 6095 of 6144 is not is a working set.** 99.2% of the guest's RAM
+reads like saturation, but the same workload touched 6141 MiB when it had 8192 —
+75% — so ~6.1 GiB is the *cumulative distinct pages the build ever touched*,
+independent of the ceiling in both runs (n=1 each). A page the guest has once
+touched is faulted into the VMM's mapping and firecracker has no balloon, so
+the guest freeing it changes nothing host-side. The gap is visible in the same
+row of the table: the guest reports 539 MiB used and 3419 free while its unit
+holds 6095 MiB of anon.
+
+**The guest was not squeezed, and host `memory.events` is not what says so.**
+No `MemoryMax` is set on the unit, so all-zero events mean nothing was ever
+*forced* to reclaim — not that anything had headroom. The guest-side readings
+are what settle it: demand is unchanged from the 8192 run (539 against 481 used,
+2325 against 2383 buff/cache), 7.2 ms of guest memory pressure over the whole
+lifetime, no swap. The cut removed free pages the workload never asked for.
+
+So the cut is **free but not a saving**: no wall-clock cost, no guest pressure,
+3.4 GiB still free — worth keeping for the reason §0 also gave, that it lowers
+the ceiling a runaway build converges on, and worth quoting for nothing else.
+**A stop is still the only thing that returns memory** (freshness), which is
+[item 12](./ledger/012-no-resource-ceiling.md)'s ratchet unchanged.
+
+Two rows are weaker than they look. The page-cache comparison is **not** clean:
+this reading is minutes after the build and the control is hours after, which is
+exactly where `inactive_file` would differ, and 1491 of the 1493 MiB here is
+inactive. And the stall totals span each cgroup's whole life rather than the
+build, so they are upper bounds in the same way as
+[the concurrent pair's](#pressure-under-two-concurrent-cold-builds).
+
+**Slot `b`, created in the same sequence and never built in, is 722 MiB peak /
+675 MiB anon / 31 MiB cache** — booted-idle, consistent with the ~1.5 GiB two
+booted capsules cost at the old ceiling, and confirming that the ratchet is what
+a build does and not what a boot does.
+
+**`system-microvm.slice` read 16305 MiB peak again**, to the MiB, and this time
+across a host rebuild, two renamed slots and two freshly created state
+directories. Third identical reading, sessions apart. A slice's peak is not
+attributable to any session that reads it, and nothing in the reading says so.
+
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the
