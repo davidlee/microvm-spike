@@ -1,6 +1,8 @@
 # NOTES item 2 — agent credentials into a guest with no shares
 
-*State: open.*
+*State: resolved — the divergence below has a mechanism, and
+[item 32](./032-credential-divergence-has-a-mechanism.md) sidesteps it rather
+than managing it.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -30,3 +32,20 @@ ANTHROPIC_API_KEY=...` in `/work/.env`, sourced at login. OAuth's device flow
 wants a browser, which is why the token is carried rather than obtained.
 **That path has a carrier now too** — the same one, as a declared payload, and
 `capsule <name> start` runs it ([item 22](./022-secrets-at-start.md)).
+
+---
+
+**Resolved by [item 32](./032-credential-divergence-has-a-mechanism.md).** The
+last paragraph above drew the right line — concurrency is not divergence — and
+had the reason inverted. Two copies of one credential do not drift apart; they
+are two claimants on a grant that **rotates on every refresh**, and the one that
+loses the race is told `invalid_grant` and erases its own credential file. The
+shared file the bwrap jails use is not shared identity, it is a compare-and-swap.
+Write-if-absent was therefore the right instinct for the wrong reason, and no
+carrying discipline could have made a copy survive.
+
+It stops mattering: `claude setup-token` mints a year-long grant that is saved
+nowhere and never joins the rotating lineage, so a capsule carries
+`CLAUDE_CODE_OAUTH_TOKEN` and neither payload described above is needed for
+Claude. Item 32 has the mechanism, the exposure trade, and what a broker would
+buy if the trade ever stops being acceptable.

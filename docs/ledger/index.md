@@ -24,7 +24,7 @@ time it is touched.
 | # | item | state |
 | --- | --- | --- |
 | [1](./001-what-has-been-run.md) | what has actually been run, versus reviewed | standing caveat |
-| [2](./002-agent-credentials.md) | agent credentials into a guest with no shares | open |
+| [2](./002-agent-credentials.md) | agent credentials into a guest with no shares | resolved — the divergence has a mechanism, and item 32 sidesteps it |
 | [3](./003-claude-code-unfree.md) | `pkgs.claude-code` is unfree, and guarded for channel drift | resolved |
 | [4](./004-live-postgres.md) | `just test` may want a live Postgres | open, unhit |
 | [5](./005-doctrine-binary-in-guest.md) | no `doctrine` binary in the guest | resolved — `dev-tools` |
@@ -54,3 +54,4 @@ time it is touched.
 | [29](./029-the-record-is-front-end-written.md) | the record is front-end written, and a pin is measured rather than resolved twice | built and run on this host |
 | [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12; the pool itself is D2 |
 | [31](./031-the-fragment-vocabulary.md) | the fragment vocabulary: composition built, selection deferred | built, run, measured — supersedes item 3; selection is [Plan D](../plan-d-fleet.md) D7 |
+| [32](./032-credential-divergence-has-a-mechanism.md) | credential divergence has a mechanism, and a grant that sidesteps it | measured, resolved by avoidance — closes item 2; broker available and unbuilt |

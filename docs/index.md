@@ -20,6 +20,7 @@ architecture invariants and the gotchas that have already cost time, is
 | what does administering a fleet of them cost — across projects, refs and slices? | [plan-d-fleet.md](./plan-d-fleet.md) |
 | how would this work without firecracker, or on macOS? | [plan-b-other-jails.md](./plan-b-other-jails.md) |
 | which hypervisor, and why this one? | [eval-hypervisors.md](./eval-hypervisors.md) |
+| what would a second VMM cost, and what would it buy? | [spike-cloud-hypervisor.md](./spike-cloud-hypervisor.md) — scoping; Phase 0 run, nothing built |
 | why doesn't the capsule port to macOS? | [eval-macos.md](./eval-macos.md) |
 | what does doctrine want from *this round* of probes? | [import-doctrine.md](./import-doctrine.md) — disposable packet |
 
