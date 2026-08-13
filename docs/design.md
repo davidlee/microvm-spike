@@ -220,7 +220,9 @@ own pin — `rust-overlay` is no longer an input here.
 
 The jailed `claude` / `codex` wrappers are deliberately excluded: they are bwrap
 wrappers binding *host* paths, which mean nothing inside the VM. The capsule
-gets `pkgs.claude-code` instead, and its confinement is the VM.
+gets the unjailed CLIs from `llm-agents` instead — the `agents` fragment of
+`fragments.nix` ([item 31](./ledger/031-the-fragment-vocabulary.md)) — and its
+confinement is the VM.
 
 **`git+file:` reads committed HEAD.** Changes to doctrine's flake need a commit
 there before `nix flake update doctrine` will see them.

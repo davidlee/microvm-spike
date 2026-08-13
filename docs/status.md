@@ -6,7 +6,9 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after **D1 + D5 built, switched and run on this host** —
+Last updated 2026-08-13, after **the fragment vocabulary — built, evaluated, and
+not yet in an image** (below) — and before that the same day after **D1 + D5
+built, switched and run on this host** —
 which took one fix, because the eval check that was supposed to catch it could
 not see the thing that was wrong (below) — and before that the same day after
 Plan D §9 step 3 **deployed** — the rename to
@@ -37,6 +39,38 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **A guest's tools compose now, and the amenities are what paid for it.**
+  `fragments.nix` is the host's fragment vocabulary — `agents` (`claude`, `pi`,
+  `rg`, `fd`, `tree`, `jq`, `bubblewrap`) and `dev-facilities` (`helix`, `tmux`,
+  `btop`, `nushell`) — `extras` in `flake.nix` is one selection for the fleet,
+  and `vm/capsule.nix` composes it onto the target's floor. So
+  [contract-flavour.md](./contract-flavour.md)'s `compose(floor, extras)` is
+  built, with the two owners in two files instead of one implicit list
+  ([item 31](./ledger/031-the-fragment-vocabulary.md)).
+
+  **A slot wanting tmux is what started it**, and the useful part is where the
+  three obvious homes fail: `target.nix`'s `extraTools` says *doctrine* needs
+  tmux, and `vm/capsule.nix`'s `systemPackages` is where `claude-code` already
+  was — the split the contract calls the whole design, left implicit at exactly
+  the place it matters. That line is absorbed rather than left beside the new
+  one, which is the same one-construction rule the `observe` argument cost a
+  rebuild to learn.
+
+  **The agents come from `llm-agents` directly**, not from `~/flakes/pub`'s
+  `unjailed`, because that attrset *is* `inherit (llm-agents.packages.…)
+  claude-code pi` — same derivations, and going through `pub` would have added
+  five lock entries for none of them. It supersedes
+  [item 3](./ledger/003-claude-code-unfree.md): the `allowUnfreePredicate` and
+  the `pkgs ? claude-code` guard are both gone, since the derivation is created
+  in another eval.
+
+  **Evaluated, not built.** `just check` is green and the composed list
+  evaluates with all thirteen packages in it; the refusal was watched failing on
+  a misspelt fragment name before it was kept. What has *not* happened is the
+  image: this is a guest change, so it needs `nix build .#capsule` and
+  `just refresh <name>` per slot, and the disk delta of a second nixpkgs in the
+  closure is unmeasured. `bubblewrap` in the guest is untested — bwrap wants
+  unprivileged user namespaces and this guest runs `lockKernelModules`.
 - **Plan D D1 and D5 are installed and have run** — the assignment record and the
   status columns, the pair Plan D calls cheapest-useful because a fleet has to be
   legible before it can be administered. Three new files and no second
@@ -718,6 +752,17 @@ declared namespace, so one of ten that will not come up denies the whole host.
 
 ## Open, and nothing should claim these closed
 
+- **The flavour composition has never been in an image.** `fragments.nix`
+  evaluates; no capsule has booted with it, so nothing has run `helix`, `tmux`
+  or the `llm-agents` build of `claude` in a guest, and the closure's disk delta
+  against the ~3.0 GiB image is unmeasured. `bubblewrap` is the one with a named
+  doubt rather than merely no evidence: it needs unprivileged user namespaces,
+  under `lockKernelModules` and `protectKernelImage`
+  ([item 31](./ledger/031-the-fragment-vocabulary.md)).
+- **Extras are fleet-wide, so the record's `image` is still inert.** One list
+  for every slot is what keeps one image; per-assignment selection, the
+  store-path identity, the gcroot that retains it and the refusal to recompose
+  under a dirty volume are all still Plan D D7.
 - ~~**6144 has never run.**~~ Run, and it answered the opposite question to the
   one asked. The cut costs nothing (110 s to green, no guest pressure, 3.4 GiB
   free in the guest) **and saves nothing**: a built slot's `anon` is ~6.1 GiB at

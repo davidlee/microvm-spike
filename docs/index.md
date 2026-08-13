@@ -10,7 +10,7 @@ architecture invariants and the gotchas that have already cost time, is
 | why is it built like this? | [design.md](./design.md) |
 | what must a repo be, for this to confine it? | [contract-target.md](./contract-target.md) |
 | what is a slot assigned, and who may say so? | [contract-assignment.md](./contract-assignment.md) — unbuilt |
-| where does a guest's tool set come from, and how does it compose? | [contract-flavour.md](./contract-flavour.md) — unbuilt |
+| where does a guest's tool set come from, and how does it compose? | [contract-flavour.md](./contract-flavour.md) — composition built (`fragments.nix`), selection unbuilt |
 | what does doctrine ask of this, and supply to it? | [contract-doctrine.md](./contract-doctrine.md) |
 | what does the confinement actually claim? | [threat-model.md](./threat-model.md) |
 | why was *that* decided, and what was tried first? | [ledger/index.md](./ledger/index.md) — the numbered ledger |

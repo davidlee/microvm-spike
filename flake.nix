@@ -27,6 +27,19 @@
     # `git+file:` reads committed HEAD, so changes there need a commit before
     # `nix flake update target` will see them.
     target.url = "git+file:///home/david/dev/doctrine";
+
+    # The one tool source this host registers beyond nixpkgs and the target:
+    # where the agent CLIs come from (`fragments.nix`'s `agents`). A fragment is
+    # code in the guest closure, so its source is a flake input of *this* repo,
+    # pinned in a lock this host owns and updated only by a deliberate
+    # `nix flake update` (NOTES item 26, docs/contract-flavour.md). The literal
+    # is per *source* rather than per project, which is why this list stays
+    # short as the fleet grows.
+    #
+    # Deliberately not `follows = "nixpkgs"`: these are prebuilt in numtide's
+    # cache against their own pin, and re-pointing nixpkgs rebuilds them here
+    # for no gain.
+    llm-agents.url = "github:numtide/llm-agents.nix";
   };
 
   outputs = inputs @ {
@@ -62,6 +75,18 @@
     # `capsule-provision`, and they must agree — so it is spelled here, where the
     # wiring already is, and threaded to both.
     workBranch = "work";
+
+    # The host operator's half of every guest's tool set: which fragments of
+    # `fragments.nix`'s vocabulary this fleet composes into its image. A value
+    # threaded like `workBranch`, and one list for the fleet — so every slot
+    # arrives at the same composition and stays one image (NOTES item 21), and
+    # a per-slot list is a field this value moves into rather than a mechanism
+    # anything here has to grow (Plan D D7, docs/contract-flavour.md).
+    #
+    # The floor is *not* here: that is the target's, and `vm/capsule.nix` still
+    # reads it out of `target.nix`. Two owners, two files, one composition.
+    extras = ["agents" "dev-facilities"];
+
     # Where a capsule's way in lives, for the probes' throwaway capsules — which
     # are not instances, and must not spell that path a second time.
     inherit (capsules) socketOf;
@@ -71,7 +96,7 @@
     mkVm = hostName: module:
       lib.nixosSystem {
         inherit system;
-        specialArgs = {inherit inputs net target workBranch;};
+        specialArgs = {inherit inputs net target workBranch extras;};
         modules = [
           microvm.nixosModules.microvm
           ./vm/common.nix

@@ -53,3 +53,4 @@ time it is touched.
 | [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built and run at N=2 |
 | [29](./029-the-record-is-front-end-written.md) | the record is front-end written, and a pin is measured rather than resolved twice | built and run on this host |
 | [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12; the pool itself is D2 |
+| [31](./031-the-fragment-vocabulary.md) | the fragment vocabulary: composition built, selection deferred | built, unrun — supersedes item 3; selection is [Plan D](../plan-d-fleet.md) D7 |

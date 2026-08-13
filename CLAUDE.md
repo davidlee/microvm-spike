@@ -394,8 +394,18 @@ which shape nearly every decision here:
   wrapped with its own paths. Don't grow a second implementation for either — if
   a unit needs something, it comes from the same program. `capsule-provision` is
   the only thing that reads the real repo, and it always runs as the human.
-- The guest's tool set comes from the target's flake — `target.nix`'s
-  `toolsPackage`, for doctrine `packages.dev-tools`. Add tools
-  there, not here, so the VM and that devshell cannot drift. The jailed
-  `claude`/`codex` bwrap wrappers are excluded on purpose — they bind host
-  paths that do not exist in the VM.
+- **The guest's tool set has two owners, and which one a tool has decides where
+  it goes.** `compose(floor, extras)`: the **floor** is the target's —
+  `target.nix`'s `toolsPackage`, for doctrine `packages.dev-tools` — so a tool
+  the project builds or tests with goes in *that repo's* flake and the VM cannot
+  drift from its devshell. The **extras** are the host operator's, and they are
+  `fragments.nix`'s vocabulary selected by `extras` in `flake.nix`: `rg`, an
+  editor, an agent CLI — anything that is nobody's project. Putting a
+  convenience in `target.nix` says doctrine needs it, which is the ownership
+  smell pointed the other way (NOTES item 31,
+  docs/contract-flavour.md). A fragment's source is a flake input of *this*
+  repo, pinned here, and convenience is **declared** — never scraped from a
+  human's `$HOME`, which would describe a machine the capsule is not. One list
+  for the fleet today, so one image; per-slot selection is Plan D D7. The jailed
+  `claude`/`codex` bwrap wrappers are still excluded — they bind host paths that
+  do not exist in the VM.

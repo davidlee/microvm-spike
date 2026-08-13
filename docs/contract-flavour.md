@@ -1,13 +1,22 @@
 # Contract — what a flavour is, and where its tools come from
 
-**Nothing here is built.** [status.md](./status.md) owns the present tense.
+**Composition is built; selection is not.** [status.md](./status.md) owns the
+present tense, and [item 31](./ledger/031-the-fragment-vocabulary.md) is what
+was built and why. In short: `fragments.nix` is the host's vocabulary, `extras`
+in `flake.nix` is one selection for the whole fleet, and `vm/capsule.nix`
+composes it onto the target's floor — so the two owners below are two files
+rather than a paragraph. **Unbuilt:** per-assignment extras, the store-path
+identity and the gcroot that retains it, the refusal to change a composition
+under a dirty volume, and capability fragments. Read the rest as design with
+that line drawn through it.
+
 This is the design being fixed alongside
 [contract-assignment.md](./contract-assignment.md), and it is the *build-time*
 half of the same split: an assignment says what a slot is for, a flavour says
-what the guest inside it can do. Today there is exactly one of these and it is
-implicit — the guest image, built from `target.nix`'s `toolsPackage` plus
-`extraTools` plus whatever `vm/capsule.nix` supplies. Naming it is what lets
-there be two.
+what the guest inside it can do. Until item 31 there was exactly one of these
+and it was implicit — the guest image, built from `target.nix`'s `toolsPackage`
+plus `extraTools` plus whatever `vm/capsule.nix` supplied. Naming it is what
+lets there be two.
 
 Cost, cardinality and the one-image lever it has to preserve are
 [Plan D](./plan-d-fleet.md) §6 and D7. The client-facing floor — what a repo has
@@ -107,8 +116,15 @@ like in practice:
 
 - **`agents`** — `claude`, `pi`, `rg`, `tree`, fileutils, standard shell. What
   makes the capsule a place an agent can work at all.
-- **`dev-facilities`** — `neovim`, `nushell`, `btop`. What makes it a place a
+- **`dev-facilities`** — an editor, `nushell`, `btop`. What makes it a place a
   human can look around in.
+
+Both are built, under those names, with those contents give or take: `agents`
+carries `claude`, `pi`, `rg`, `fd`, `tree`, `jq` and `bubblewrap`, and
+`dev-facilities` carries `helix`, `tmux`, `btop` and `nushell` — `helix` rather
+than neovim because the convenience rule below forbids bringing this host's
+dotfiles, and an editor that is useful unconfigured is the one that survives
+that ([item 31](./ledger/031-the-fragment-vocabulary.md)).
 
 They are worth naming because of what they demonstrate about cost. **Neither is
 project-shaped, and both are wanted by nearly every slot** — so nearly every
@@ -118,8 +134,11 @@ the opposite one: a fragment used by a single slot is its own 3.0 GiB. Broad and
 few is not a style preference here, it is the arithmetic.
 
 `agents` also inherits two existing items rather than raising new ones:
-`pkgs.claude-code` is unfree and guarded against channel drift
-([item 3](./ledger/003-claude-code-unfree.md)), and how an agent's credentials
+`pkgs.claude-code` was unfree and guarded against channel drift, which the
+built fragment settles by taking the agents from `llm-agents` instead — a
+derivation from another eval, so neither guard has anything left to do
+([item 3](./ledger/003-claude-code-unfree.md),
+[item 31](./ledger/031-the-fragment-vocabulary.md)) — and how an agent's credentials
 reach a guest with no shares is [item 2](./ledger/002-agent-credentials.md),
 still open — a payload question, not a fragment one. The jailed `claude`/`codex`
 bwrap wrappers stay out, as they already do: they bind host paths the VM does

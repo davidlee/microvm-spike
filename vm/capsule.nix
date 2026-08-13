@@ -11,8 +11,19 @@
   # same one and verifies it, because a mismatch here lands history without
   # touching the worktree and says nothing.
   workBranch,
+  # Which fragments of the host's vocabulary this guest composes on top of the
+  # target's floor (`../fragments.nix`, `extras` in flake.nix). A selection, not
+  # a tool set: nothing here may name a package, because a convenience that is
+  # nobody's project is the host operator's to declare and the target's floor is
+  # the target's (docs/contract-flavour.md).
+  extras,
   ...
 }: let
+  # The vocabulary, resolved against *this* guest's pkgs — so a fragment is the
+  # same derivation the rest of the closure is built from, and the composition
+  # is one expression rather than a list assembled twice.
+  flavour = import ../fragments.nix {inherit pkgs inputs;};
+
   # The two paths the host also knows, so both come from target.nix rather than
   # being derived twice — the host pushes to `repo` and fetches from it, and it
   # resolves the caches and the baseline's record directory against `work`.
@@ -64,11 +75,6 @@
     else throw "vm/stop-key.pub is missing: generate this host's capsule stop key and commit its public half (README, 'Host requirements').";
   proxy = "http://${net.host}:${toString net.proxyPort}";
 in {
-  # claude-code is unfree; permit it by name rather than opening the whole
-  # guest closure to unfree packages.
-  nixpkgs.config.allowUnfreePredicate = pkg:
-    builtins.elem (lib.getName pkg) ["claude-code"];
-
   microvm = {
     inherit (target.sizes) vcpu mem;
     volumes = [
@@ -127,14 +133,20 @@ in {
       # any more, because there is nothing for the guest to initiate.
       pkgs.git
     ]
-    # The target's devshell tool set, built from the target's own nixpkgs pin so
-    # the guest and that devshell cannot drift.
-    ++ lib.optional (target.toolsPackage != null)
-    inputs.target.packages.${pkgs.stdenv.hostPlatform.system}.${target.toolsPackage}
-    # What that list leaves out because it assumes a host which has them.
-    ++ map (name: pkgs.${name}) target.extraTools
-    # Only in nixpkgs on recent channels; skip rather than break eval.
-    ++ lib.optional (pkgs ? claude-code) pkgs.claude-code;
+    # `compose(floor, extras)` — the whole of what this guest can do, and the
+    # two halves have different owners (docs/contract-flavour.md). The agent
+    # CLIs are in the `agents` fragment now rather than beside this list, which
+    # is what stops a convenience being spelled in two places.
+    ++ flavour.compose {
+      inherit extras;
+      floor =
+        # The target's devshell tool set, built from the target's own nixpkgs
+        # pin so the guest and that devshell cannot drift.
+        lib.optional (target.toolsPackage != null)
+        inputs.target.packages.${pkgs.stdenv.hostPlatform.system}.${target.toolsPackage}
+        # What that list leaves out because it assumes a host which has them.
+        ++ map (name: pkgs.${name}) target.extraTools;
+    };
 
   environment.variables =
     {

@@ -175,7 +175,7 @@ is the same for every target.
 | `TMPDIR` | `<volumePath>/tmp`, mode 1777 — on disk, because the guest's root is tmpfs and therefore guest RAM |
 | caches | one env var per `caches` entry, pointing at a directory the seed has created and chowned |
 | egress | `HTTP(S)_PROXY`/`http(s)_proxy` at the host's allowlist proxy, `NO_PROXY` for the host and loopback. No default route and no resolver in the guest |
-| tools | `toolsPackage` + `extraTools` + `git` + `claude-code` where nixpkgs has it |
+| tools | `git`, plus `compose(floor, extras)`: the floor is this repo's — `toolsPackage` + `extraTools` — and the extras are the host operator's, from `fragments.nix`'s vocabulary (`agents`, `dev-facilities`). A target names no convenience and may rely on none ([contract-flavour.md](./contract-flavour.md), [item 31](./ledger/031-the-fragment-vocabulary.md)) |
 | git | `user.name`/`user.email` set, `init.defaultBranch` = the constant `work`, and `receive.denyCurrentBranch = updateInstead` so a provision checks out rather than moving a ref |
 | static config | every `guestConfig` entry symlinked onto the volume from the closure — a link, so a rebuild replaces it and a fresh capsule cannot start with a stale copy |
 | secrets | `<volumePath>/.env`, sourced at login, persisting on the volume — and pushed there at `capsule <name> start` if this host declares a source for it (`setup.nix`, which is not the target's) |
