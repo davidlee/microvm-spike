@@ -29,8 +29,8 @@ point of the item.** CLAUDE.md's worked example for the guinea-pig rule is
 exactly *render static guest config from the instance's declared reservation* —
 the alternative being a copy of a human's `~/.cargo/config.toml`, which
 describes a machine the capsule is not. The coupling is intended and doctrine
-is right to have it. What was wrong was the **cost model**, which assumed a reservation only
-ever reaches the runner.
+is right to have it. What was wrong was the **cost model**, which assumed a
+reservation only ever reaches the runner.
 
 So the rule the class/profile boundary actually wants:
 
