@@ -293,6 +293,19 @@ which shape nearly every decision here:
   careful ones.** `observe` moved into `host/programs.nix` beside the paths it
   reads for that reason, which is the same reason `baselineRecord` is exported
   there.
+- **A hardened unit that may not read `/proc` gets a short answer, not an
+  error.** `ip netns pids <ns>` works by reading `/proc/<pid>/ns/net` for every
+  process, which `ptrace_may_access` gates on **`CAP_SYS_PTRACE`** for anything
+  owned by another user — `CAP_DAC_READ_SEARCH` does not cover that check. With
+  the caps trimmed it returns the readable processes and silently omits the rest,
+  so the guard concluded a correctly-bound VMM was `not in cap-a` and refused the
+  fleet's egress, naming a cause that was not the cause. The A/B that proves it,
+  and the shape for the next one:
+  `sudo systemd-run --pipe -q -p CapabilityBoundingSet="…" <cmd>` beside plain
+  `sudo <cmd>` — the same command under the unit's own capability set. **The
+  stubbed cases cannot catch this class**: `guardCases` proves logic, and
+  privilege is only provable on a host, so `hostModuleUnits` now asserts the
+  pairing instead (a program that reads `/proc` and a unit that may).
 - **Inside the repo, the devshell's programs shadow the module's, and they carry
   different transports.** `capsule-provision` on `PATH` in the devshell ssh's
   straight to `net.guest`, which is unroutable from the root namespace once the

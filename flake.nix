@@ -615,6 +615,14 @@
         (map (p: builtins.seq p.outPath (p.pname or p.name))
           host.config.environment.systemPackages);
 
+      # The guard reads `/proc/<pid>/ns/net` for processes owned by `microvm`, and
+      # a hardened unit that may not do that does not fail — `ip netns pids`
+      # returns a list with the unreadable processes missing, so the guard refuses
+      # a correctly-bound guest and names the wrong cause. Nothing else pairs a
+      # program's needs with its unit's permissions, and this is the file that
+      # reads both, so it is asserted rather than remembered (NOTES item 30).
+      guardCaps = host.config.systemd.services.capsule-perimeter-guard.serviceConfig.CapabilityBoundingSet;
+
       # A newline in a unit directive is unbalanced quoting to systemd, which
       # ignores that directive *and* the rest of the drop-in — so a unit loses
       # its namespace and its `ExecStop` and says nothing about it. Nix will
@@ -638,6 +646,8 @@
       then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"
       else if newlined != []
       then throw "capsule-perimeter: a newline in a serviceConfig value of ${lib.concatStringsSep ", " newlined} — systemd reads that as unbalanced quoting and drops the rest of the unit. Put the script in the store and name it."
+      else if !(lib.elem "CAP_SYS_PTRACE" guardCaps)
+      then throw "capsule-perimeter: the guard's CapabilityBoundingSet has no CAP_SYS_PTRACE, so `ip netns pids` will silently omit the VMM it is asked about and the guard will refuse a correctly-bound guest (NOTES item 30)."
       else
         pkgs.writeText "capsule-units.txt" ''
           units:

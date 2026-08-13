@@ -582,7 +582,17 @@ in {
               # A refusal must stay a refusal: restarting would flap between
               # tearing egress down and putting it straight back.
               Restart = "no";
-              CapabilityBoundingSet = ["CAP_NET_ADMIN" "CAP_SYS_ADMIN"];
+              # `CAP_SYS_PTRACE` is limb two's, and it is not optional: asking
+              # where a VMM is means reading `/proc/<pid>/ns/net` for a process
+              # owned by `microvm`, which `ptrace_may_access` gates on exactly
+              # this capability — `CAP_DAC_READ_SEARCH` does not cover that
+              # check. Without it `ip netns pids` does not error, it returns a
+              # list with the unreadable processes silently missing, so the guard
+              # refused a correctly-bound guest with `is not in cap-a` (NOTES
+              # item 30). It reads and nothing more, and it is strictly smaller
+              # than the `CAP_SYS_ADMIN` already here, which is what `setns`
+              # needs.
+              CapabilityBoundingSet = ["CAP_NET_ADMIN" "CAP_SYS_ADMIN" "CAP_SYS_PTRACE"];
               NoNewPrivileges = true;
               ProtectHome = true;
               ProtectSystem = "strict";

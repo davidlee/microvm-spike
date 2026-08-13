@@ -197,3 +197,36 @@ guest in an unnamed namespace is limb one's unsoundness, and a VMM in another
 slot's namespace is what union membership calls healthy. And the suite was
 checked for the ability to fail — the skip was reverted to its pre-item-30 form
 once, deliberately, to watch `a slot that never came up degrades` go red.
+
+## What the first live start cost, and what it says about the cases
+
+The guard refused on the first start after the switch, with
+`microvm@a.service (pid 3753829) is not in cap-a` — a correctly-bound guest,
+named as a breach. The cause was the unit, not the logic: **`ip netns pids` reads
+`/proc/<pid>/ns/net` for every process, and `ptrace_may_access` gates that on
+`CAP_SYS_PTRACE` for anything owned by another user.** The guard's
+`CapabilityBoundingSet` was `CAP_NET_ADMIN` + `CAP_SYS_ADMIN`, so every readlink
+was denied — and the tool does not fail on a denial, it omits the process. A short
+list reads exactly like a guest in the wrong place.
+
+Reproduced outside the guard before touching anything, which is the shape worth
+repeating: plain `sudo ip netns pids cap-a` listed the VMM, the same command under
+`systemd-run -p CapabilityBoundingSet="CAP_NET_ADMIN CAP_SYS_ADMIN"` returned
+nothing at all.
+
+`CAP_SYS_PTRACE` is now in the set. It is read-only, and strictly smaller than the
+`CAP_SYS_ADMIN` already there — `setns` is the larger power by a distance. The
+alternative that needs no capability is comparing systemd's declared
+`NetworkNamespacePath` instead, and it was rejected as a *replacement* because a
+declaration cannot see a guest in a namespace that is no longer named, which is
+the one case limb two exists for. It is not needed as an *addition* either: with
+the capability in place, a VMM that ended up in the root namespace — the
+drop-in-that-never-parsed failure — fails the pid check anyway.
+
+**The lesson for the cases is the honest one.** Stubbing `ip` proves what the
+guard concludes from what the kernel says; it cannot prove the kernel will say it,
+because privilege is not part of the program. So the pairing is asserted where
+both halves are visible: `hostModuleUnits` refuses a guard whose bounding set
+lacks `CAP_SYS_PTRACE`, and that assertion was watched firing before it was kept.
+A build-time suite makes a class of bug cheap; it does not make the class
+disappear, and this one landed in the first live start regardless.
