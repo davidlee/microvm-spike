@@ -1,4 +1,6 @@
-# Everything the human runs *at* a capsule, built once for both paths.
+# Everything the human runs *at* a capsule, built once for both paths — plus the
+# one script a capsule runs *about itself*, which is here for the same reason:
+# built once, so neither path can be built without it.
 #
 # There are two of them and there must not be two implementations: the devshell
 # builds these to reach the guest straight over the tap, and `host/services.nix`
@@ -20,6 +22,7 @@
 # `setup.nix` — nothing target-shaped is spelled here.
 {
   pkgs,
+  lib,
   net,
   target,
   # The guest's branch, a constant threaded from `flake.nix` rather than a
@@ -50,6 +53,20 @@
   };
 in {
   inherit guestHost guestRepo baselineRecord;
+
+  # The one thing here with no transport, built here anyway: the guest-side half
+  # of a status is a *store path* the front end pushes over whichever door it
+  # already has (host/observe.nix, host/cli.nix). It belongs beside the three
+  # guest paths it reads — two of them are already named above, and
+  # `baselineRecord` is exported for this reader specifically. The alternative
+  # was building it at each of `capsule-cli`'s two call sites, which is how the
+  # module path came to be missing an argument the devshell path had.
+  observe = import ./observe.nix {
+    inherit pkgs lib;
+    workdir = target.guestPath;
+    recordDir = baselineRecord;
+    inherit (target) volumePath;
+  };
 
   inherit (gitChannel) provision collect;
 

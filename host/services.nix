@@ -88,7 +88,7 @@
   guestSsh = import ./guest-ssh.nix {inherit lib;};
 
   hostPrograms = import ./programs.nix {
-    inherit pkgs net target workBranch;
+    inherit pkgs lib net target workBranch;
     transport = guestSsh.viaSocket {
       socat = "${pkgs.socat}/bin/socat";
       socket = capsules.socketOf ''"$capsule"'';
@@ -102,6 +102,10 @@
   # is the one thing about a capsule that does not differ between the two paths.
   cli = import ./cli.nix {
     inherit pkgs lib net target capsules guestSsh;
+    # Same store path as the devshell's, because it is the same construction from
+    # the same values (host/programs.nix) — a status asks a guest one question
+    # and does not care which door it came through.
+    inherit (hostPrograms) observe;
     programVerbs =
       ["provision" "collect" "inject"]
       ++ lib.optional (hostPrograms.baseline != null) "baseline";

@@ -24,6 +24,9 @@
 # Every nix file that is ours. Explicit, so nothing walks .direnv or .vm.
 nix_paths := "flake.nix net.nix target.nix capsules.nix setup.nix perimeter host vm"
 
+# the gate: everything parses and is formatted
+default: check build units
+
 # addresses and ports come from net.nix or they drift
 # --json, not --raw: the ports are integers and --raw refuses to coerce one
 _net key:
@@ -46,9 +49,6 @@ _proxy-log name:
   done
   echo "no proxy log yet — start capsule-host or capsule-proxy" >&2
   exit 1
-
-# the gate: everything parses and is formatted
-default: check
 
 # parse + format, no eval and no build: cheap enough for every edit
 check: parse fmt-check
@@ -412,3 +412,4 @@ reset-known-hosts name:
   else
     ssh-keygen -R "$(just _net guest)"
   fi
+

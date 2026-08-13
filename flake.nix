@@ -298,7 +298,7 @@
     # relay socket instead — one construction, two transports, which is the only
     # thing that differs (host/programs.nix).
     hostPrograms = import ./host/programs.nix {
-      inherit pkgs net target workBranch;
+      inherit pkgs lib net target workBranch;
       # The same socket expression the units inject, for the opposite purpose:
       # there it is the way in, here its existence is what says this copy is the
       # wrong one (host/guest-ssh.nix).
@@ -331,19 +331,16 @@
     # nothing for a second instantiation to differ in, and one store path is the
     # honest statement of that. `capsule-cli` as an attribute, `capsule` as a
     # program: `.#capsule` is the guest runner and has been all along.
-    # What a capsule answers about itself, pushed over the door at each status
-    # rather than baked into the guest (host/observe.nix). Built here so the front
-    # end takes a store path and never learns a guest path: `capsule status` asks
-    # a question it does not have to understand the inside of.
-    observe = import ./host/observe.nix {
-      inherit pkgs lib;
-      workdir = target.guestPath;
-      recordDir = hostPrograms.baselineRecord;
-      inherit (target) volumePath;
-    };
-
+    #
+    # `observe` is what a capsule answers about itself, pushed over the door at
+    # each status rather than baked into the guest — a store path, so the front
+    # end never learns a guest path (host/observe.nix). It comes from
+    # `hostPrograms` because that is where the paths it reads are named, and
+    # because a thing built at each of this file's two call sites is a thing one
+    # of them can be missing.
     capsule-cli = import ./host/cli.nix {
-      inherit pkgs lib net target capsules guestSsh observe;
+      inherit pkgs lib net target capsules guestSsh;
+      inherit (hostPrograms) observe;
       programVerbs =
         ["provision" "collect" "inject"]
         ++ lib.optional (hostPrograms.baseline != null) "baseline";
@@ -389,6 +386,24 @@
         lib.filter (n: lib.hasPrefix "capsule-" n || lib.hasPrefix "microvm" n)
         (lib.attrNames host.config.systemd.services);
 
+      # The module's *programs*, and the reason this line exists: everything else
+      # here reads the unit graph, and a unit graph does not mention what the
+      # module puts on a human's PATH. So `host/cli.nix` — imported at two call
+      # sites, this file's and the module's — could gain an argument at one of
+      # them and every check here still pass. It did: `observe` was added to the
+      # devshell's copy only, and the failure landed in a host rebuild, which is
+      # the one thing this derivation exists to prevent.
+      #
+      # `seq` on the store path rather than the string *of* it: forcing an
+      # outPath evaluates the derivation, which is where a missing argument
+      # throws, while embedding one would make every program a build input of a
+      # text file and turn seconds into a full build. Names in the output, paths
+      # never.
+      installed =
+        lib.filter (lib.hasPrefix "capsule")
+        (map (p: builtins.seq p.outPath (p.pname or p.name))
+          host.config.environment.systemPackages);
+
       # A newline in a unit directive is unbalanced quoting to systemd, which
       # ignores that directive *and* the rest of the drop-in — so a unit loses
       # its namespace and its `ExecStop` and says nothing about it. Nix will
@@ -412,7 +427,14 @@
       then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"
       else if newlined != []
       then throw "capsule-perimeter: a newline in a serviceConfig value of ${lib.concatStringsSep ", " newlined} — systemd reads that as unbalanced quoting and drops the rest of the unit. Put the script in the store and name it."
-      else pkgs.writeText "capsule-units.txt" (lib.concatStringsSep "\n" units + "\n");
+      else
+        pkgs.writeText "capsule-units.txt" ''
+          units:
+          ${lib.concatStringsSep "\n" units}
+
+          programs:
+          ${lib.concatStringsSep "\n" installed}
+        '';
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -571,7 +593,7 @@
     # a run-time argument now. `socat` is bare here: a probe has it in
     # `runtimeInputs`, where a unit has no PATH to trust.
     nsPrograms = import ./host/programs.nix {
-      inherit pkgs net target workBranch;
+      inherit pkgs lib net target workBranch;
       transport = guestSsh.viaSocket {
         socat = "socat";
         socket = socketOf ''"$capsule"'';
