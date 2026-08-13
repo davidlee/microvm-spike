@@ -1,7 +1,9 @@
 # CLAUDE.md
 
 Firecracker microVM used to confine a coding agent working on one target repo
-(`target.nix`; here `~/dev/doctrine`).
+(`target.nix`) — `~/dev/doctrine` on `main`, `~/dev/panopticon` on
+`second-target`, because switching targets is two literals and a branch is the
+right shape for that (NOTES item 23).
 [README.md](./README.md) is usage; everything else is [docs/](./docs/index.md),
 which maps question to file. Three of them before proposing changes:
 [docs/status.md](./docs/status.md) is where the work is up to,
@@ -119,8 +121,12 @@ Break these and the confinement stops meaning anything:
   `specialArgs`. Don't hardcode an address anywhere else.
 - **`target.nix` is the same deal for the repo under confinement** — name, path,
   tools package, allowlist file, caches, default branch, sizes. Threaded the same
-  way. `doctrine` may appear in exactly two places: `target.nix`, and
-  `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
+  way. The target's name may appear in exactly two places: `target.nix`, and
+  `inputs.target.url`, which cannot be computed. That rule has been checked
+  against a second target and held (NOTES item 23) — what it does *not* cover is
+  what the capsule has to supply for a target to work at all, which is
+  [contract-target.md](./docs/contract-target.md)'s second table and is where
+  `programs.nix-ld` lives. Nothing target-shaped goes in
   `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a value.
   And nothing target-shaped is ever read *out of the target repo* — the agent can
   edit that (NOTES item 16). `target.guestPath` is the one path both sides share,
@@ -276,6 +282,23 @@ which shape nearly every decision here:
   Sound only because the link is a host-created /30 with one peer — change it in
   the same commit as any change to the transport, and don't "fix" it with a
   capsule-scoped `known_hosts`, which just accumulates one stale key per capsule.
+  The *interactive* door (`capsule <name> ssh|admin`) keeps the strict default on
+  purpose — a human is there to read the warning — so it is the one that refuses
+  after a fresh volume, under the alias `capsule-<name>`:
+  `ssh-keygen -R capsule-<name>` is the remedy, not a config change.
+- **A unit bound to a namespace outlives the guest, and the socket is the
+  identity.** `capsule-ssh-relay-<name>` bound only to its netns unit, which is
+  `active exited` and *stays* up — so a stopped capsule kept a live listener, and
+  since `[ -S "$sock" ]` is the whole test both transports use, one wrong
+  dependency broke both directions at once: the devshell's copies **refused** on a
+  module path that owned nothing, and the module's copy **hung**, because socat
+  accepts the unix connection immediately and only then blocks forwarding to a
+  guest that is not there. Every other witness looked healthy — two capsules
+  dead, two proxies dead, two relays `active running`. The tell is
+  `systemctl list-units --all 'capsule-*' 'microvm@*'`: a relay up with its VM
+  down. Fixed by binding the tap as well, which is what the proxy always did; the
+  hang was from the copy the refusal recommends, which is why it cost the time and
+  not the refusal (NOTES item 20).
 - **`sudo` strips `SSH_AUTH_SOCK`, and the guest's key is `~/.ssh/id`** — not a
   filename ssh tries by default, so a root-side program gets the *wrong* key
   offered and a clean `Permission denied`, while ping keeps passing. Cost one

@@ -9,12 +9,17 @@
 
 A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. 
 
-It holds a real git clone of one **target** repo — `target.nix`, here [doctrine](https://github.com/davidlee/doctrine) —
+It holds a real git clone of one **target** repo — `target.nix`, [doctrine](https://github.com/davidlee/doctrine) on `main` and every example below —
 carries that project's tool set, and has exactly enough network to work and no
 more. 
 
 Nothing below is doctrine-specific: `target.nix` is the only file that
-names it, and `net.nix` is the only file that holds an address.
+names it, and `net.nix` is the only file that holds an address. That is
+measured rather than asserted — a second target
+([panopticon](https://github.com/davidlee/panopticon), on branch
+`second-target`) reaches a green baseline on `target.nix`, one allowlist file
+and one flake literal, plus one export in the target itself
+([notes](docs/notes.md) item 23).
 
 Design rationale and known gaps live in [docs/](./docs/index.md). This file is
 how to drive it.
