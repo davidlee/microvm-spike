@@ -155,60 +155,12 @@
       '';
     };
 
-  # One guard for every capsule, and it holds all of them: a `BindsTo` that only
-  # tears some of them down is worse than no guard, because the survivors look
-  # healthy. Every question is asked of the running kernel in the namespace that
-  # owns the answer — see host/netns.nix for why there is no `latent` state left.
-  guard = pkgs.writeShellApplication {
-    name = "capsule-perimeter-guard";
-    runtimeInputs = [pkgs.iproute2 pkgs.procps pkgs.gnugrep pkgs.coreutils];
-    text = ''
-      ${netns.check}
-
-      namespaces=(${lib.concatMapStringsSep " " (c: ''"${c.ns}"'') instances})
-
-      audit() {
-        local ns bad=0
-
-        ns_present "${egress.ns}" || bad=1
-        # Capsule to capsule, and capsule to the host's own networks. The
-        # resolver is allowed narrowly ahead of the second one, which is what
-        # makes the pair testable: DNS works, a ping to the same address does
-        # not.
-        ns_rule "${egress.ns}" capsule-egress \
-          'iifname "${egress.linkPattern}" oifname "${egress.linkPattern}" drop' || bad=1
-        ns_rule "${egress.ns}" capsule-egress \
-          'ip saddr ${capsules.uplinkNet}' || bad=1
-
-        for ns in "''${namespaces[@]}"; do
-          ns_present "$ns" || {
-            bad=1
-            continue
-          }
-          ns_not_forwarding "$ns" || bad=1
-          # The guest reaching a service in its own namespace is INPUT, not
-          # forward, so no forwarding switch covers it (probe/netns.sh, cost 1).
-          ns_rule "$ns" capsule-guard \
-            'iifname "${net.tap}" ip daddr != ${net.host} drop' || bad=1
-        done
-
-        return "$bad"
-      }
-
-      if ! audit; then
-        echo "capsule-perimeter-guard: refusing — the perimeter above is not intact." >&2
-        exit 1
-      fi
-      echo "capsule-perimeter-guard: ${toString (builtins.length instances)} capsule namespace(s) verified"
-
-      # BindsTo on every proxy, so exiting takes their egress with it. A
-      # preflight alone would only prove the perimeter held at start.
-      while sleep 10; do
-        audit && continue
-        echo "capsule-perimeter-guard: the perimeter changed under us. Tearing down egress." >&2
-        exit 1
-      done
-    '';
+  # The one program that can see inside a capsule's namespace, in its own file
+  # because its tools are an argument: the same text is built against stubs by
+  # `flake.nix`'s `guardCases` (host/guard.nix).
+  guard = import ./guard.nix {
+    inherit pkgs lib net capsules netns;
+    tools = [pkgs.iproute2 pkgs.procps pkgs.gnugrep pkgs.coreutils pkgs.systemd];
   };
 
   # ------------------------------------------------------------------- units
@@ -605,7 +557,24 @@ in {
           # path, no network of its own.
           capsule-perimeter-guard = {
             description = "Verify and hold every capsule's perimeter";
-            requires = [egressUnit] ++ map netnsUnit instances;
+            # `requires` on the aggregator only: one per host, every capsule's
+            # egress leaves through it, and there is no degraded version of the
+            # thing they all share.
+            #
+            # The namespaces are **`after` and nothing else** — not `wants`
+            # either, which was the first attempt and was wrong for a reason
+            # worth keeping: `wants` is still a pull-in, so the guard would
+            # instantiate all ten namespaces on the first start of any one
+            # capsule. That removes the failure propagation and keeps the
+            # lifecycle coupling, which makes "declared and absent" a state the
+            # guard itself abolishes. With ordering only, a namespace is in the
+            # transaction because *its own* capsule pulled it there —
+            # `microvm@<name>` and its tap unit both `requires` it — and
+            # `after` on a unit nobody queued is a no-op. A slot that was
+            # requested and failed still has a completed job, so the guard is
+            # ordered against it and observes its absence instead of inheriting
+            # its failure (NOTES item 30).
+            requires = [egressUnit];
             after = [egressUnit] ++ map netnsUnit instances;
             serviceConfig = {
               Type = "simple";

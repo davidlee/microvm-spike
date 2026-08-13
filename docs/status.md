@@ -678,7 +678,25 @@ capsules were named after names that no longer exist:
 §0's four-hot recommendation is rewritten, since a fleet plan that sizes slots by
 ceiling was sizing them wrong.
 
-Next: **D2, the pool** — declare `a`…`j` once and make assignment
+Next: **D2, the pool. Its half of L12 is built and unswitched**
+([item 30](./ledger/030-a-pool-audits-what-exists.md)): the guard now holds one
+invariant with two limbs — every declared-and-present namespace passes its audit,
+and every running capsule's VMM is inside its own declared namespace — so an
+absent slot is skipped, a present-and-wrong one still refuses the whole host, and
+the exclusion-list version is refused because it is persistent exception state
+nothing clears. `just build` and `just units` green; the switch and the live
+degradation test are outstanding. **Not a mode**: no boolean, no override, no
+second path.
+
+  It came with **a third kind of check**, and that is the reusable part:
+  `guardCases` (`just cases`) runs the real guard's text at build time with `ip`,
+  `systemctl` and `sleep` stubbed — eleven cases, including the two that a weaker
+  design passes, and the suite was watched failing before it was kept. What makes
+  it possible is that `host/guard.nix` takes its `tools` as an argument, because
+  `writeShellApplication` prepends `runtimeInputs` to `PATH` and no test can stub
+  around that. Same seam as `transport`, so it is the pattern for any host-side
+  program whose interesting branches a live host can only reach destructively
+  (CLAUDE.md). The rest of D2 is to declare `a`…`j` once and make assignment
 run-time state, which is what turns the record's three inert fields (`policy`,
 `extras`, `image`) into ones something selects. It wants L12's degraded guard mode
 in the same change: on the first start of *any* capsule the guard pulls in every

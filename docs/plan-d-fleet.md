@@ -309,9 +309,12 @@ bought something else.
   namespace unit that refuses takes the guard with it, and the guard is on every
   proxy's `BindsTo`, so **no capsule on the host can start**, not merely the
   broken one. Correct for a perimeter — a partial teardown is worse — and at N=2
-  indistinguishable from robust. At N=10 it is the argument for a degraded mode:
-  a slot that cannot come up should be excludable from the audit set without a
-  rebuild, or the pool's weakest member gates the fleet.
+  indistinguishable from robust. At N=10 it is the argument for a degraded mode,
+  or the pool's weakest member gates the fleet. **What that mode is has since been
+  decided** ([item 30](./ledger/030-a-pool-audits-what-exists.md)) and it is not
+  the exclusion list this paragraph originally asked for — the audit set becomes
+  declared ∩ present, which needs no new state and keeps a *broken* namespace
+  fleet-wide while an *absent* one costs nothing.
 - **L13 — `defaultBranch` has no run-time override, and it is the odd one out.**
   Every other host-side target value either belongs to the guest (`sizes`,
   `caches`, `guestConfig`) or has one — `path` has `CAPSULE_REPO` and the
@@ -628,7 +631,8 @@ only place a repo name appears.
   namespaces — nothing starts at boot, so an unassigned slot is a declaration
   and nothing else — it is L12: on the first start of *any* capsule the guard
   pulls in all ten, and any one of them that will not come up denies the whole
-  host. A pool wants the degraded mode L12 asks for, in the same change.
+  host. A pool wants the degraded mode L12 asks for, in the same change, and its
+  shape is [item 30](./ledger/030-a-pool-audits-what-exists.md).
 - **D3 — volume verbs.** `capsule <slot> volume {df,reset,reset-home,clone-from
   <m>}`, host-side, refusing while the VM runs. `reset` is S4 without the `rm
   -rf`; `clone-from` is S5, and on ext4 it is a sparse copy of ~1.1 GiB —

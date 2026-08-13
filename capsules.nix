@@ -38,7 +38,11 @@ let
   #
   # Two, not the ten `a`…`j` the plan settles on: the guard `requires` every
   # declared namespace unit, so a slot that cannot come up denies the whole host
-  # (plan-d L12), and a pool wants that degraded mode in the same change.
+  # (plan-d L12), and a pool wants that degraded mode in the same change. Its
+  # shape is decided and unbuilt — the audit set becomes declared ∩ present, so
+  # an absent slot is not audited and a broken one still refuses everything
+  # (NOTES item 30). Until that ships, adding a name here adds a way to deny the
+  # host.
   declared = {
     a = {index = 0;};
     b = {index = 1;};

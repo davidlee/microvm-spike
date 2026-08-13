@@ -71,18 +71,25 @@ fmt-check:
 # the host-side scripts — shellcheck runs at build, so this is the real lint.
 # capsule-baseline exists only while the target declares a `baseline`; a target
 # that omits it drops that line, and the build says so rather than skipping it.
+# `guardCases` is here rather than in its own recipe on purpose: a case that
+# fails fails the build, which is the only way a check gets run every time.
 build:
   nix build --no-link '.#capsule-cli' \
     '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#capsule-halt' \
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
-    '.#capsule-baseline' '.#hostModuleUnits'
+    '.#capsule-baseline' '.#hostModuleUnits' '.#guardCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has
 units:
   @cat "$(nix build --no-link --print-out-paths '.#hostModuleUnits')"
+
+# what the guard decides, against a stubbed kernel: the verdicts a live host can
+# only produce by unnaming a namespace under a running guest
+cases:
+  @cat "$(nix build --no-link --print-out-paths '.#guardCases')"
 
 # the guest closure and its runner — the slow one
 build-vm:

@@ -224,8 +224,16 @@
   # namespaces are this module's own, so an answer it cannot read is a fault and
   # not somebody else's config being unreadable. Unverifiable is a refusal.
   check = ''
+    # Asked without a verdict attached, because absence is a question with two
+    # answers now: for the aggregator it is a fault, for a declared slot that
+    # never came up it is nothing at all (NOTES item 30). One definition of
+    # "exists" under both.
+    ns_exists() {
+      ip netns list | grep -qw "$1"
+    }
+
     ns_present() {
-      ip netns list | grep -qw "$1" || {
+      ns_exists "$1" || {
         echo "  namespace $1 is gone" >&2
         return 1
       }
@@ -239,6 +247,44 @@
       }
       [ "$v" = 0 ] || {
         echo "  net.ipv4.ip_forward is $v in $1 — the guest's confinement is gone" >&2
+        return 1
+      }
+    }
+
+    # **Limb two of the guard's invariant, not a companion check** (NOTES item
+    # 30): a running capsule's VMM is in *its own* namespace. Limb one — every
+    # declared-and-present namespace passes its audit — is only safe to apply to
+    # a subset of the declared slots because of this one, so the two are stated
+    # together or the skip is unsound.
+    #
+    # What it closes: `ip netns del` removes the *name*, not the namespace, which
+    # lives on as long as a process holds it. So a guest can be running inside a
+    # namespace that is no longer named — declared, absent, and dangerous, which
+    # is exactly where "absent, skip it" would be wrong. Nothing can ask a scoped
+    # question about a nameless namespace, so ask about the process instead: an
+    # active unit whose namespace has no name refuses here.
+    #
+    # Per slot rather than membership of the union, which also catches a VMM
+    # bound to the wrong namespace — `microvm@a` living in `cap-b` is a slot's
+    # guest behind another slot's perimeter, and a union test calls that fine.
+    #
+    # `ip netns pids` rather than `/proc/<pid>/ns/net` against a bind-mount's
+    # inode: the kernel is being asked the same question either way, and this is
+    # the tool the rest of this file already uses.
+    vm_in_ns() {
+      local name=$1 ns=$2 unit="microvm@$1.service" pid pids
+      systemctl is-active --quiet "$unit" || return 0
+      pid=$(systemctl show -P MainPID "$unit" 2>/dev/null) || pid=""
+      [ -n "$pid" ] && [ "$pid" != 0 ] || {
+        echo "  $unit is active with no MainPID — nothing can say where its guest is" >&2
+        return 1
+      }
+      pids=$(ip netns pids "$ns" 2>/dev/null) || {
+        echo "  $unit is running and $ns is not a named namespace — its perimeter cannot be read" >&2
+        return 1
+      }
+      grep -qxF "$pid" <<<"$pids" || {
+        echo "  $unit (pid $pid) is not in $ns — a VMM's namespace is its identity" >&2
         return 1
       }
     }
