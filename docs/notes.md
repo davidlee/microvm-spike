@@ -1266,6 +1266,57 @@ what stops it being proposed again.
     for an interpreter it already has — because a probe that passes by declining
     the useful configuration is not evidence about the useful configuration.
 
+    **The one thing that did need generic code, and it is not a value.** The
+    first baseline failed in one second, exit 127, after doing everything else
+    right: uv used the tool set's own interpreter (so the `uv.toml` above worked
+    and no python was downloaded), resolved 31 packages from pypi through the
+    proxy (so a brand-new allowlist was live-tested and correct), built the
+    project — and then could not *exec* the `ruff` it had just installed.
+    `Could not start dynamically linked executable`: NixOS ships no
+    `/lib64/ld-linux-x86-64.so.2`, and a pypi wheel carries a binary built for
+    generic linux. The host runs the identical command daily because the host has
+    `programs.nix-ld`; the guest did not.
+
+    The tempting fixes are all wrong in the same direction. Making the target's
+    `baseline` call the nix `ruff` instead of `uv run`'s would have the capsule
+    running a command the repo does not, which is a worse test than a failing one.
+    A `target.nix` field would make it look parameterised when it is not: **every
+    non-nix-native toolchain needs this and none of them supplies a different
+    value for it** — npm's prebuilds and a Go module's vendored helper fail
+    identically. So it goes in `vm/capsule.nix`, beside `TMPDIR` and the caches,
+    as something the capsule *supplies*; doctrine never hit it only because cargo
+    links against nix's own stdenv.
+
+    Worth stating plainly, because it is the honest score for this item: the port
+    changed **one** thing outside `target.nix` and the allowlist, and that one
+    thing is a guest capability rather than a target-shaped leak. It widens
+    nothing outward — the perimeter is host-side, and a guest carrying a compiler
+    could already run whatever it built; this only stops the kernel refusing an
+    interpreter that is absent for packaging reasons.
+
+    **It is green.** `just check` cold on a fresh volume: 3 s, exit 0, 327 passed
+    and 3 skipped, 31 packages fetched from pypi through a brand-new allowlist on
+    the first try, and no interpreter downloaded. Figures in
+    [probes.md](./probes.md#the-cold-build-on-a-second-target). The one that
+    changes an existing claim is the ratio: doctrine's cold build is ~93% of
+    time-to-interactive, and this one is 3 s against an 8.31 s boot, so **the
+    largest term in time-to-interactive is target-shaped** and nothing generic
+    should be tuned against either number.
+
+    **And it corrected an instrument, which is the second time a second thing has
+    done that here.** `capsule-baseline` measured its paths in one `du -sm`, and
+    `du` charges a hardlinked inode to whichever argument came first. uv hardlinks
+    its `.venv` out of its cache, so the record read checkout 105 MiB / cache
+    4 MiB where the trees are 8 and 97. The total was right throughout — a volume
+    pays for an inode once — but the *split* is what the coldness proof is
+    arithmetic on (cache-after must exceed all-caches-before), and at 4 against 4
+    this run could not have proven its own coldness. `sizes()` now asks each path
+    separately while `total()` keeps the single invocation, so the two answer
+    their own questions and no longer necessarily sum. Same family as the slice's
+    `memory.peak` outliving its units: **an instrument calibrated on one target is
+    a thing a second target reads wrong**, and cargo sharing no inodes between
+    `target/` and `.cargo` is the only reason this stood for as long as it did.
+
     **One risk this cannot answer before it builds.** panopticon's own `.envrc`
     is `use flake . --impure`, and a flake *input* is evaluated purely. If any
     attribute the capsule needs were impure the repo could not be a target at

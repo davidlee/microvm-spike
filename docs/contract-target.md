@@ -110,6 +110,7 @@ the same for every target.
 | git | `user.name`/`user.email` set, `init.defaultBranch` = `defaultBranch`, and `receive.denyCurrentBranch = updateInstead` so a provision checks out rather than moving a ref |
 | static config | every `guestConfig` entry symlinked onto the volume from the closure — a link, so a rebuild replaces it and a fresh capsule cannot start with a stale copy |
 | secrets | `<volumePath>/.env`, sourced at login, persisting on the volume — and pushed there at `capsule <name> start` if this host declares a source for it (`setup.nix`, which is not the target's) |
+| foreign binaries | a loader for generic-linux dynamically linked executables (nix-ld), so a toolchain that *downloads* a prebuilt binary — a pypi wheel's, an npm package's, a Go module's vendored one — can run it. NixOS ships no `/lib64` loader, and without this the failure is `Could not start dynamically linked executable`, one second into an otherwise healthy run |
 | user | `agent`, uid 1000, no sudo and no su; root reachable by key from the host only |
 
 Four limits that shape what a `baseline` — or any command run in the guest — can

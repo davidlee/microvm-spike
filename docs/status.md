@@ -5,8 +5,8 @@ and edit it when the state changes rather than adding a second account of it
 somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [notes.md](./notes.md); this file says what is true now and what happens next.
 
-Last updated 2026-08-13, after the second target was written — Plan C item 8, on
-branch `second-target`, **written and unrun** — and before that secrets at start,
+Last updated 2026-08-13, after the second target went green — Plan C item 8,
+**closed**, on branch `second-target` — and before that secrets at start,
 which closes Plan C item 7,
 the `capsule` CLI, and the load figure before it,
 and before that 2026-08-12,
@@ -46,7 +46,24 @@ neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
   of that field are exercised now, doctrine's derived from `sizes` and
   panopticon's pure policy. `extraTools = []` is a second absent path exercised;
   `baseline = null`, `caches = {}` and `guestConfig = {}` still are not.
-  **Unrun**, and the plan is below.
+  **Run, and green.** `just check` cold on a fresh volume through the devshell
+  path: **3 s, exit 0**, 327 passed and 3 skipped, 31 packages fetched from pypi
+  through a brand-new allowlist first try, and no interpreter downloaded — so the
+  `uv.toml` and the allowlist are both live-tested
+  ([probes](./probes.md#the-cold-build-on-a-second-target)). It cost two fixes,
+  neither of them to the port. **`programs.nix-ld` in `vm/capsule.nix`**: the
+  first attempt failed in one second, exit 127, unable to exec the `ruff` it had
+  just installed, because NixOS ships no `/lib64` loader and a pypi wheel is
+  built for generic linux. Deliberately not a `target.nix` field — every
+  non-nix-native toolchain needs it and none supplies a different value, so it
+  belongs with `TMPDIR` and the caches in what the capsule supplies. And
+  **`capsule-baseline`'s sizing**: one `du -sm` over every path charges a
+  hardlinked inode to whichever came first, so uv's `.venv` made the record read
+  checkout 105 MiB / cache 4 MiB where the trees are 8 and 97 — and since the
+  coldness proof is arithmetic on that split, this run could not have proven its
+  own coldness. Totals were right throughout. The figure that moves an existing
+  claim: doctrine's cold build is ~93% of time-to-interactive and this one is 3 s
+  against an 8.31 s boot, so **the largest term there is target-shaped**.
 - **A start now leaves a capsule you can work in, and it cost no mechanism.**
   Plan C item 7's last piece: `capsule <name> start` waits for the guest to answer
   and then pushes every payload `setup.nix` declares, so a `/work/.env` is no
@@ -373,40 +390,22 @@ takes a fresh one to green and says what that cost. Next is Plan C:
 
    **So item 7 is closed.**
 
-8. **A second target — written, unrun.** panopticon, on branch `second-target`.
-   The port is above and in [notes](./notes.md) item 23; what is left is running
-   it, and the route matters because of that item's `defaultBranch` finding: the
-   module path cannot provision `main` until this host is rebuilt from a *pushed*
-   oubliette, so green happens on the **devshell path at N=1** first. That also
-   re-exercises the path nothing has run since the module path took this host,
-   which was already open.
+8. ~~A second target~~ **done, and green.** panopticon, on branch
+   `second-target`: `target.nix`, one allowlist file, one flake literal, and one
+   export added *in the target* — plus exactly one thing outside all of that,
+   `programs.nix-ld` in the guest, which no target parameterises. Cold
+   `just check` in **3 s**, exit 0, 327 passed
+   ([probes](./probes.md#the-cold-build-on-a-second-target)). The reasoning and
+   the four findings are [notes](./notes.md) item 23; the surface is
+   [contract-target.md](./contract-target.md).
 
-   In order, and none of it is done:
+   Run on the **devshell path at N=1**, and that was forced rather than chosen:
+   the module path bakes `defaultBranch` into its copy of `capsule-provision`, so
+   it cannot provision `main` until this host is rebuilt. It re-exercised the
+   devshell path in passing, which was an open item.
 
-   1. `cd ~/dev/panopticon && git commit flake.nix` — `git+file:` reads committed
-      HEAD, so the `dev-tools` export is invisible until then.
-   2. `nix flake update target`, `just build`, `just build-vm`. The last is where
-      the one risk the port cannot argue away lands: panopticon's `.envrc` is
-      `use flake . --impure`, and a flake input evaluates purely.
-   3. Stop the module path: `capsule capsule stop`, `capsule capsule-b stop`,
-      **then `sudo systemctl stop 'capsule-ssh-relay-*'`** — the relays do not come
-      down with their VMs on this host's installed build, and a live socket over a
-      dead guest makes the devshell's copies refuse and the module's copy hang
-      (above, and [notes](./notes.md) item 20). Confirm with
-      `systemctl list-units --all 'capsule-*' 'microvm@*'` that only the guard and
-      the namespaces are up, and that `/run/capsule/` is empty.
-   4. `rm .vm/capsule/capsule-work.img` — a fresh volume, which is also what makes
-      the baseline a cold build. The declared size drops 32768 → 8192 MiB, so
-      reusing the old image would be a mismatch as well as a warm one.
-   5. `capsule-net up && capsule-host`, then `vm capsule`, then
-      `capsule-provision main`, `capsule-inject`, `capsule-baseline`.
-
-   What the run has to answer, beyond going green: whether `just check` resolves
-   its dev extra through the allowlist at all (this baseline is network-bound
-   before it is CPU-bound, unlike doctrine's), whether `python-downloads = "never"`
-   holds so no interpreter is fetched, and what a cold Python baseline costs
-   against doctrine's 109 s. That last figure goes in
-   [probes.md](./probes.md) and nowhere else.
+   What it left open is in the list below — the module path, running two targets at
+   once, and the three absent paths nothing has taken.
 
 Then the rest of Plan C's
 [order of work](./plan-c-multi-capsule.md#order-of-work).
@@ -478,21 +477,33 @@ Then the rest of Plan C's
   `sudo systemctl stop 'capsule-ssh-relay-*'` by hand as well: `capsule <name>
   stop` leaves the relay up, the devshell's programs then refuse, and the
   module's copy hangs.
-- **The second target has never run.** The port is written and reasoned
-  ([notes](./notes.md) item 23) and `just check` is green on it, which makes the
-  parameterisation claim a checkable diff rather than an argument — but no
-  panopticon capsule has booted, so nothing is known about whether its baseline
-  reaches green, whether `just check` resolves its dev extra through the
-  allowlist, or what a cold Python baseline costs. And the port's one
-  unanswerable question stays open until `just build-vm`: panopticon's own
-  devshell is `use flake . --impure`, and a flake input evaluates purely.
-  `baseline = null`, `caches = {}` and `guestConfig = {}` are still absent paths
-  nothing has taken.
-- **The devshell path is what item 8 will run on, which puts a stopped module path
-  on this host.** "Two shapes, one at a time" is enforced only by `capsule-host`'s
-  refusal, so a half-finished switch leaves both doctrine capsules stopped and no
-  panopticon capsule up. That is reversible — their state dirs survive — but
-  nothing automates it.
+- ~~**A second target has never existed.**~~ ~~**The second target has never
+  run.**~~ Run, and green, on the devshell path at N=1 — so the parameterisation
+  claim is measured rather than argued, and panopticon's tool set does evaluate
+  purely despite its own devshell being `--impure`. What replaces it is narrower:
+  the second target has **never run on the module path**, which needs a host
+  rebuild for `defaultBranch` alone ([notes](./notes.md) item 23); `baseline =
+  null`, `caches = {}` and `guestConfig = {}` are still absent paths nothing has
+  taken; and **two targets have never run at once**, which is a different and much
+  larger job (a second tool set is a second guest image) priced in
+  [plan-c](./plan-c-multi-capsule.md), not attempted.
+- **The nix-ld and `capsule-baseline` fixes are unrun as built.** Both were
+  written against a diagnosis rather than verified after it: the guest that went
+  green was the *nix-ld* rebuild, so that one is proven, but the corrected
+  `sizes()` has never produced a record — the 8/97 split above was measured by
+  hand over ssh. The next baseline on any target is what checks it, and doctrine's
+  next one is also the check that the split still reconciles where nothing
+  hardlinks.
+- **This host is currently the devshell path, holding panopticon.** Item 8 ran
+  there, so both doctrine capsules are stopped and `.vm/capsule` is a panopticon
+  volume. "Two shapes, one at a time" is enforced only by `capsule-host`'s
+  refusal, and nothing automates going back: `vm-stop capsule`, `capsule-net
+  down`, kill `capsule-host`, then start the units again. The doctrine capsules'
+  state dirs and volumes survive untouched under `/var/lib/microvms`.
+- ~~**The devshell path has not been run since the module path took this
+  host.**~~ Run, as item 8's route — `capsule-net up`, `capsule-host`, `vm
+  capsule`, and all four programs' devshell copies. What replaces it is the line
+  above: the two shapes still cannot coexist, and the switch back is by hand.
 - `vm --help` creates `.vm/--help/`. Every argument is a VM name. Papercut.
 
 ## Do not re-derive these

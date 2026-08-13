@@ -329,6 +329,9 @@ build is ~93% of it**, and every other figure in this file is noise beside it.
 It is paid per *fresh* capsule, because `/work/home` and the caches are on the
 volume freshness deletes.
 
+**That 93% is this target's, not the capsule's** — the next section takes the same
+figure on a second target and gets 3 s, where the boot dominates instead.
+
 One thing the run also confirmed in passing: `proxy : http://10.99.0.1:3128` at
 the head of the log. The `bash -l` in `capsule-baseline` is load-bearing exactly
 as [notes](./notes.md) item 6 says — without it nothing would have fetched, and
@@ -351,6 +354,56 @@ coldness by the same arithmetic — `.cargo` after exceeds all three caches befo
 What is still n = 1 is *sequential*: nothing here says what two of these cost run
 at once, which is the [open](./status.md) load question and the reason these three
 are the control for it.
+
+## The cold build, on a second target
+
+The same command on a different repo, which is what makes it worth a section:
+`capsule-baseline` against panopticon (branch `second-target`,
+[notes](./notes.md) item 23), devshell path, fresh volume, base `2c4b024`. Its
+own `/work/baseline/history.tsv` is the source.
+
+| figure | value | note |
+| --- | --- | --- |
+| **`just check`, cold, to green** | **3 s**, exit 0 | `ruff check` then `pytest`: 327 passed, 3 skipped |
+| what it fetched | 31 packages, ~27 MiB | resolved from pypi through the proxy on a new allowlist file, first try |
+| interpreter fetched | **none** | `guestConfig`'s `uv.toml` set `python-downloads = "never"`; uv used the tool set's own 3.14.6 |
+| all measured paths, before → after | 4 → 109 MiB | **one baseline costs ~105 MiB of volume**, against doctrine's ~1.1 GiB |
+| `/work/.uv-cache`, after | 97 MiB | measured on its own — see the correction below |
+| `/work/panopticon/.venv`, after | 7.8 MiB | almost all of it hardlinks into that cache |
+
+**The interesting figure is the ratio, not the number.** 3 s against doctrine's
+109 s is ~36×, and the volume 105 MiB against ~1.1 GiB is ~12×. So the claim
+above that *the cold build is ~93% of time-to-interactive* is **doctrine's, not
+the capsule's**: on this target the 8.31 s boot is the largest term and the build
+is a rounding error on it. The largest term in time-to-interactive is
+target-shaped. Nothing generic should be optimised against either number.
+
+**One run cost a fix, and it was the guest rather than the port.** The first
+attempt is in the same record — `status 127` in 1 s — and it had done everything
+right up to the last step: interpreter found, 31 packages resolved, project
+built, and then it could not *exec* the `ruff` it had installed, because NixOS
+ships no `/lib64` loader and a pypi wheel is built for generic linux. `vm/capsule.nix`
+grew `programs.nix-ld` for it, which is the one thing outside `target.nix` and
+the allowlist that this port changed ([notes](./notes.md) item 23).
+
+**And one correction to the instrument, in the same family as the slice's
+`memory.peak`.** `capsule-baseline` measured every path in a single `du -sm`, and
+`du` charges a hardlinked inode to whichever argument came first. uv hardlinks
+its `.venv` out of its cache, so the record read **checkout 105 MiB, cache
+4 MiB** when the trees are **8 and 97** — the checkout was being charged for the
+cache's blocks. The total, 109 MiB, was right throughout: that is what the volume
+actually pays, because the volume pays for an inode once.
+
+This mattered beyond tidiness, and it is why the fix is worth its lines. The
+coldness proof in the previous section is *arithmetic on the recorded split* —
+cache-after must exceed all-caches-before — and with the buggy split this run
+reported 4 MiB after against 4 MiB before, so **it could not have proven its own
+coldness**. `sizes()` now asks each path on its own and `total()` keeps the single
+invocation, so the two answer their own questions: what each tree holds, and what
+the volume pays. Those may no longer sum, deliberately. doctrine never exposed
+this because cargo shares no inodes between `target/` and `.cargo`, which is the
+general shape of the thing — a second target is where an instrument calibrated on
+one gets read against something else.
 
 ## What a capsule holds after it has built
 

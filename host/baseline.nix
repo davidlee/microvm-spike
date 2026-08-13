@@ -82,8 +82,24 @@
     history="$dir/history.tsv"
     log="$dir/$stamp.log"
 
-    sizes() { du -sm "''${measured[@]}" 2>/dev/null || true; }
-    total() { sizes | awk '{n += $1} END {print n + 0}'; }
+    # Two questions, and one `du` cannot answer both once a toolchain hardlinks
+    # between the paths being measured. What the volume *pays* dedupes hardlinks,
+    # so the total stays one invocation over every path. What each tree *holds*
+    # does not: in a single `du` a shared inode is charged to whichever argument
+    # came first, so a `.venv` hardlinked into a uv cache recorded the checkout at
+    # 105 MiB and the cache at 4 when the trees are 8 and 97 — an artefact of
+    # argument order, and doctrine never showed it because cargo does not share
+    # inodes between `target/` and `.cargo` (NOTES item 23). So the per-path
+    # display asks each path on its own, and those may sum to more than the total.
+    sizes() {
+      local p
+      for p in "''${measured[@]}"; do du -sm "$p" 2>/dev/null || true; done
+    }
+    total() {
+      {
+        du -sm "''${measured[@]}" 2>/dev/null || true
+      } | awk '{n += $1} END {print n + 0}'
+    }
 
     case "$verb" in
       start)
