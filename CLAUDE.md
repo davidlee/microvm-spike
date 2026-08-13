@@ -17,19 +17,12 @@ would cost. Do not put present-tense state in a plan; that is `status.md`'s job.
 
 ## Working here
 
-**Be judicious about running nix builds or evals.** The user usually runs those
-themselves — they are slow, and as a subshell they have crashed the session in
-the past. Typical builds / evals for this project though are probably fine (tm).
-Ask the user to run more involved execution themselves. Verify with `just check`
-(`nix-instantiate --parse` over every file, plus `alejandra -c`; neither
-evaluates). Hand the user the command to run — `just build` for the host-side
-scripts, which is also where shellcheck runs — and say what you expect it to do.
-`just` recipes that shell out to `nix eval` (`_net`, `_target`, and so
-`status`/`fetch`/`allowed`/`ssh`/`admin`) are the user's to run, not yours.
+**Be judicious about running nix builds or evals.** The user runs those
+in ~/flakes for system builds themselves. Builds for this project are fine. 
+Be conservative beyond that.
 
-Shell in `writeShellApplication` cannot be run either, since it only exists
-after a build. Render the script by hand into the scratchpad and `shellcheck`
-that — it catches the SC2034/SC2154 class before the user spends a build on it.
+Verify with `just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`; neither
+evaluates). `just` (default) runs the build, units, and fmt.
 
 **`probe/` is evidence, not scaffolding.** Each probe answers one design
 question and is kept so the answer stays checkable — `probe/netns.sh` is what
