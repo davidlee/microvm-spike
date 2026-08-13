@@ -15,6 +15,7 @@ architecture invariants and the gotchas that have already cost time, is
 | what has been measured, and what is the number? | [probes.md](./probes.md) |
 | what would N capsules on one host cost? | [plan-c-multi-capsule.md](./plan-c-multi-capsule.md) |
 | ...and what would implementing that touch? | [plan-c-implementation.md](./plan-c-implementation.md) |
+| what does administering a fleet of them cost — across projects, refs and slices? | [plan-d-fleet.md](./plan-d-fleet.md) |
 | how would this work without firecracker, or on macOS? | [plan-b-other-jails.md](./plan-b-other-jails.md) |
 | which hypervisor, and why this one? | [eval-hypervisors.md](./eval-hypervisors.md) |
 | why doesn't the capsule port to macOS? | [eval-macos.md](./eval-macos.md) |

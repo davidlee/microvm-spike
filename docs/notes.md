@@ -26,7 +26,7 @@ what stops it being proposed again.
 | 13 | host SMT is on | accepted, not fixed |
 | 14 | hypervisor choice — firecracker's floor is what shapes half this list | open option |
 | 15 | two things that only grow: the volume, and the proxy log | measured, accepted |
-| 16 | target-agnostic | done for one target; a second is untested |
+| 16 | target-agnostic | done, and a second target has since exercised it — item 23 |
 | 17 | more than one capsule at a time | scoped — [Plan C](./plan-c-multi-capsule.md) |
 | 18 | which way the git channel points | measured, inverted, done |
 | 19 | the baseline build, and where a figure is allowed to live | built, run, measured |
@@ -546,9 +546,12 @@ what stops it being proposed again.
     `extraTools` from this repo's nixpkgs and loses the no-drift property that
     made threading the target's own list worth it.
 
-    Untested: a second target. The parameterisation is only *claimed* until one
-    exists, and the likely friction is in the guest — `extraTools`, the cache
-    set, and the sizes are all this target's toolchain wearing a general name.
+    ~~Untested: a second target. The parameterisation is only *claimed* until one
+    exists~~ — **tested, by item 23**: panopticon, and the friction landed
+    exactly where this paragraph guessed. `extraTools`, the cache set and the
+    sizes were all this target's toolchain wearing a general name, and one of
+    them was worse than that — `toolsPackage = null` plus `extraTools` is not a
+    usable absent path for a tool set that is not a list of nixpkgs attr names.
 
 17. **More than one capsule at a time — scoped, not started.**
     [Plan C](./plan-c-multi-capsule.md) is the list of what a plan has to settle, with the

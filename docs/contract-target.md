@@ -43,20 +43,23 @@ spelled on both sides.
 | `path` | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host |
 | `volumePath` | both: the volume's mount point, and what `caches`/`guestConfig`/records resolve against | yes | — |
 | `guestPath` | both: the guest's checkout | derived | — |
-| `toolsPackage` | guest: `packages.<system>.<name>` from the target's own flake | no | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it |
+| `toolsPackage` | guest: `packages.<system>.<name>` from the target's own flake | in practice yes | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Available only to a target whose whole tool set is a list of nixpkgs attr names**: `extraTools` is a supplement, never a substitute, so anything built by a function — a `python3.withPackages (…)` has no attr name — has to export a package (NOTES item 23) |
 | `extraTools` | guest: nixpkgs attr names, resolved against the *guest's* pkgs | no | `[]` |
 | `allowlist` | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
 | `caches` | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
 | `cachePaths` | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
-| `defaultBranch` | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — |
+| `defaultBranch` | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — , and **the only field with no run-time override at all**: it is interpolated into `capsule-provision` and `capsule-collect`, so the module path's copies keep the old target's branch until the host is rebuilt, and a provision against them refuses (NOTES item 23) |
 | `collectMaxPackBytes` | host: `capsule-collect`'s `ulimit -f` | yes | — |
 | `commands` | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
 | `sizes` | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
 | `guestConfig` | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
-Only `toolsPackage`'s absent path has been exercised. The rest are absent paths
-by construction — read the consumers, not this table, before relying on one.
+`extraTools = []` is the absent path a second target exercised (NOTES item 23),
+and `toolsPackage = null` is the one that turned out to be **narrower than it
+looks** — see its row. Still unexercised: `baseline = null`, `caches = {}`,
+`guestConfig = {}`. Those are absent paths by construction — read the consumers,
+not this table, before relying on one.
 
 ### What is deliberately not a target field
 
@@ -142,22 +145,33 @@ treats as its own records.
 
 ## Porting to a second target
 
-Untested, and the parameterisation is only *claimed* until one exists. In order:
+**Done once, so the price is a diff rather than an argument.** panopticon is the
+second target, on branch `second-target` — its cold `just check` is green through
+a brand-new allowlist ([notes](./notes.md) item 23,
+[probes](./probes.md#the-cold-build-on-a-second-target)). What that port changed
+outside this file: one allowlist file, `inputs.target.url`, and **one guest
+capability** — `programs.nix-ld`, because a pypi wheel, an npm prebuild and a Go
+module's vendored helper all need a `/lib64` loader and none of them supplies a
+different one. Nothing else generic moved. In order:
 
 1. `inputs.target.url` in `flake.nix`, and `path` in `target.nix` — the two
    literals above. Check `~/flakes` if you renamed the input.
 2. `name`, `defaultBranch`, `commands`, `baseline`.
 3. Its own `allowlist` file. Half of any such list is that target's dependency
    hosts, so it is a new file rather than an edit to doctrine's.
-4. `toolsPackage`, or `null` and a filled-out `extraTools`.
+4. `toolsPackage`. `null` plus a filled-out `extraTools` is the absent path on
+   paper and is unavailable to most targets in practice — attr names only, so a
+   tool set assembled by a function has to become an exported package in the
+   *target*, which is where the contract says that cost belongs.
 5. `sizes`, and `guestConfig` derived from them — not copied from a human's
    machine, which describes a machine the capsule is not.
 6. `caches` for its toolchain, `{}` if it has none.
 
 The likely friction is all in the last three: `extraTools`, `caches` and `sizes`
-are doctrine's toolchain wearing a general name. The review question, every time,
-is CLAUDE.md's: *would a different target need this code changed, or only a
-different value?*
+are doctrine's toolchain wearing a general name — panopticon took half the memory
+and a quarter of the volume, which is what inheriting them would have got wrong.
+The review question, every time, is CLAUDE.md's: *would a different target need
+this code changed, or only a different value?*
 
 Concurrent capsules on *different* targets is a much larger job than a different
 one — a different tool set is a different guest image, which is exactly the
