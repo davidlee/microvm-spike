@@ -209,14 +209,27 @@ human_ssh_identity() {
 # and tailscale's too. The tap is created inside rather than moved in, because
 # `tap-up` is namespace-agnostic: the host module can put the namespace on that
 # unit and then no tap ever moves (docs/plan-c-multi-capsule.md, "Plumbing").
+#
+# The optional fifth argument is **the tap's flags, and they belong to the VMM
+# rather than to the namespace**. A single-queue tap is all firecracker has ever
+# wanted, and cloud-hypervisor asks for `IFF_MULTI_QUEUE` whenever `vcpu > 1`
+# (`lib/runners/cloud-hypervisor.nix`), which a tap created without it refuses:
+# `OpenTap(MultiQueueNoTapSupport)`, fatal three milliseconds into the boot and
+# before one line of guest output. microvm.nix's own `tap-up` reads this off
+# `declaredRunner.passthru.tapMultiQueue`, so the module path already gets it
+# right and it is a probe creating taps by hand that has to be told
+# (docs/spike-cloud-hypervisor.md). An argument rather than a lookup, for the
+# reason every other seam here is one: a harness that asked which hypervisor it
+# was booting would have both baked into it (NOTES item 20).
 ns_up() {
-  local ns=$1 tap=$2 addr=$3 prefix=$4
+  local ns=$1 tap=$2 addr=$3 prefix=$4 flags
+  read -r -a flags <<<"${5:-}"
   ip netns add "$ns" || return 1
   ip -n "$ns" link set lo up
   ip netns exec "$ns" sysctl -q -w net.ipv4.ip_forward=0
   ip netns exec "$ns" sysctl -q -w net.ipv4.conf.all.forwarding=0
   # Owned by the human, because firecracker cannot create its own.
-  ip netns exec "$ns" ip tuntap add dev "$tap" mode tap user "$HUMAN" || return 1
+  ip netns exec "$ns" ip tuntap add dev "$tap" mode tap "${flags[@]}" user "$HUMAN" || return 1
   # Before the link is up, as capsule-net does it, so the tap never emits a
   # router solicitation. Absent entirely if the kernel has no IPv6.
   ip netns exec "$ns" sysctl -q -w "net.ipv6.conf.$tap.disable_ipv6=1" 2>/dev/null

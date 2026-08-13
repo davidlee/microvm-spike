@@ -108,6 +108,23 @@
     # The agent jail. One value, however many capsules run it.
     capsuleVm = mkVm "capsule" ./vm/capsule.nix;
 
+    # The same guest under cloud-hypervisor — a spike, not a slot
+    # (docs/spike-cloud-hypervisor.md). `extendModules` rather than a second
+    # `mkVm`, because the claim being tested is that this is the *same image*:
+    # with `i8042` unconditional in vm/common.nix, `toplevel`, the initrd and
+    # the store disk are the same derivations as `capsule`'s and only the runner
+    # differs. A second `mkVm` would make that a coincidence to re-check rather
+    # than a construction.
+    #
+    # The hostname stays `capsule`, so this is `microvm@capsule` in the process
+    # table like everything else and the probes' namespace-scoped identity holds
+    # (NOTES item 21). Nothing declares it as a slot: it has no namespace, proxy
+    # or relay unit, so `microvm -c capsule-ch` would boot a capsule with no
+    # perimeter, exactly as `microvm -c capsule` would (NOTES item 28).
+    capsuleChVm = capsuleVm.extendModules {
+      modules = [{microvm.hypervisor = "cloud-hypervisor";}];
+    };
+
     vms =
       {
         # Smoke test: does firecracker boot at all on this host. No network.
@@ -121,6 +138,9 @@
         # attribute and the process name have to be the one word. `.#capsule` is
         # also what `vm capsule` and `just build-vm` have always meant.
         capsule = capsuleVm;
+
+        # Built and booted by `probe-ch-boot`, and by nothing else.
+        capsule-ch = capsuleChVm;
       }
       # An attribute per declared capsule, because `microvm -c <name> -f .` is
       # what creates one and it resolves `nixosConfigurations.<name>` (CLAUDE.md
@@ -782,6 +802,41 @@
       ];
     };
 
+    # The spike's Phase 1 (docs/spike-cloud-hypervisor.md): the same guest image
+    # under cloud-hypervisor. Phase 0 proved by eval that `capsule-ch` is the
+    # same store disk as `capsule` — this boots it, and asks the question an eval
+    # cannot: what a stop *is* on a VMM with a real ACPI power button.
+    #
+    # `VM` is the guest, `capsule`, because that is its hostname and the name
+    # every namespace-scoped question here matches on; the *attribute* it builds
+    # is `capsule-ch` and is spelled in the script, which is the one place those
+    # two nouns come apart.
+    probe-ch-boot = probe {
+      name = "probe-ch-boot";
+      script = ./probe/ch-boot.sh;
+      prelude = ''
+        TAP="${net.tap}"
+        HOST_ADDR="${net.host}"
+        GUEST_ADDR="${net.guest}"
+        PREFIX="${toString net.prefix}"
+        VM="capsule"
+      '';
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.iputils
+        pkgs.procps
+        pkgs.coreutils
+        pkgs.gnugrep
+        pkgs.gawk # the harness's stopwatch
+        pkgs.util-linux # runuser: enter the namespace as root, boot the VM as you
+        pkgs.glibc.bin # getent, for the human's home directory
+        pkgs.bash # /dev/tcp, via `timeout 3 bash -c`
+        pkgs.openssh
+        pkgs.curl # the hypervisor's API socket, which is the whole of stage 3
+        pkgs.nix # builds the runner, as the human
+      ];
+    };
+
     # The claim neither of those two makes: does the *perimeter* survive the move
     # into a namespace (docs/status.md, "Egress under netns is unproven")? Boots
     # the real capsule, joins the real proxy to its namespace, and asks the guest
@@ -1023,7 +1078,7 @@
         # what the guard decides.
         inherit hostModuleUnits guardCases;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
-        inherit probe-netns probe-netns-boot probe-netns-egress;
+        inherit probe-netns probe-netns-boot probe-netns-egress probe-ch-boot;
         inherit probe-freshness probe-two-capsules;
         default = self.packages.${system}.capsule;
       };
@@ -1043,6 +1098,7 @@
           probe-netns
           probe-netns-boot
           probe-netns-egress
+          probe-ch-boot
           probe-freshness
           probe-two-capsules
           pkgs.firecracker

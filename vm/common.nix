@@ -1,6 +1,10 @@
 {lib, ...}: {
   microvm = {
-    hypervisor = "firecracker";
+    # `mkDefault`, so a variant can extend this value rather than force it —
+    # `capsule-ch` in flake.nix is one, and two definitions at ordinary priority
+    # are a conflict rather than an override. It is still the fleet's answer:
+    # nothing overrides it but the spike (docs/spike-cloud-hypervisor.md).
+    hypervisor = lib.mkDefault "firecracker";
     # Baselines; each VM sizes itself.
     vcpu = lib.mkDefault 4;
     mem = lib.mkDefault 4096;
@@ -30,6 +34,16 @@
   # firecracker's surface either way (docs/threat-model.md), and the only thing
   # that can feed it scancodes is the host.
   boot.kernelModules = ["i8042" "atkbd"];
+
+  # The same module, one stage earlier, and it is here so that **one image serves
+  # both hypervisors**. microvm.nix puts `i8042` in the initrd for firecracker
+  # alone (`nixos-modules/microvm/system.nix`), which is the entire guest-side
+  # difference between the two: forced on both sides, `toplevel`, the initrd and
+  # the store disk are the *same derivations*, and only the runner differs
+  # (`just hypervisor-delta`, NOTES item 14). Free on the firecracker side —
+  # the list merges, the duplicate collapses, and the erofs is byte-identical to
+  # the one every slot already runs, so this costs no rebuild.
+  boot.initrd.kernelModules = ["i8042"];
 
   networking.useDHCP = false;
 

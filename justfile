@@ -77,6 +77,7 @@ build:
   nix build --no-link '.#capsule-cli' \
     '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#capsule-halt' \
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
+    '.#probe-ch-boot' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
     '.#capsule-baseline' '.#hostModuleUnits' '.#guardCases'
@@ -90,6 +91,75 @@ units:
 # only produce by unnaming a namespace under a running guest
 cases:
   @cat "$(nix build --no-link --print-out-paths '.#guardCases')"
+
+# Phase 0 of docs/spike-cloud-hypervisor.md: does swapping the VMM change the
+# *guest*, or only the runner? Four derivations either side of
+# `microvm.hypervisor`, twice — as committed, and again with the one known
+# guest-side delta neutralised (microvm.nix puts `i8042` in the initrd for
+# firecracker alone). Runner-only means a cloud-hypervisor slot costs a runner;
+# a differing store disk means a second ~12 GiB image and a `microvm -u` per
+# slot, which is Plan D's decision and not a spike's.
+#
+# Eval, never build: `.drvPath` instantiates and stops, and `--raw` is what
+# forces it — a lazy comparison compares nothing. `extendModules` on both sides
+# rather than the committed value against an extended one, so the extension
+# itself cannot be the difference. One eval per side, not one per attribute:
+# each is a whole system evaluation and this host has a capsule working in it.
+#
+# **Equality here is not proof of independence** (NOTES item 27): it says the
+# forced option did not reach the closure, and `vcpu` looked exactly this
+# innocent. The grep over guest-side consumers is the other half and lives in
+# the spike doc.
+hypervisor-delta:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  attrs=(toplevel initrd store runner)
+
+  # $1 hypervisor, $2 extra module fragment (nix, may be empty).
+  # `mkForce`, because vm/common.nix defines the hypervisor at ordinary priority
+  # and two definitions of one option is a conflict rather than an override.
+  drvs() {
+    nix eval --raw '.#nixosConfigurations.capsule' --apply \
+      "c: let s = (c.extendModules { modules = [ ( { lib, ... }: { microvm.hypervisor = lib.mkForce \"$1\"; } ) $2 ]; } ).config;
+          in builtins.concatStringsSep \" \" [
+            s.system.build.toplevel.drvPath
+            s.system.build.initialRamdisk.drvPath
+            s.microvm.storeDisk.drvPath
+            s.microvm.declaredRunner.drvPath
+          ]"
+  }
+
+  # $1 label, $2 extra module fragment
+  round() {
+    local i verdict=runner-only fc ch a b
+    echo "== $1"
+    # Assigned before they are read, so an eval that fails stops the recipe
+    # rather than reaching the comparison with an empty array — `local x=$(…)`
+    # would swallow the status, which is the whole reason for the two lines.
+    a=$(drvs firecracker "$2")
+    b=$(drvs cloud-hypervisor "$2")
+    # `--raw` ends without a newline, so a bare `read` returns 1 at EOF and
+    # `set -e` takes the recipe down before anything is compared. Here-strings
+    # supply the newline; the arrays split on the separator nix wrote.
+    read -r -a fc <<<"$a"
+    read -r -a ch <<<"$b"
+    for i in "${!attrs[@]}"; do
+      if [ "${fc[$i]}" = "${ch[$i]}" ]; then
+        printf '  %-9s same\n' "${attrs[$i]}"
+      else
+        printf '  %-9s differs\n    fc %s\n    ch %s\n' "${attrs[$i]}" "${fc[$i]}" "${ch[$i]}"
+        # The runner is expected to differ — that is the swap, not a finding.
+        [ "${attrs[$i]}" = runner ] || verdict=image-affecting
+      fi
+    done
+    echo "  verdict: $verdict"
+  }
+
+  round "as committed" ""
+  round "with initrd i8042 forced both sides" '{ boot.initrd.kernelModules = [ "i8042" ]; }'
+  echo "an equal drvPath says the forced option did not reach the closure, not that"
+  echo "the hypervisor cannot — pair it with the grep (NOTES item 27)."
 
 # the guest closure and its runner — the slow one
 build-vm:

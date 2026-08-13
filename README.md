@@ -339,6 +339,17 @@ skipped and carries on. For 1Password, swap the entry's `produce` for `op inject
 firecracker has no shares, so the environment is rendered here and pushed — it is
 never fetched from inside.
 
+**For Claude, mint the capsule its own grant rather than copying yours.**
+`claude setup-token` on the host prints a year-long OAuth token and saves it
+nowhere; put it in that `.env` as `CLAUDE_CODE_OAUTH_TOKEN=…`, or export it
+inline in the shell you start the agent from. Copying `~/.claude/.credentials.json`
+in *looks* equivalent and is not: that credential rotates on every refresh, two
+holders are two claimants on one grant, and the loser erases its own copy — which
+is the whole of [item 32](./docs/ledger/032-credential-divergence-has-a-mechanism.md)
+and why [item 2](./docs/ledger/002-agent-credentials.md)'s payloads are no longer
+the way in. One grant per capsule also means one revocation per capsule, though
+the revocation path is itself undocumented — item 32 says what that costs.
+
 A provisioned capsule still has empty caches, so the first build in it is the
 slow one. Take it deliberately, and keep the number:
 
