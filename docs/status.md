@@ -6,8 +6,10 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after **the fragment vocabulary — built, evaluated, and
-not yet in an image** (below) — and before that the same day after **D1 + D5
+Last updated 2026-08-13, after **the fragment vocabulary — built, in the image,
+and carrying slot `a`'s first real assignment** (below: `a` is provisioned onto
+doctrine's SL-254 slice at `caf7f2a21`, generation 4, warm baseline green in
+83 s) — and before that the same day after **D1 + D5
 built, switched and run on this host** —
 which took one fix, because the eval check that was supposed to catch it could
 not see the thing that was wrong (below) — and before that the same day after
@@ -64,13 +66,16 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   the `pkgs ? claude-code` guard are both gone, since the derivation is created
   in another eval.
 
-  **Evaluated, not built.** `just check` is green and the composed list
-  evaluates with all thirteen packages in it; the refusal was watched failing on
-  a misspelt fragment name before it was kept. What has *not* happened is the
-  image: this is a guest change, so it needs `nix build .#capsule` and
-  `just refresh <name>` per slot, and the disk delta of a second nixpkgs in the
-  closure is unmeasured. `bubblewrap` in the guest is untested — bwrap wants
-  unprivileged user namespaces and this guest runs `lockKernelModules`.
+  **Built, refreshed and worked in.** `just check`, `just build` and `just
+  units` green; the refusal watched failing on a misspelt fragment name before
+  it was kept; then the image built and `just refresh a` put it under the
+  running slot. The cost is **+0.5 GiB of closure (11.9 → 12.4 GiB) and +100.9
+  MiB of erofs**, and the risk that motivated measuring it — llm-agents dragging
+  a second nixpkgs in — did not happen: its `claude-code` arrived as `2.1.224 →
+  2.1.229` ([probes](./probes.md#figures)). `bwrap` runs in the guest, so
+  unprivileged userns survives `lockKernelModules`; its empty-sandbox `execvp`
+  error reads like a missing kernel feature and is not one
+  ([item 31](./ledger/031-the-fragment-vocabulary.md)).
 - **Plan D D1 and D5 are installed and have run** — the assignment record and the
   status columns, the pair Plan D calls cheapest-useful because a fleet has to be
   legible before it can be administered. Three new files and no second
@@ -752,17 +757,21 @@ declared namespace, so one of ten that will not come up denies the whole host.
 
 ## Open, and nothing should claim these closed
 
-- **The flavour composition has never been in an image.** `fragments.nix`
-  evaluates; no capsule has booted with it, so nothing has run `helix`, `tmux`
-  or the `llm-agents` build of `claude` in a guest, and the closure's disk delta
-  against the ~3.0 GiB image is unmeasured. `bubblewrap` is the one with a named
-  doubt rather than merely no evidence: it needs unprivileged user namespaces,
-  under `lockKernelModules` and `protectKernelImage`
-  ([item 31](./ledger/031-the-fragment-vocabulary.md)).
-- **Extras are fleet-wide, so the record's `image` is still inert.** One list
-  for every slot is what keeps one image; per-assignment selection, the
-  store-path identity, the gcroot that retains it and the refusal to recompose
-  under a dirty volume are all still Plan D D7.
+- ~~**The flavour composition has never been in an image.**~~ Built, refreshed
+  onto slot `a`, and a real workload has built on it — and it cost **+0.5 GiB of
+  closure and +100.9 MiB of erofs**, with no second toolchain, since
+  llm-agents' `claude-code` landed as a version bump
+  ([probes](./probes.md#figures),
+  [item 31](./ledger/031-the-fragment-vocabulary.md)). `bwrap` works in the
+  guest, which was the one named doubt. What is *not* measured: whether an agent
+  actually prefers any of it, which only the slice will say.
+- **Extras are fleet-wide, so the record's `extras` and `image` are still
+  inert** — and `"extras": []` in a live record now reads as a lie it is worth
+  being able to answer: the *fleet* composes `agents` and `dev-facilities` at
+  build time, and that field means *this assignment selected none*, because
+  nothing selects yet. One list for every slot is what keeps one image;
+  per-assignment selection, the store-path identity, the gcroot that retains it
+  and the refusal to recompose under a dirty volume are all still Plan D D7.
 - ~~**6144 has never run.**~~ Run, and it answered the opposite question to the
   one asked. The cut costs nothing (110 s to green, no guest pressure, 3.4 GiB
   free in the guest) **and saves nothing**: a built slot's `anon` is ~6.1 GiB at
@@ -782,7 +791,11 @@ declared namespace, so one of ten that will not come up denies the whole host.
 - **`capsule-provision` called directly still writes no record**, deliberately
   ([item 29](./ledger/029-the-record-is-front-end-written.md)). So a slot can be
   provisioned with no `base` pinned, and the only thing that says so is a missing
-  key and a `-` in the `gen` column. Slot `a` is in exactly that state now.
+  key and a `-` in the `gen` column. ~~Slot `a` is in exactly that state now.~~
+  No longer: `a` was provisioned through the front end onto doctrine's SL-254
+  slice, so its record carries `base.ref = edge` and the measured
+  `base.oid = caf7f2a21…` at generation 4. The hole is still there for the next
+  slot provisioned by the program directly.
 - **The two copies of the CLI are one store path by construction and nothing
   checks it.** `flake.nix` and `host/services.nix` both import `host/cli.nix`,
   and the claim that this is one derivation rather than two rests on the two

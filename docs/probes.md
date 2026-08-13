@@ -124,7 +124,8 @@ it, because two samples say more about the noise than either says alone.
 
 | figure | value | run 1 | source | note |
 | --- | --- | --- | --- | --- |
-| guest image closure | 12175 MiB (11.9 GiB), ~99% shared | 12175 | freshness, `nix path-info -S` on the runner | under netns this is **the** image, once, however many capsules run |
+| guest image closure | **12.4 GiB** since the flavour composition; 12175 MiB (11.9 GiB) before it, ~99% shared | 12175 | freshness, `nix path-info -S` on the runner; the current figure hand-measured on `/var/lib/microvms/a/current`, 2026-08-13 | under netns this is **the** image, once, however many capsules run. The two values are the same measurement on either side of one change — row below |
+| the flavour composition, on top of the target's floor | **+0.5 GiB** closure, **+100.9 MiB** erofs | — | hand-measured, runner closure before/after plus the switch diff, 2026-08-13 | `agents` + `dev-facilities` ([item 31](./ledger/031-the-fragment-vocabulary.md)): `claude`, `pi`, `rg`, `fd`, `tree`, `jq`, `bubblewrap`, `helix`, `tmux`, `btop`, `nushell`. The erofs delta is what every slot shares; the closure delta is what this host stores once. **No second toolchain came with `llm-agents`** — its `claude-code` landed as `2.1.224 → 2.1.229`, a version bump, so the pin dedupes against this repo's nixpkgs rather than doubling it |
 | store image, per instance | 3.0 GiB of erofs | — | hand-measured, [Plan C](./plan-c-multi-capsule.md#the-cost-that-shapes-everything-else) | the blob the closure names, and it does not dedupe. Only a cost under the N-closures mechanism. **The probe does not measure this** — it measures the closure above |
 | guest kernel / initrd | 381 MiB / 25 MiB | — | same | shared |
 | volume, after boot before provision | 260 MiB | 260 | freshness | allocated blocks (`du -B1`). Empty ext4 for a 32 GiB declaration — this much exists before any content does |

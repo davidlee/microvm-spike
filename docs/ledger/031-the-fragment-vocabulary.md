@@ -1,6 +1,7 @@
 # NOTES item 31 — the fragment vocabulary: composition built, selection deferred
 
-*State: built, unrun — the image has not been rebuilt on this host yet.*
+*State: built, and run — the image carries it and a real workload has built on
+it.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -86,12 +87,36 @@ guard (`lib.optional (pkgs ? claude-code)`) goes with it: an input's package
 either exists at the pinned revision or the eval says so, which is a better
 failure than silently shipping a guest with no agent in it.
 
-## Cost, and what is unmeasured
+## Cost, measured
 
-A second nixpkgs is now in the guest closure — llm-agents' pin, for the two
-agent CLIs. The image is ~3.0 GiB today ([probes](../probes.md#figures)) and
-disk is the binding constraint here, so the delta is worth reading off the next
-build rather than assumed. Nothing has built it yet.
+**+0.5 GiB of runner closure (11.9 → 12.4 GiB) and +100.9 MiB of erofs**
+([probes](../probes.md#figures)). The erofs delta is the one that matters at N,
+since every slot shares that image; the closure delta this host stores once.
+
+The worry that motivated measuring it did not materialise. llm-agents carries
+its own nixpkgs pin, so a second toolchain in the closure was the obvious risk —
+and its `claude-code` landed as **`2.1.224 → 2.1.229`**, a version bump against
+the one nixpkgs had. The pin dedupes rather than doubling. What the half-gigabyte
+actually is, is the tools themselves: `helix` 185.5 MiB (wrapped, with
+grammars), `pi` 119.3 MiB, `nushell` 66.5 MiB, the rest small.
+
+**bwrap works in the guest**, which was this item's one named doubt —
+unprivileged user namespaces under `lockKernelModules` and `protectKernelImage`.
+The first attempt looked like a failure and was not:
+
+    $ bwrap --new-session ls -hl
+    bwrap: execvp ls: No such file or directory
+
+That is the sandbox succeeding — no binds means an empty root, so there is no
+`ls` in it. With `--ro-bind /nix /nix --ro-bind /run/current-system … --proc
+/proc --dev /dev` it lists the sandbox's own four entries. Worth writing down
+because the failure mode reads exactly like a missing kernel feature.
+
+**No wall-clock effect visible.** A warm baseline on the composed image took
+83 s against 77 s on the image before it, same commit both sides, n=1 each —
+which is inside the noise these runs have shown elsewhere and is not a
+measurement of anything. It is here to say the composition was exercised by a
+real build, not to claim a cost.
 
 The refusal was watched failing before it was kept: a misspelt fragment name
 evaluates to
