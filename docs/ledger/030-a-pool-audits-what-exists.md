@@ -1,10 +1,10 @@
 # NOTES item 30 — a pool degrades by auditing what exists, not by excluding what is declared
 
-*State: built and asserted, unswitched. The guard holds both limbs, eleven cases
-pin them at build time (`just cases`), and the pool is still two slots —
-`capsules.nix` grows to ten in its own change, once this has run. Reviewed once
-before building, which cost the `wants` version and bought the argument against
-the exclusion list.*
+*State: built, asserted and **run** — the degraded start, the arrival and the
+departure all witnessed on this host, and one live refusal paid for on the way
+(the capability, below). The pool is still two slots; `capsules.nix` grows to ten
+in its own change now that this has run. Reviewed once before building, which cost
+the `wants` version and bought the argument against the exclusion list.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -197,6 +197,24 @@ guest in an unnamed namespace is limb one's unsoundness, and a VMM in another
 slot's namespace is what union membership calls healthy. And the suite was
 checked for the ability to fail — the skip was reverted to its pre-item-30 form
 once, deliberately, to watch `a slot that never came up degrades` go red.
+
+## What the live run showed
+
+Three transitions on this host, with `a`'s guest running throughout and `cap-b`
+absent because the switch had stopped its namespace unit:
+
+| the guard says | on |
+| --- | --- |
+| `1 of 2 declared capsule namespace(s) verified` | starting with `cap-b` absent |
+| `2 of 2` | `capsule-netns-b` started — one audit cycle later |
+| `1 of 2` | `capsule-netns-b` stopped again |
+
+The first line is the change: the old guard refused exactly there, and its
+`BindsTo` took `a`'s proxy — and so `a`'s egress — with it, which made this host
+state unrecoverable without starting an unrelated slot's namespace first. Across
+all three the guard and `capsule-proxy-a` stayed active, and `capsule-proxy-b`
+stayed *inactive* throughout, correctly: nothing pulls a proxy but its own
+capsule, and `b` has no guest.
 
 ## What the first live start cost, and what it says about the cases
 

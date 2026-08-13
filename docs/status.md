@@ -678,15 +678,29 @@ capsules were named after names that no longer exist:
 §0's four-hot recommendation is rewritten, since a fleet plan that sizes slots by
 ceiling was sizing them wrong.
 
-Next: **D2, the pool. Its half of L12 is built and unswitched**
-([item 30](./ledger/030-a-pool-audits-what-exists.md)): the guard now holds one
+Next: **D2, the pool. Its half of L12 is built, switched and run — L12 is closed**
+([item 30](./ledger/030-a-pool-audits-what-exists.md)): the guard holds one
 invariant with two limbs — every declared-and-present namespace passes its audit,
 and every running capsule's VMM is inside its own declared namespace — so an
 absent slot is skipped, a present-and-wrong one still refuses the whole host, and
 the exclusion-list version is refused because it is persistent exception state
-nothing clears. `just build` and `just units` green; the switch and the live
-degradation test are outstanding. **Not a mode**: no boolean, no override, no
-second path.
+nothing clears. **Not a mode**: no boolean, no override, no second path.
+
+  Witnessed on this host with `a`'s guest running and `cap-b`'s unit stopped: the
+  guard started at `1 of 2`, went to `2 of 2` one audit cycle after
+  `capsule-netns-b` started, and back to `1 of 2` when it stopped — `proxy-a`
+  active throughout. The old guard refused at the first of those and took `a`'s
+  egress with it, so that host state used to be unrecoverable without starting an
+  unrelated slot first.
+
+  **It cost one live refusal, and the class is new here**: the guard's
+  `CapabilityBoundingSet` had no `CAP_SYS_PTRACE`, so `ip netns pids` returned a
+  list with the `microvm`-owned VMM silently missing and limb two reported
+  `microvm@a.service (pid …) is not in cap-a` — a correct check naming a cause
+  that was not the cause. `hostModuleUnits` now refuses a guard without that
+  capability, because nothing else paired a program's needs with its unit's
+  permissions ([CLAUDE.md](../CLAUDE.md) has the A/B that proves this class:
+  `systemd-run -p CapabilityBoundingSet=…` beside plain `sudo`).
 
   It came with **a third kind of check**, and that is the reusable part:
   `guardCases` (`just cases`) runs the real guard's text at build time with `ip`,

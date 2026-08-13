@@ -52,4 +52,4 @@ time it is touched.
 | [27](./027-a-class-is-not-always-a-kilobyte.md) | a class is a kilobyte only over reservations the profile derives nothing from | settled for `mem` by eval, `vcpu` read from source |
 | [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built and run at N=2 |
 | [29](./029-the-record-is-front-end-written.md) | the record is front-end written, and a pin is measured rather than resolved twice | built and run on this host |
-| [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, unswitched — [Plan D](../plan-d-fleet.md) D2 + L12 |
+| [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12; the pool itself is D2 |

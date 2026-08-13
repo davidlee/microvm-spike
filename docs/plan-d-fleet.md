@@ -299,22 +299,25 @@ bought something else.
   the existing door; unmanaged, so nothing allocates or records host ports.
 - **L11 — declaring a capsule is a git push.** Class 3, plus the GitHub round
   trip. Fixed by §0's local input, which is why that is step one.
-- **L12 — one broken slot denies the whole host, and the chain that does it is
-  not obvious.** Nothing in `host/services.nix` is `wantedBy` anything: a start
-  of `microvm@<name>` wants its proxy, the proxy `BindsTo` the guard, and the
-  guard `requires` **every** declared namespace unit and audits all of them
-  every 10 s. So a ten-slot pool costs nothing at rest — no namespace exists
-  until the first capsule starts — and then costs all ten at once, on the first
-  start. The failure that matters is not an idle slot but a *broken* one: a
-  namespace unit that refuses takes the guard with it, and the guard is on every
-  proxy's `BindsTo`, so **no capsule on the host can start**, not merely the
-  broken one. Correct for a perimeter — a partial teardown is worse — and at N=2
-  indistinguishable from robust. At N=10 it is the argument for a degraded mode,
-  or the pool's weakest member gates the fleet. **What that mode is has since been
-  decided** ([item 30](./ledger/030-a-pool-audits-what-exists.md)) and it is not
-  the exclusion list this paragraph originally asked for — the audit set becomes
-  declared ∩ present, which needs no new state and keeps a *broken* namespace
-  fleet-wide while an *absent* one costs nothing.
+- ~~**L12 — one broken slot denies the whole host, and the chain that does it is
+  not obvious.**~~ **Closed** ([item
+  30](./ledger/030-a-pool-audits-what-exists.md)), which leaves the pool itself as
+  D2's only remaining content. The chain was: nothing in `host/services.nix` is
+  `wantedBy` anything, so a start of `microvm@<name>` wants its proxy, the proxy
+  `BindsTo` the guard — and the guard used to `requires` **every** declared
+  namespace unit while auditing all of them every 10 s. A ten-slot pool therefore
+  cost nothing at rest and all ten at once on the first start, and the failure
+  that mattered was not an idle slot but a *broken* one: a namespace unit that
+  refused took the guard with it, and through the guard's `BindsTo` **no capsule
+  on the host could start** — not merely the broken one. Correct for a perimeter,
+  and at N=2 indistinguishable from robust.
+
+  What replaced it is not the exclusion list this item originally asked for. The
+  guard `requires` only the aggregator, orders itself after the namespace units
+  without pulling them in, and audits declared ∩ present — with a second limb
+  saying every running capsule's VMM is inside its own namespace, which is what
+  makes skipping an absent one sound. No new state, no mode, and a *broken*
+  namespace is still fleet-wide.
 - **L13 — `defaultBranch` has no run-time override, and it is the odd one out.**
   Every other host-side target value either belongs to the guest (`sizes`,
   `caches`, `guestConfig`) or has one — `path` has `CAPSULE_REPO` and the
@@ -630,9 +633,11 @@ only place a repo name appears.
   Turns S1, S4 and S10 from rebuilds into commands. The cost is not idle
   namespaces — nothing starts at boot, so an unassigned slot is a declaration
   and nothing else — it is L12: on the first start of *any* capsule the guard
-  pulls in all ten, and any one of them that will not come up denies the whole
-  host. A pool wants the degraded mode L12 asks for, in the same change, and its
-  shape is [item 30](./ledger/030-a-pool-audits-what-exists.md).
+  pulled in all ten, and any one of them that would not come up denied the whole
+  host. That was L12, and it is closed
+  ([item 30](./ledger/030-a-pool-audits-what-exists.md)) — so what is left of D2
+  is the declaration and the run-time assignment, with nothing standing in front
+  of them.
 - **D3 — volume verbs.** `capsule <slot> volume {df,reset,reset-home,clone-from
   <m>}`, host-side, refusing while the VM runs. `reset` is S4 without the `rm
   -rf`; `clone-from` is S5, and on ext4 it is a sparse copy of ~1.1 GiB —
