@@ -231,10 +231,13 @@ bought something else.
   the limitation is concurrency and the class-2/3 chain, not parameterisation:
   two targets on one host is `git switch` plus a rebuild, and two targets *at
   once* is D7.
-- **L2 — sizes are global, and probably needn't be.** vcpu, mem and volume come
-  from `target.nix` for every capsule alike. They live in the runner rather than
-  the erofs, so per-slot sizes should cost a kilobyte each — but that rests on
-  the one inferred claim in this file, and §5 has the eval that settles it.
+- **L2 — sizes are global, and needn't be, but they are not uniformly cheap.**
+  vcpu, mem and volume come from `target.nix` for every capsule alike. `mem`
+  lives in the runner rather than the erofs, so per-slot memory costs a kilobyte
+  — settled by eval in §5. `vcpu` does not: this target renders it into
+  `guestConfig`, so per-slot vCPU is a 3.0 GiB image and a `microvm -u` per slot
+  ([item 27](./ledger/027-a-class-is-not-always-a-kilobyte.md)). Volume size is
+  fixed at first boot and is the volume's, not a class's.
 - **L3 — one allowlist per host, not per capsule.** The proxy already takes
   `CAPSULE_ALLOWLIST` per unit and the units are already per capsule; only the
   module option is singular. A per-capsule allowlist is a field and a bind
@@ -348,24 +351,30 @@ configuration is a kilobyte beside a 3.0 GiB erofs that the runner merely
 references — and a volume's declared size is fixed at first boot, so D3's
 `resize` is delete and recreate rather than a verb of its own.
 
-**This is the one claim in this file that is inferred rather than read.** Two
-runners differing only in `mem` share an image *if and only if* nothing in the
-guest closure reads `microvm.mem` — likely, since the value's consumer is the
-runner builder, but likely is not verified, and L2's whole price rests on it.
-The check is an eval, not a build, and it is the user's to run:
+**`mem` is runner-only — settled, and it settled less than it was asked to.**
+This was the one inferred claim in this file. The check was an eval comparing
+`system.build.toplevel.drvPath` with and without a forced `microvm.mem`
+(`lib.mkForce`, since `vm/capsule.nix` sets it from `target.sizes.mem` at normal
+priority and a bare value conflicts). **Identical paths.** So two capsules
+declared at 6144 and 8192 share one erofs, §9 step 3's drop is free of the image,
+and a class varying only `mem` costs the ~1 KB of JSON above.
 
-```
-nix eval --impure --raw --expr '
-  let c = (builtins.getFlake "git+file:///home/david/dev/microvm-spike").nixosConfigurations.capsule;
-  in c.config.system.build.toplevel.drvPath
-    + "\n"
-    + (c.extendModules { modules = [{ microvm.mem = 6144; }]; })
-        .config.system.build.toplevel.drvPath'
-```
+**What that does not settle is `vcpu`, and the eval could not have told you.**
+Read from source instead: `vm/capsule.nix` does `inherit (target.sizes) vcpu
+mem`; `mem` reaches `microvm.mem` and stops, but `target.nix` renders
+`jobs = ${toString sizes.vcpu}` into `guestConfig`'s cargo config, which is a
+store file **in the closure**. So for this target a vCPU change is class 2 and a
+`microvm -u` per slot. Forcing the *option* `microvm.vcpu` leaves
+`target.sizes.vcpu` untouched, so that guest config never moves and the same eval
+returns identical paths for a coupling that is real — the probe confirming the
+claim it was meant to falsify ([item 27](./ledger/027-a-class-is-not-always-a-kilobyte.md)).
 
-Two identical paths means sizes are free and classes (§0) cost a kilobyte each.
-Two different paths means every class is a 3.0 GiB image and §6's table is wrong
-about where `class` lives.
+So the rule is narrower than "classes cost a kilobyte": **a class is a kilobyte
+only over reservations the assigned profile derives nothing from**, which is a
+predicate over a *(class, profile)* pair rather than a global fact. The coupling
+itself is the guinea-pig capability working — *render static guest config from
+the declared reservation* — not a leak, so the fix is the cost model rather than
+the derivation.
 
 **Upstream has a mode for "someone else owns this state directory".** Read from
 source: `build()` refuses outright when a `toplevel` symlink is present — *"This
@@ -396,7 +405,7 @@ is a nix artefact.
 | --- | --- | --- | --- |
 | **slot** | index → namespace, uplink /30, socket, units | `capsules.nix` | class 3, once |
 | **flavour** | a tool set — the only irreducible per-target closure content | **composed**, not declared: the profile's floor plus the assignment's extras | class 2 to *add a fragment*; a symlink to *re-point* |
-| **class** | machine config: mem, vcpu | the runner's JSON | ~1 KB per combination, if §5's eval holds |
+| **class** | machine config: mem, vcpu | the runner's JSON | ~1 KB per combination over `mem`; a 3.0 GiB image over `vcpu`, because this profile derives guest config from it (item 27) |
 | **source** | where this host keeps the profile's repo | a host declaration, keyed by profile | class 3 — and never an assigner's to set |
 | **assignment** | profile, policy, class, extras, base commit, purpose | `/var/lib/capsule/<slot>/` | run time, free unless the composition is unbuilt |
 | **volume** | checkout, `$HOME`, caches, `target/`, **and its own size** | `/var/lib/microvms/<slot>` | verbs (D3); size fixed at creation |

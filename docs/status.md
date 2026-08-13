@@ -6,9 +6,10 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after the fleet's contracts were drafted against a
-review of [Plan D](./plan-d-fleet.md) — design only, nothing built — and before
-that on the same day after secrets at start — which closes Plan C item 7 —
+Last updated 2026-08-13, after Plan D §9 step 2's eval settled where a class
+lives, and before that the same day after the fleet's contracts were drafted
+against a review of [Plan D](./plan-d-fleet.md) — design only, nothing else
+built — and before that after secrets at start — which closes Plan C item 7 —
 the `capsule` CLI, and the load figure before it, and before that 2026-08-12,
 when the units ran at N=1 and `probe-netns-egress` re-ran 27/27 behind them —
 and then after the one bug that stood between N=1 and N=2: a host program's
@@ -28,6 +29,19 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **Plan D §9 step 2 is done: `mem` is runner-only, and `vcpu` is not.** Two
+  `toplevel.drvPath`s, with and without a forced `microvm.mem`, came back
+  **identical** — so capsules at 6144 and 8192 share one erofs, the mem drop is
+  free of the image, and a class varying `mem` costs ~1 KB. The claim it was
+  asked to support does not survive intact, though: `vcpu` reaches the closure
+  through `target.nix`'s cargo `jobs`, so per-slot vCPU is a 3.0 GiB image and a
+  `microvm -u` per slot. **The eval could not have found that** — it forces the
+  option, and the guest config reads the `specialArgs` value, so it returns
+  identical paths for a coupling that is real; a grep over every consumer is
+  what found it ([item 27](./ledger/027-a-class-is-not-always-a-kilobyte.md)).
+  The coupling is the guinea-pig capability working, so the correction is to the
+  cost model and not to the derivation, and the plan's "classes cost a kilobyte"
+  is now a predicate over a *(class, profile)* pair.
 - **The fleet's contracts are drafted, and nothing is built against them yet.**
   [contract-assignment.md](./contract-assignment.md) and
   [contract-flavour.md](./contract-flavour.md) are new, and

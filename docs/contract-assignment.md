@@ -77,6 +77,18 @@ Six consequences worth stating rather than deriving:
   an assignment claim a size its disk was not created with. Storage is a
   property of the volume; a class is a runner argument.
 
+  **And a class is cheap only over reservations the assigned profile derives
+  nothing from.** `mem` is runner-only, settled by eval. `vcpu` is not, for
+  doctrine, because its profile renders `jobs` from the declared vCPU count into
+  static guest config — so that class change is a new image
+  ([item 27](./ledger/027-a-class-is-not-always-a-kilobyte.md)). Cheapness is a
+  predicate over a *(class, profile)* pair, never a global fact, and a
+  `class → cost` table stated once for the host would be wrong for the second
+  profile. Nothing new is needed to *handle* it: the assignment already
+  identifies its image by resolved store path, so a class change that re-renders
+  derived config is already an image change and is already caught by the reuse
+  rule.
+
   **This does not make resources something projects know nothing about.** Two
   concepts, and only the second is designed here: a project's *requirements or
   recommendations* — can this sensibly build in `small`? — and the host's
