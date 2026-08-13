@@ -55,9 +55,9 @@
   # what a capsule is — and because a volume outlives this program, so a runner
   # left on it from an older build would be drift nothing reports.
   #
-  # Two verbs in one file: the only quote-free thing the host can say over ssh
-  # is `bash -l <path> <word> <word>`, and everything else about this program's
-  # remote commands is quoting.
+  # Two verbs in one file, because the host's side of this is all quoting and a
+  # path plus two bare words is the least of it: a stamp of digits and two
+  # letters needs none, wherever it is spliced.
   runner = pkgs.writeText "capsule-baseline-run" ''
     #!/usr/bin/env bash
     #   start STAMP  guard, detach `run`, return
@@ -211,8 +211,16 @@ in
       # `bash -l`, and it is load-bearing: `ssh host cmd` is neither a login nor
       # an interactive shell, so it has none of the guest's `environment.variables`
       # — no proxy, no CARGO_HOME, no TMPDIR (NOTES item 6). The detached run
-      # inherits this shell's environment.
-      reply=$("''${ssh_cmd[@]}" "$host" "bash -l '$dir/run.sh' start $stamp")
+      # inherits this shell's environment, which is why the login shell is here
+      # and not around the `run` verb.
+      #
+      # The runner is a *child* of that login shell rather than its script, and
+      # that is the whole point: a login shell sources `/etc/bash_logout` on the
+      # way out, NixOS generates one whose first line reads an unset guard
+      # variable, and `run.sh`'s own `set -u` would still be in force when it did
+      # — which is fatal, and **replaces the script's exit status with 1**
+      # (NOTES item 24). One more process, and `set -u` dies with the child.
+      reply=$("''${ssh_cmd[@]}" "$host" "bash -l -c \"bash '$dir/run.sh' start $stamp\"")
       echo "capsule-baseline: $reply"
       # `started STAMP` or `attached STAMP` — the second is an older run, and
       # from here on the two are the same thing.

@@ -402,6 +402,15 @@ Two consequences, both of which shape the load question rather than answering it
   decides how many fit. Note what the arithmetic does *not* do: 16305 MiB for two
   is not a rehabilitation of the withdrawn 16 GiB per capsule. Same order, wrong
   shape, and it was reasoned from a config file.
+- **What a built capsule holds is guest RAM the VMM cannot hand back, and the
+  guest's own view disagrees by 5.7 GiB.** The 7168 MiB an idle built capsule
+  charges its cgroup splits into `anon` **6141 MiB**, page cache 965 MiB and 29 MiB
+  of slab; inside that same guest, `free -m` reports **481 MiB used**, 2383
+  buff/cache and 5373 free of 7943. Neither reading is wrong. A page the guest has
+  ever touched is faulted into the VMM's mapping, and firecracker has no balloon
+  and no free-page reporting (CLAUDE.md), so a guest-side free is invisible from
+  the host. The ratchet above *is* that gap, which is why only a stop closes it —
+  and why a run whose peaks must mean something starts from freshly started units.
 - **The concurrency figure has to be taken on fresh volumes**, with three cold
   builds as its control, and not on capsules that have already built. Measuring
   two warm builds on ratcheted units would price a state nobody starts from.
@@ -459,7 +468,58 @@ exactly the ratchet above and the reason a stop is what resets it.
 other agent actively working, noctalia's indexer visible in `iotop`, niri plus idle
 terminals and Firefox. No `.vm/load.tsv` was taken, so this section claims **nothing
 about cpu or io pressure** — the durations and the kernel's peaks are the whole of
-it, and both are per-cgroup.
+it, and both are per-cgroup. The next section is where that gap closed.
+
+## Pressure under two concurrent cold builds
+
+The same shape run again the next morning, and this time the pressure question is
+answered: `20260813T013622Z` and `20260813T013623Z` (the **guest's clock is UTC**
+and this host is AEST, so those stamps are 11:36 the same morning — a thing worth
+knowing before reading any file mtime in a guest against a host clock). Fresh
+volumes both sides, both `mib_before` 124, both provisioned to the same commit
+`46507a9e0`, stamps one second apart from one launch line. So it is a replication
+of the section above with one instrument added.
+
+| figure | `capsule` | `capsule-b` | the run above |
+| --- | --- | --- | --- |
+| `just web-build test`, cold, to green | **113 s**, exit 0 | **118 s**, exit 0 | 112 / 121 |
+| MiB of volume, before → after | 124 → 1254 | 124 → 1254 | 124 → 1253 |
+| `memory.peak` of the unit | **7169 MiB** | **7510 MiB** | 7774 / 6801 |
+| `memory.events`, every field | all **0** | all **0** | all 0 |
+| cpu stall, `some` / `full` | **37.2 / 36.2 ms** | **39.2 / 37.8 ms** | not measured |
+| io stall, `some` / `full` | **2.30 / 2.29 ms** | **2.96 / 2.96 ms** | not measured |
+
+**Neither cpu nor io contention is anywhere near binding at N=2, and io is the
+smaller of the two by an order of magnitude.** As a share of each capsule's own
+build, cpu stall is **0.033%** on both and io stall is **0.002%**. That reverses
+what [Plan C](./plan-c-multi-capsule.md)'s disk table led this repo to expect — io
+was the term predicted to show first, and it is the one that barely registers.
+`full` sits within a few percent of `some` in every column, so what little stalling
+happened stalled everything in the cgroup at once; at these magnitudes that is a
+remark about shape, not a cost.
+
+**The stall figures are `total=` deltas, not samples, and their window is each
+cgroup's whole life** — boot, the build, and about fifteen minutes of idle after
+it. They are therefore an **upper bound** on what the builds themselves paid, and
+the bound is what makes them usable: even if every microsecond fell inside the
+build, it is 0.03%. What they cannot say is *when*, because **no sampler ran** —
+these came out of the live cgroups afterwards, which was only possible because
+nothing had been stopped in between. `just load` reads cpu and io `total=` at start
+as well as at end now, for the same reason it reads the memory peaks twice, so the
+next run gets the window as well as the integral.
+
+**The durations replicate and the peaks do not.** 113 / 118 against 112 / 121, with
+a sequential control of 109 / 115 / 104 — the concurrency claim holds and the spread
+narrowed. The peaks moved the other way round between capsules (7169 / 7510 against
+7774 / 6801), which is what the ratchet predicts: a peak is whatever that guest
+happened to touch, not a property of the workload, and the pair bound is again a
+bound — **[7510, 14679] MiB**. The slice read 16305 MiB peak, unchanged, still the
+figure an earlier session set.
+
+**What else was running:** an interactive agent session on this host, ssh'ing into
+both guests throughout the window the totals cover. The rest of the host's load was
+not recorded for this run, which is a real limit on the io figure specifically —
+a quiet host is the easy case for io.
 
 ## What freshness.sh explicitly does not measure
 

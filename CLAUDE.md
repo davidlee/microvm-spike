@@ -211,6 +211,21 @@ which shape nearly every decision here:
   agents.
 - **A dead guest does not mean a dead VM.** Check `pgrep -af 'microvm@'`, not
   whether the console returned or the guest answers ping.
+- **A `set -u` script must never *be* a login shell, and the symptom is a wrong
+  exit status.** NixOS's `/etc/bash_logout` opens by reading an unset guard
+  variable, so `bash -l script` where the script sets `-u` dies on the way out and
+  **the shell reports 1 whatever the script returned** — a program whose job is to
+  relay a build's exit status then reports a red build that was green. Run it as a
+  child instead: `bash -l -c "bash script args"` keeps the login shell's
+  environment, which is the load-bearing part (NOTES item 6), and lets `set -u` die
+  with the child. `NOSYSBASHLOGOUT=1` does not help: under `-u` the guard read
+  errors before the `||` beside it. Cost a session, and hid two green baselines
+  (NOTES item 24).
+- **The guest's clock is UTC; this host is AEST.** So a guest `ls` shows a file
+  written five minutes ago as ten hours old, and `find -newermt` compares against a
+  guest-local time that may be in the guest's future. Ask the guest for `date -u`
+  before reading any mtime in it against a host clock — this is what made a run
+  taken minutes earlier look like the previous evening's.
 - **On the module path, a missing `microvm -c` fails as a dependency, not as
   itself.** microvm.nix's templates are gated on
   `ConditionPathExists=/var/lib/microvms/%i/current/bin/tap-up`, so with no

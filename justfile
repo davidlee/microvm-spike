@@ -232,10 +232,17 @@ load out=".vm/load.tsv" +names="capsule":
   declare -A cg
   for n in "${names[@]}"; do
     cg[$n]="/sys/fs/cgroup$(systemctl show "microvm@$n" -P ControlGroup)"
-    [ -r "${cg[$n]}/memory.current" ] || {
-      echo "just load: no cgroup for microvm@$n — start it first." >&2
-      exit 1
-    }
+    # The pressure files are checked as well as the memory one, because a kernel
+    # with PSI off has the cgroup and not them — and an absent pressure file read
+    # as an empty column, or defaulted to zero, is a report of *no contention*
+    # from an instrument that cannot see any. Refuse instead.
+    for f in memory.current cpu.pressure io.pressure; do
+      [ -r "${cg[$n]}/$f" ] || {
+        echo "just load: no readable $f for microvm@$n — start it first, and if" >&2
+        echo "  the cgroup is there then PSI is off and this cannot measure." >&2
+        exit 1
+      }
+    done
   done
   # Every capsule is in the same slice, so its *current* total is the answer to
   # "what do N of them cost" with nothing double-counted. Its **peak** is not:
@@ -250,10 +257,33 @@ load out=".vm/load.tsv" +names="capsule":
   declare -A peak0
   for n in "${names[@]}"; do peak0[$n]=$(mib "${cg[$n]}/memory.peak"); done
   slice_peak0=$(mib "$slice/memory.peak")
-  some() { awk '/^some/{print $2}' "$1" | cut -d= -f2; }
+  # A pressure file is two lines — `some`, at least one task stalled, and `full`,
+  # every task stalled — each carrying avg10/60/300 and a cumulative `total=` in
+  # microseconds. avg10 is all a sample can show and it is a decaying average, so
+  # a spike between samples is gone by the time this loop looks; `total` is the
+  # integral, and the only pressure figure here that does not depend on the
+  # interval. Both are taken: the samples say *when*, the totals say *how much*.
+  psi() {
+    awk -v want="$2" -v key="$3" '
+      $1 == want {
+        for (i = 2; i <= NF; i++) { split($i, kv, "="); if (kv[1] == key) print kv[2] }
+      }
+    ' "$1"
+  }
+  # Same argument as the memory peaks, one field further: a `total=` read only at
+  # the end is every stall since the cgroup was created, which for a capsule that
+  # has already built once is mostly somebody else's session.
+  declare -A cpu_stall0 io_stall0 iofull_stall0
+  for n in "${names[@]}"; do
+    cpu_stall0[$n]=$(psi "${cg[$n]}/cpu.pressure" some total)
+    io_stall0[$n]=$(psi "${cg[$n]}/io.pressure" some total)
+    iofull_stall0[$n]=$(psi "${cg[$n]}/io.pressure" full total)
+  done
   {
     printf 'elapsed'
-    for n in "${names[@]}"; do printf '\t%s_mib\t%s_cpu_some\t%s_io_some' "$n" "$n" "$n"; done
+    for n in "${names[@]}"; do
+      printf '\t%s_mib\t%s_cpu_some\t%s_io_some\t%s_io_full' "$n" "$n" "$n" "$n"
+    done
     printf '\tslice_mib\thost_avail_mib\n'
   } >{{out}}
   trap 'break' INT TERM
@@ -262,18 +292,35 @@ load out=".vm/load.tsv" +names="capsule":
     line="$((SECONDS - start))"
     for n in "${names[@]}"; do
       line+=$'\t'"$(mib "${cg[$n]}/memory.current")"
-      line+=$'\t'"$(some "${cg[$n]}/cpu.pressure")"
-      line+=$'\t'"$(some "${cg[$n]}/io.pressure")"
+      line+=$'\t'"$(psi "${cg[$n]}/cpu.pressure" some avg10)"
+      line+=$'\t'"$(psi "${cg[$n]}/io.pressure" some avg10)"
+      # `full` on io is the one that says a capsule got nothing done: every task
+      # in it stalled at once. cpu has no useful `full` at cgroup level, so it is
+      # not sampled — a column of zeros would only look like a measurement.
+      line+=$'\t'"$(psi "${cg[$n]}/io.pressure" full avg10)"
     done
     line+=$'\t'"$(mib "$slice/memory.current")"
     line+=$'\t'"$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))"
     printf '%s\n' "$line" >>{{out}}
     sleep 2
   done
+  elapsed=$((SECONDS - start))
   # Written as well as printed, for the same reason the samples are: the peaks are
   # the figure this recipe exists to produce, and until now they existed only in
   # scrollback (docs/probes.md).
   peaks="{{out}}.peak"
+  # Stall time this run is responsible for, as seconds and as a share of the
+  # window they fell in — the share is what makes two capsules, or two runs of
+  # different length, comparable at all.
+  stalled() {
+    awk -v now="$1" -v before="$2" -v s="$3" 'BEGIN {
+      us = now - before
+      # Parenthesised, and it has to be: awk reads a bare `s > 0` in an argument
+      # list as an output redirection, and shellcheck cannot see inside an awk
+      # program to say so. A smoke run is what catches this class.
+      printf "%.1fs (%.1f%%)", us / 1000000, (s > 0 ? us / (s * 10000) : 0)
+    }'
+  }
   {
     echo "peak, from the kernel rather than from these samples:"
     sum=0 most=0
@@ -303,6 +350,15 @@ load out=".vm/load.tsv" +names="capsule":
     fi
     printf '  bound on these %d together: [%s, %s] MiB — the largest unit, and their sum\n' \
       "${#names[@]}" "$most" "$sum"
+    echo
+    printf 'stalled during these %ss, cumulative from the kernel:\n' "$elapsed"
+    for n in "${names[@]}"; do
+      c="${cg[$n]}"
+      printf '  %-14s cpu %s  io %s  io-full %s\n' "$n" \
+        "$(stalled "$(psi "$c/cpu.pressure" some total)" "${cpu_stall0[$n]}" "$elapsed")" \
+        "$(stalled "$(psi "$c/io.pressure" some total)" "${io_stall0[$n]}" "$elapsed")" \
+        "$(stalled "$(psi "$c/io.pressure" full total)" "${iofull_stall0[$n]}" "$elapsed")"
+    done
   } | tee "$peaks"
   echo "samples in {{out}}, peaks in $peaks — quote figures from there, not from this screen"
 

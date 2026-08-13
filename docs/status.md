@@ -19,9 +19,35 @@ green, the unit's `ExecStop` green on both, and the guard holding two namespaces
 owed before its CLI work: two cold builds at once cost 112 s and 121 s against a
 109 ± 5% sequential control, with neither capsule reaching its memory ceiling and
 neither ever reclaimed ([probes](./probes.md#two-cold-builds-at-once)).
+**And now the pressure half of it too**, from a second concurrent pair that
+replicated the durations — so step 6 has nothing outstanding
+([notes](./notes.md) item 24).
 
 ## Where it got to
 
+- **Contention at N=2 is measured, and it is not io.** A second concurrent pair of
+  cold builds — 113 s and 118 s, replicating 112 / 121 — stalled **0.033% of its
+  wall clock on cpu and 0.002% on io**, with zero reclaim on either unit
+  ([probes](./probes.md#pressure-under-two-concurrent-cold-builds)). io being the
+  smaller by an order of magnitude reverses what Plan C's disk table had this repo
+  expecting. The figure is an upper bound, because the window is each cgroup's life
+  rather than the build — at 0.03% that is enough to settle it. Two things made it
+  available at all, and both are the point: cpu/io `total=` is cumulative, so it
+  survived the run being unsampled, and nothing had been stopped, so the cgroups
+  still held it. `just load` now reads those totals at both ends and refuses when a
+  pressure file is unreadable, since PSI off would otherwise report *no contention*
+  where it means *no measurement*.
+- **A `set -u` script must not be the login shell, and this one was.**
+  `capsule-baseline`'s runner ran as `bash -l run.sh`, and NixOS's
+  `/etc/bash_logout` opens by reading an unset guard variable — fatal under `set
+  -u`, which **replaced the script's exit status with 1**. So every baseline since
+  the last guest rebuild reported a red build while the build itself went green:
+  `start` detaches before the login shell exits, so the volume's `history.tsv` was
+  right and the terminal was wrong, which is the property [notes](./notes.md) item
+  19 built the program around. Fixed in-tree by making the runner a child of the
+  login shell rather than its script — one process, environment still inherited
+  ([notes](./notes.md) item 24). **Unshipped**: the module path runs the installed
+  copy, so it needs `~/flakes` relocked and a rebuild.
 - **A start now leaves a capsule you can work in, and it cost no mechanism.**
   Plan C item 7's last piece: `capsule <name> start` waits for the guest to answer
   and then pushes every payload `setup.nix` declares, so a `/work/.env` is no
@@ -330,9 +356,14 @@ takes a fresh one to green and says what that cost. Next is Plan C:
    ([probes](./probes.md#two-cold-builds-at-once)). It cost one correction to its
    own instrument rather than to the capsules — a slice's `memory.peak` outlives
    the units in it, so the pair figure is a bound and `just load` now says which
-   peaks it actually set. No `.vm/load.tsv` was taken, so **cpu and io pressure
-   under concurrent load are still unmeasured**; the durations and the kernel's
-   peaks are the whole result.
+   peaks it actually set. ~~No `.vm/load.tsv` was taken, so cpu and io pressure
+   under concurrent load are still unmeasured.~~ **Measured, by a second pair the
+   next morning**, and again without a sampler: the cumulative `total=` fields
+   outlive the run as long as nothing is stopped, so 0.033% cpu and 0.002% io came
+   out of the live cgroups afterwards
+   ([probes](./probes.md#pressure-under-two-concurrent-cold-builds)). **This step
+   is done.** What no run has yet is a time series — the totals say how much, never
+   when.
 7. **What is left of Plan C item 7** — two of three pieces done:
    - ~~the `capsule` CLI~~ **written and run** — see above and
      [notes](./notes.md) item 20.
@@ -394,26 +425,40 @@ Then the rest of Plan C's
   ([probes.md](./probes.md)). What stays open is that the *freshness probe* still
   cannot take it: its namespace has no upstream, so the price and the 22
   assertions come from different runs and should not be quoted as one result.
-- ~~**What N capsules cost under load.**~~ Measured at N=2 for memory and wall
-  clock ([probes](./probes.md#two-cold-builds-at-once)); what replaces it is
-  narrower. **Pressure under concurrent load is unmeasured** — no sampler ran, so
-  nothing is known about cpu or io contention between two building capsules, and io
-  is the one the disk table would predict. **N=2 is not N.** And the **ratchet**
-  remains the term that decides how many fit: a capsule holds most of its ceiling
-  until it is stopped, so the peaks above are not additive across a working day.
+- ~~**What N capsules cost under load.**~~ ~~**Pressure under concurrent load is
+  unmeasured.**~~ Both measured at N=2 — wall clock and memory
+  ([probes](./probes.md#two-cold-builds-at-once)), then cpu and io stall from a
+  second pair ([probes](./probes.md#pressure-under-two-concurrent-cold-builds)).
+  Three narrower things replace them. **Nothing has a time series**: the stall
+  figures are cumulative totals over each cgroup's life, so they bound how much and
+  say nothing about when, and `just load` has still never sampled a build.
+  **N=2 is not N.** And the **ratchet** remains the term that decides how many fit:
+  a capsule holds most of its ceiling until it is stopped — measured now as 6141
+  MiB of `anon` held for a guest reporting 481 MiB used, because firecracker has no
+  balloon and no free-page reporting — so those peaks are not additive across a
+  working day.
 - **Time-to-interactive is not 8.31 s.** "Usable" in [probes.md](./probes.md)
   means *provisioned* — that is the freshness probe's own definition. An
   interactive capsule is boot + provision + setup + a cold baseline build, and
   because `/work/home` is on the volume that freshness deletes, **setup is paid
   per fresh capsule**. `capsule-inject` being fast and idempotent is a
   requirement, not a nicety.
-- **A relay outliving its VM is fixed in-tree and unshipped**, and this host's
-  installed build has neither that fix nor `ConnectTimeout`. `capsule-ssh-relay-<name>`
-  bound only to its namespace unit, which stays up, so a stopped capsule kept a
-  live socket — and that socket is the test both transports use to pick a copy of
-  a program, so the devshell's copies refused and the module's copy *hung*
-  ([notes](./notes.md) item 20, appended). Until this host is rebuilt, stopping
-  the module path also means `sudo systemctl stop 'capsule-ssh-relay-*'` by hand.
+- ~~**A relay outliving its VM is fixed in-tree and unshipped.**~~ Shipped:
+  `~/flakes` has relocked since, and this host's installed relay binds the tap unit
+  as well as the namespace, while its `capsule-baseline` carries `ConnectTimeout`.
+  So the hand-stop of `capsule-ssh-relay-*` is no longer needed here. The reasoning
+  stands in [notes](./notes.md) item 20 — a socket is the identity, and a unit bound
+  only to a namespace outlives its guest.
+- **`capsule-baseline`'s login-shell fix is in-tree and unshipped**, which is the
+  same shape one line up: the module path runs the installed copy, so until
+  `~/flakes` relocks again every `capsule <name> baseline` on this host exits 1
+  after correctly starting the run ([notes](./notes.md) item 24). The workaround is
+  to disbelieve the exit status and read the record — `capsule <name> ssh cat
+  /work/baseline/history.tsv`, whose last line is the truth.
+- **The guest's clock is UTC and this host is AEST.** A guest file mtime read
+  against a host clock is ten hours out, which is enough to make tonight's run look
+  like last night's and cost real time. Baseline stamps are UTC by design (they are
+  the host's, and named to need no quoting); it is `ls` in the guest that misleads.
 - `vm --help` creates `.vm/--help/`. Every argument is a VM name. Papercut.
 
 ## Do not re-derive these
