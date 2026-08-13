@@ -264,6 +264,22 @@ which shape nearly every decision here:
   Put the script in the store and name it (`host/services.nix`'s
   `stopKeyCheck`), and `just build` now refuses a newline in any of the module's
   `serviceConfig` values.
+- **A module's *programs* are not in its unit graph, so `just build` could pass
+  with the module unbuildable.** `hostModuleUnits` evaluates the whole module,
+  which is what makes it worth seconds instead of a rebuild — but it only ever
+  *forced* assertions, unit names and `serviceConfig` strings. Everything the
+  module puts on a human's PATH lives in `environment.systemPackages`, which
+  nothing read, and nix is lazy: `host/cli.nix` is imported at two call sites
+  (`flake.nix`'s and the module's), so an argument added to one of them made a
+  host rebuild die on `function 'anonymous lambda' called without required
+  argument 'observe'` after both `just build` and `just units` were green. Now
+  forced, with names in the output and paths never — `builtins.seq` on an outPath
+  evaluates the derivation, while embedding the string *of* one would make every
+  program a build input of a text file and turn the eval into a build. The general
+  shape: **anything built at two call sites needs one construction, not two
+  careful ones.** `observe` moved into `host/programs.nix` beside the paths it
+  reads for that reason, which is the same reason `baselineRecord` is exported
+  there.
 - **Inside the repo, the devshell's programs shadow the module's, and they carry
   different transports.** `capsule-provision` on `PATH` in the devshell ssh's
   straight to `net.guest`, which is unroutable from the root namespace once the

@@ -424,7 +424,7 @@ is a nix artefact.
 | **flavour** | a tool set — the only irreducible per-target closure content | **composed**, not declared: the profile's floor plus the assignment's extras | class 2 to *add a fragment*; a symlink to *re-point* |
 | **class** | machine config: mem, vcpu | the runner's JSON | ~1 KB per combination over `mem`; a 3.0 GiB image over `vcpu`, because this profile derives guest config from it (item 27) |
 | **source** | where this host keeps the profile's repo | a host declaration, keyed by profile | class 3 — and never an assigner's to set |
-| **assignment** | profile, policy, class, extras, base commit, purpose | `/var/lib/capsule/<slot>/` | run time, free unless the composition is unbuilt |
+| **assignment** | profile, policy, class, extras, base commit, purpose | `/var/lib/capsule/slot/<slot>/assignment.json` | run time, free unless the composition is unbuilt |
 | **volume** | checkout, `$HOME`, caches, `target/`, **and its own size** | `/var/lib/microvms/<slot>` | verbs (D3); size fixed at creation |
 
 Seven nouns, not five, and the two extra ones both came out of "target".
@@ -600,7 +600,7 @@ only place a repo name appears.
 
 ## 7. Directions
 
-- **D1 — the assignment record. Built, unrun** ([status](./status.md),
+- **D1 — the assignment record. Built and run** ([status](./status.md),
   [item 29](./ledger/029-the-record-is-front-end-written.md)) — at
   `/var/lib/capsule/slot/<slot>/`, and the field list
   is [contract-assignment.md](./contract-assignment.md)'s rather than this
@@ -658,7 +658,7 @@ only place a repo name appears.
   dirty`. The mechanism belongs here (worktree dirty, `HEAD != base sha`,
   `$HOME` touched since baseline, or an interactive session opened); the
   *policy* about what may be reused is doctrine's.
-- **D5 — status answers the steering questions. Built, unrun**, and built
+- **D5 — status answers the steering questions. Built and run**, and built
   *before* D1 because the guest round trip is what settles where `base.oid` comes
   from. Add columns fed by the ssh
   round trip `answers` already pays for: base sha, dirty/ahead, `df /work`, last

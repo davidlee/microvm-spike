@@ -6,7 +6,10 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after Plan D §9 step 3 **deployed** — the rename to
+Last updated 2026-08-13, after **D1 + D5 built, switched and run on this host** —
+which took one fix, because the eval check that was supposed to catch it could
+not see the thing that was wrong (below) — and before that the same day after
+Plan D §9 step 3 **deployed** — the rename to
 slots, the `mem` drop and `defaultBranch`'s deletion, all three in one
 guest-affecting change, now switched on this host with both slots created and
 one cold build taken at the new ceiling, **which cost the recommendation that
@@ -34,13 +37,57 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
-- **Plan D D1 and D5 are built and unrun on this host** — the assignment record
-  and the status columns, the pair Plan D calls cheapest-useful because a fleet
-  has to be legible before it can be administered. Three new files and no second
+- **Plan D D1 and D5 are installed and have run** — the assignment record and the
+  status columns, the pair Plan D calls cheapest-useful because a fleet has to be
+  legible before it can be administered. Three new files and no second
   implementation of anything: [host/observe.nix](../host/observe.nix) is the
   observed half, [host/record.nix](../host/record.nix) the desired half, and
-  `host/cli.nix` reads both onto one row. **Needs `just build` and a host
-  rebuild.**
+  `host/cli.nix` reads both onto one row. `just build` and `just units` green, the
+  switch landed, and all three verbs exercised against the installed copy:
+  `capsule a status` printed fourteen columns for one ssh per row, `capsule a
+  purpose "hacking"` answered `generation 1`, and `capsule a record` read it
+  back. The record's first real write is `/var/lib/capsule/slot/a/assignment.json`
+  — before it, that directory did not exist, which is what an unassigned fleet
+  looks like from the outside. A second `status` then read the write back as `gen
+  1` / `purpose hacking`, which is the actual join between the two halves and the
+  only part a single pass would have missed.
+
+  One column still reads `-` on `a`, and it is honest: `refs` counts
+  `refs/capsule/a/` in that slot's quarantine repo, and `collect` has never run
+  for a slot under its new name — the one directory under
+  `/var/lib/capsule/collect` belongs to the old `capsule` and is dead weight with
+  the rest of it. Every other column answered, `mem cur/peak` at the figure a
+  built slot has held since its baseline
+  ([probes](./probes.md#the-first-cold-build-at-a-6144-ceiling)).
+
+  **What the first record shows is two kinds of absent, and both are deliberate.**
+  `policy`, `extras`, `image` and `profile_snapshot` are written as null or `[]`,
+  because a record should say for itself which half of the contract is built;
+  `base` is not a key at all, because nothing has provisioned this slot *through
+  the front end* since the record existed. So absent-as-null means the mechanism
+  is unbuilt and absent-by-omission means nothing has happened yet — and the `gen`
+  column reading `-` before that write is the same statement one level up.
+
+  **The switch cost one fix, and the interesting half is that nothing here could
+  have caught it.** `host/cli.nix` is imported at two call sites — `flake.nix`'s
+  and the module's — and `observe` was added to one, so a host rebuild died on
+  `function 'anonymous lambda' called without required argument 'observe'` after
+  both `just build` and `just units` had passed. Two changes, one per cause:
+  - `observe` is built in [host/programs.nix](../host/programs.nix) now and
+    exported, so neither caller constructs it and neither can omit it. That file
+    is where it belongs rather than merely where it is convenient: it already
+    names two of observe's three guest paths, and `baselineRecord` was already
+    exported *for this reader specifically*. The header there admits the widened
+    scope — everything the human runs at a capsule, plus the one script a capsule
+    runs about itself.
+  - `hostModuleUnits` forces `environment.systemPackages` as well as the unit
+    graph. It read assertions, unit names and `serviceConfig` strings, and a
+    module's *programs* appear in none of those — so any missing argument on the
+    module's copy of any program was invisible to it, which is the whole class
+    this derivation exists to catch. `builtins.seq` on each outPath, names into
+    the output and paths never: embedding a store path would make `just units` a
+    build instead of an eval. Its output has two sections now, `units:` and
+    `programs:`, and five programs is the expected count.
 
   **D5 first, then D1**, inverting the plan's order for a reason that paid off:
   the guest round trip is what settles where `base.oid` comes from, and D1 is the
@@ -626,12 +673,12 @@ capsules were named after names that no longer exist:
    and shellchecked, which is not the same as shellcheck running at build, so the
    ordering was luck rather than coverage.
 
-**So step 3 is closed.** ~~Then **D1 + D5**~~ — **written against
-[contract-assignment.md](./contract-assignment.md), unrun** (above). §0's four-hot
-recommendation is rewritten, since a fleet plan that sizes slots by ceiling was
-sizing them wrong.
+**So step 3 is closed.** ~~Then **D1 + D5**~~ — **built against
+[contract-assignment.md](./contract-assignment.md), switched, and run** (above).
+§0's four-hot recommendation is rewritten, since a fleet plan that sizes slots by
+ceiling was sizing them wrong.
 
-Next after those land: **D2, the pool** — declare `a`…`j` once and make assignment
+Next: **D2, the pool** — declare `a`…`j` once and make assignment
 run-time state, which is what turns the record's three inert fields (`policy`,
 `extras`, `image`) into ones something selects. It wants L12's degraded guard mode
 in the same change: on the first start of *any* capsule the guard pulls in every
@@ -651,6 +698,21 @@ declared namespace, so one of ten that will not come up denies the whole host.
   charge is low enough to squeeze the guest** — 6144 was not, and nothing says
   where that boundary is. §0's recommendation needs rewriting rather than
   re-running.
+- **`generation` is written and never checked.** The refusal half — a command
+  stating the generation it acts for, so a stale controller is told rather than
+  obeyed — waits for D6. Nothing today can be stale, so nothing today notices the
+  field is inert.
+- **`capsule-provision` called directly still writes no record**, deliberately
+  ([item 29](./ledger/029-the-record-is-front-end-written.md)). So a slot can be
+  provisioned with no `base` pinned, and the only thing that says so is a missing
+  key and a `-` in the `gen` column. Slot `a` is in exactly that state now.
+- **The two copies of the CLI are one store path by construction and nothing
+  checks it.** `flake.nix` and `host/services.nix` both import `host/cli.nix`,
+  and the claim that this is one derivation rather than two rests on the two
+  argument sets being equal — which they were not, for `observe`, until a host
+  rebuild said so. `hostModuleUnits` now forces the module's programs, so a
+  *missing* argument is caught at eval; a **different** argument would still
+  produce two silently identical-looking programs.
 - **`microvm -c capsule` would create a capsule with no perimeter.** The guest
   image is a flake attribute beside the slots — it has to be, since probes build
   `.#capsule` and match `microvm@capsule` — and `microvm -c` resolves any
