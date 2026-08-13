@@ -1,15 +1,15 @@
 # CLAUDE.md
 
 Firecracker microVM used to confine a coding agent working on one target repo
-(`target.nix`; here `~/dev/doctrine`).
-[README.md](./README.md) is usage; everything else is [docs/](./docs/index.md),
-which maps question to file. Three of them before proposing changes:
-[docs/status.md](./docs/status.md) is where the work is up to,
-[docs/notes.md](./docs/notes.md) is the numbered ledger of rationale and gaps —
-**several obvious-looking ideas are already recorded there as
-considered-and-rejected**, and it is cited from source as `NOTES item N`, so those
-numbers are frozen — and [docs/probes.md](./docs/probes.md) owns every measured
-figure, so link to it rather than copying a number out.
+(`target.nix`; here `~/dev/doctrine`). [README.md](./README.md) is usage;
+everything else is [docs/](./docs/index.md), which maps question to file. Three
+of them before proposing changes: [docs/status.md](./docs/status.md) is where
+the work is up to, [docs/ledger/](./docs/ledger/index.md) is the numbered ledger
+of rationale and gaps, one file per item (`NNN-slug.md`) — **several
+obvious-looking ideas are already recorded there as considered-and-rejected**,
+and it is cited from source as `NOTES item N`, which is an id and not a path, so
+those numbers are frozen — and [docs/probes.md](./docs/probes.md) owns every
+measured figure, so link to it rather than copying a number out.
 
 Plans are scoping, not commitments: `plan-b-other-jails.md` is the
 non-firecracker shapes, `plan-c-multi-capsule.md` is what N capsules on one host
@@ -17,15 +17,15 @@ would cost. Do not put present-tense state in a plan; that is `status.md`'s job.
 
 ## Working here
 
-**Be judicious about running nix builds or evals.** The user usually runs those 
-themselves — they are slow, and as a subshell they have crashed the session in the past. 
-Typical builds / evals for this project though are probably fine (tm). Ask the user to run more involved execution themselves.
-Verify with `just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`;
-neither evaluates). Hand the user the command to run — `just build` for the
-host-side scripts, which is also where shellcheck runs — and say what you
-expect it to do. `just` recipes that shell out to `nix eval` (`_net`, `_target`,
-and so `status`/`fetch`/`allowed`/`ssh`/`admin`) are the user's to run, not
-yours.
+**Be judicious about running nix builds or evals.** The user usually runs those
+themselves — they are slow, and as a subshell they have crashed the session in
+the past. Typical builds / evals for this project though are probably fine (tm).
+Ask the user to run more involved execution themselves. Verify with `just check`
+(`nix-instantiate --parse` over every file, plus `alejandra -c`; neither
+evaluates). Hand the user the command to run — `just build` for the host-side
+scripts, which is also where shellcheck runs — and say what you expect it to do.
+`just` recipes that shell out to `nix eval` (`_net`, `_target`, and so
+`status`/`fetch`/`allowed`/`ssh`/`admin`) are the user's to run, not yours.
 
 Shell in `writeShellApplication` cannot be run either, since it only exists
 after a build. Render the script by hand into the scratchpad and `shellcheck`
@@ -38,29 +38,30 @@ the user's to run (`sudo probe-netns`); `just build` shellchecks them. Write new
 ones the same way: assert both directions, since a denial-only network test
 passes for the wrong reason, and never borrow live addressing — a probe on the
 real `/30` tests the real capsule. `probe/harness.sh` is concatenated ahead of
-each probe by the `probe` builder in `flake.nix`, not sourced, so shellcheck sees
-one file; values from `net.nix`/`target.nix` reach a probe through that builder's
-`prelude` rather than being spelled in the script. **Quote them there** — an
-unquoted `TAP=vm-capsule` reads as arithmetic to shellcheck (SC2100) once the
-harness has a `vm` variable in scope, and `writeShellApplication` fails the build
-on it. The harness carries four verbs, not three: `check` a verdict, `observe` a
-finding, `measure` a figure (a round whose bar is a price needs numbers beside
-the assertions), and `report`. It also carries the whole capsule-in-a-namespace
-boot — `ns_up`, `capsule_boot`, `wait_guest`, `halt_guest` — because
-`netns-boot.sh` and `freshness.sh` assert and measure the same shape, and two
-copies of a boot sequence are two answers the first time one is edited.
+each probe by the `probe` builder in `flake.nix`, not sourced, so shellcheck
+sees one file; values from `net.nix`/`target.nix` reach a probe through that
+builder's `prelude` rather than being spelled in the script. **Quote them
+there** — an unquoted `TAP=vm-capsule` reads as arithmetic to shellcheck
+(SC2100) once the harness has a `vm` variable in scope, and
+`writeShellApplication` fails the build on it. The harness carries four verbs,
+not three: `check` a verdict, `observe` a finding, `measure` a figure (a round
+whose bar is a price needs numbers beside the assertions), and `report`. It also
+carries the whole capsule-in-a-namespace boot — `ns_up`, `capsule_boot`,
+`wait_guest`, `halt_guest` — because `netns-boot.sh` and `freshness.sh` assert
+and measure the same shape, and two copies of a boot sequence are two answers
+the first time one is edited.
 
 **A VMM is identified by its namespace, never by its name.** The one-image lever
-means every capsule runs the same runner from the same store path, so all of them
-are `microvm@capsule` in the process table: `pkill -f` on that name is a power cut
-for the siblings, and it reads as a clean teardown while doing it. `vm_running`,
-`wait_vm` and `halt_guest` all take a namespace and scope themselves with
-`ip netns pids`; the unscoped question survives as `any_vm_running`, which is
-what a probe's refusal wants and the only thing it is for. The thing that
-isolates a capsule is the same thing that names it — no pidfile, no registry.
-`probe/netns-boot.sh` is the deliberate exception to the addressing rule and
-says why in its header: it boots the real guest, whose image has `net.nix` in
-it, so the real capsule *is* the subject.
+means every capsule runs the same runner from the same store path, so all of
+them are `microvm@capsule` in the process table: `pkill -f` on that name is a
+power cut for the siblings, and it reads as a clean teardown while doing it.
+`vm_running`, `wait_vm` and `halt_guest` all take a namespace and scope
+themselves with `ip netns pids`; the unscoped question survives as
+`any_vm_running`, which is what a probe's refusal wants and the only thing it is
+for. The thing that isolates a capsule is the same thing that names it — no
+pidfile, no registry. `probe/netns-boot.sh` is the deliberate exception to the
+addressing rule and says why in its header: it boots the real guest, whose image
+has `net.nix` in it, so the real capsule *is* the subject.
 
 Formatting is alejandra, 2-space indent, matching doctrine's flake.
 
@@ -82,14 +83,14 @@ Break these and the confinement stops meaning anything:
   nonzero when the perimeter is gone, which tears the proxy down). No tap name,
   no hypervisor, no Linux-only tool goes in there — that is what lets a seatbelt
   or VM-based shape reuse it (docs/plan-b-other-jails.md). Anything
-  platform-shaped belongs at
-  the call site in `flake.nix` (`perimeterChecks`). `host/git-channel.nix` has
-  the same seam for the same reason: it knows a git URL and a `transport`
-  fragment, both injected, and nothing about taps or namespaces. That fragment is
-  also what lets one store path serve N capsules — it resolves `--capsule <name>`
-  at run time and sets `ssh_cmd`, so a capsule's socket is derived from its name
-  instead of built into four programs (NOTES item 20). Don't let a program probe
-  for which transport to use: that bakes both into it.
+  platform-shaped belongs at the call site in `flake.nix` (`perimeterChecks`).
+  `host/git-channel.nix` has the same seam for the same reason: it knows a git
+  URL and a `transport` fragment, both injected, and nothing about taps or
+  namespaces. That fragment is also what lets one store path serve N capsules —
+  it resolves `--capsule <name>` at run time and sets `ssh_cmd`, so a capsule's
+  socket is derived from its name instead of built into four programs (NOTES
+  item 20). Don't let a program probe for which transport to use: that bakes
+  both into it.
 - **Part of the perimeter is not in this repo.** The firewall port, the
   forward-chain drop on the tap, and the sudoers rule that makes the drop
   readable all live in the host's NixOS config (`~/flakes`) — README "Host
@@ -118,14 +119,14 @@ Break these and the confinement stops meaning anything:
   addresses, MAC and the proxy port. It is threaded to the guest via
   `specialArgs`. Don't hardcode an address anywhere else.
 - **`target.nix` is the same deal for the repo under confinement** — name, path,
-  tools package, allowlist file, caches, default branch, sizes. Threaded the same
-  way. `doctrine` may appear in exactly two places: `target.nix`, and
+  tools package, allowlist file, caches, default branch, sizes. Threaded the
+  same way. `doctrine` may appear in exactly two places: `target.nix`, and
   `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
-  `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a value.
-  And nothing target-shaped is ever read *out of the target repo* — the agent can
-  edit that (NOTES item 16). `target.guestPath` is the one path both sides share,
-  which is why it is derived there rather than spelled in the guest and again in
-  the host's git channel.
+  `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a
+  value. And nothing target-shaped is ever read *out of the target repo* — the
+  agent can edit that (NOTES item 16). `target.guestPath` is the one path both
+  sides share, which is why it is derived there rather than spelled in the guest
+  and again in the host's git channel.
 - **doctrine is the guinea pig, not the design.** The capsule is the product and
   the confined repo is a client, so every target need must be met by a *generic
   capability plus a value the target supplies* — never by the generic code
@@ -158,10 +159,10 @@ Break these and the confinement stops meaning anything:
 
   The surface this rule produces is written down field by field:
   [docs/contract-target.md](./docs/contract-target.md) is what any repo must
-  supply and may rely on, and [docs/contract-doctrine.md](./docs/contract-doctrine.md)
-  is doctrine's two roles — the client holding the requirements, and one instance
-  of that contract. Update them in the same commit as anything that moves the
-  boundary.
+  supply and may rely on, and
+  [docs/contract-doctrine.md](./docs/contract-doctrine.md) is doctrine's two
+  roles — the client holding the requirements, and one instance of that
+  contract. Update them in the same commit as anything that moves the boundary.
 
 ## Firecracker constraints (verified in microvm.nix source)
 
@@ -213,19 +214,19 @@ which shape nearly every decision here:
   whether the console returned or the guest answers ping.
 - **A `set -u` script must never *be* a login shell, and the symptom is a wrong
   exit status.** NixOS's `/etc/bash_logout` opens by reading an unset guard
-  variable, so `bash -l script` where the script sets `-u` dies on the way out and
-  **the shell reports 1 whatever the script returned** — a program whose job is to
-  relay a build's exit status then reports a red build that was green. Run it as a
-  child instead: `bash -l -c "bash script args"` keeps the login shell's
-  environment, which is the load-bearing part (NOTES item 6), and lets `set -u` die
-  with the child. `NOSYSBASHLOGOUT=1` does not help: under `-u` the guard read
-  errors before the `||` beside it. Cost a session, and hid two green baselines
-  (NOTES item 24).
+  variable, so `bash -l script` where the script sets `-u` dies on the way out
+  and **the shell reports 1 whatever the script returned** — a program whose job
+  is to relay a build's exit status then reports a red build that was green. Run
+  it as a child instead: `bash -l -c "bash script args"` keeps the login shell's
+  environment, which is the load-bearing part (NOTES item 6), and lets `set -u`
+  die with the child. `NOSYSBASHLOGOUT=1` does not help: under `-u` the guard
+  read errors before the `||` beside it. Cost a session, and hid two green
+  baselines (NOTES item 24).
 - **The guest's clock is UTC; this host is AEST.** So a guest `ls` shows a file
-  written five minutes ago as ten hours old, and `find -newermt` compares against a
-  guest-local time that may be in the guest's future. Ask the guest for `date -u`
-  before reading any mtime in it against a host clock — this is what made a run
-  taken minutes earlier look like the previous evening's.
+  written five minutes ago as ten hours old, and `find -newermt` compares
+  against a guest-local time that may be in the guest's future. Ask the guest
+  for `date -u` before reading any mtime in it against a host clock — this is
+  what made a run taken minutes earlier look like the previous evening's.
 - **On the module path, a missing `microvm -c` fails as a dependency, not as
   itself.** microvm.nix's templates are gated on
   `ConditionPathExists=/var/lib/microvms/%i/current/bin/tap-up`, so with no
@@ -256,13 +257,13 @@ which shape nearly every decision here:
   straight to `net.guest`, which is unroutable from the root namespace once the
   tap is in a namespace; the module's copy of the same program goes through the
   relay socket. Same name, same source, different `transport`. **The devshell's
-  copies refuse rather than time out**: a relay socket for the named capsule means
-  the module path owns this host, so they name the copy to run instead of ssh'ing
-  at an address that is no longer routable from here. It used to be a timeout
-  against `10.99.0.2`, which reads as a dead guest. Refusing, not choosing — a
-  program that can try both transports has both baked in (NOTES item 20).
-  `just provision | inject | baseline | collect | setup <name>` picks the
-  reachable copy, which is a recipe's latitude and not a program's.
+  copies refuse rather than time out**: a relay socket for the named capsule
+  means the module path owns this host, so they name the copy to run instead of
+  ssh'ing at an address that is no longer routable from here. It used to be a
+  timeout against `10.99.0.2`, which reads as a dead guest. Refusing, not
+  choosing — a program that can try both transports has both baked in (NOTES
+  item 20). `just provision | inject | baseline | collect | setup <name>` picks
+  the reachable copy, which is a recipe's latitude and not a program's.
 - **`microvm -c … -f <flake>` takes no fragment.** The CLI appends
   `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
   `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error
@@ -286,11 +287,12 @@ which shape nearly every decision here:
 - **A fresh capsule has fresh ssh host keys at the same address**, because they
   live on its volume — so `known_hosts` refuses, and since the git channel rides
   ssh that blocks provisioning rather than merely annoying `just ssh`.
-  `accept-new` does not fix it: the host is *changed*, not unknown. `guestSsh` in
-  `flake.nix` disables the check and keeps no record, injected via `sshCommand`.
-  Sound only because the link is a host-created /30 with one peer — change it in
-  the same commit as any change to the transport, and don't "fix" it with a
-  capsule-scoped `known_hosts`, which just accumulates one stale key per capsule.
+  `accept-new` does not fix it: the host is *changed*, not unknown. `guestSsh`
+  in `flake.nix` disables the check and keeps no record, injected via
+  `sshCommand`. Sound only because the link is a host-created /30 with one peer
+  — change it in the same commit as any change to the transport, and don't "fix"
+  it with a capsule-scoped `known_hosts`, which just accumulates one stale key
+  per capsule.
 - **`sudo` strips `SSH_AUTH_SOCK`, and the guest's key is `~/.ssh/id`** — not a
   filename ssh tries by default, so a root-side program gets the *wrong* key
   offered and a clean `Permission denied`, while ping keeps passing. Cost one

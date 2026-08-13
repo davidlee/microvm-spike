@@ -2,7 +2,7 @@
 
 The rationale for what is built. What the boundary is worth is
 [threat-model.md](./threat-model.md); the open questions and the resolved ones
-are the numbered ledger in [notes.md](./notes.md); usage is
+are the numbered ledger in [ledger/index.md](./ledger/index.md); usage is
 [README.md](../README.md).
 
 A **capsule**: a firecracker microVM used as an agent jail. It holds a real
@@ -40,12 +40,13 @@ work — no more.
 The split is load-bearing, not tidiness: the perimeter is where nearly all the
 policy lives and it is the only part that ports to a non-firecracker jail
 ([plan-b-other-jails.md](./plan-b-other-jails.md)). It takes addresses and ports
-as arguments and one injected `preflight` fragment — on firecracker, the tap-address check — so nothing
-hypervisor- or platform-shaped leaks into it. Runtime paths are environment
-(`CAPSULE_ROOT`, `CAPSULE_STATE`, `CAPSULE_ALLOWLIST`, `CAPSULE_REPO`), which
-is what keeps the allowlist an editable file rather than a store path. Which
-repo is confined reaches it the same way as the addresses do — as a value from
-the call site, from `target.nix` ([notes](./notes.md) item 16).
+as arguments and one injected `preflight` fragment — on firecracker, the
+tap-address check — so nothing hypervisor- or platform-shaped leaks into it.
+Runtime paths are environment (`CAPSULE_ROOT`, `CAPSULE_STATE`,
+`CAPSULE_ALLOWLIST`, `CAPSULE_REPO`), which is what keeps the allowlist an
+editable file rather than a store path. Which repo is confined reaches it the
+same way as the addresses do — as a value from the call site, from `target.nix`
+([item 16](./ledger/016-target-agnostic.md)).
 
 ## Running
 
@@ -101,16 +102,16 @@ every attempt. Going further would mean MITM (own CA in the guest,
 mitmproxy-style), which trades a small gain for a large amount of machinery
 and a guest that trusts a host-held signing key. Not worth it.
 
-**Git.** Host-initiated, both directions, over the ssh channel — no service,
-no mirror, nothing for the guest to reach. `capsule-provision <ref>` pushes any
+**Git.** Host-initiated, both directions, over the ssh channel — no service, no
+mirror, nothing for the guest to reach. `capsule-provision <ref>` pushes any
 commit-ish from `~/dev/doctrine` onto the guest's working branch;
 `capsule-collect` fetches the guest's refs into a quarantine repo under
-`.vm/host/collect/`. [NOTES item 18](./notes.md) is the measurement and the
-reasoning.
+`.vm/host/collect/`. [NOTES item 18](./ledger/018-git-channel-direction.md) is
+the measurement and the reasoning.
 
-- The guest boots with an **empty repository** and no history until you provision
-  it, which is what makes the base commit an argument rather than a value in the
-  guest's closure.
+- The guest boots with an **empty repository** and no history until you
+  provision it, which is what makes the base commit an argument rather than a
+  value in the guest's closure.
 - `receive.denyCurrentBranch=updateInstead` in the guest is what turns the push
   into a checkout. It governs only the branch the guest's HEAD names, so the
   seed sets `--initial-branch` and provision verifies the advertised symref
@@ -157,12 +158,14 @@ overstates it:
 - **What the jailer would add** is chroot/pivot_root, a network namespace,
   cgroup limits, and a uid drop.
 - **Consequence, and it is the real one:** firecracker runs as *you*, uid 1000,
-  with ambient access to `~/.ssh`, `~/.claude`, every repo and every shell rc.
-  A VMM escape lands directly on the assets the capsule exists to protect.
-  Second consequence: no `MemoryMax`/`CPUQuota`/`TasksMax`, so whatever
-  `target.sizes` declares is the guest's to abuse — and, memory being a ceiling
-  the guest converges on rather than a charge at boot ([probes](./probes.md)),
-  abusing it is the only way to pay for it. See [notes](./notes.md) items 11-12.
+  with ambient access to `~/.ssh`, `~/.claude`, every repo and every shell rc. A
+  VMM escape lands directly on the assets the capsule exists to protect. Second
+  consequence: no `MemoryMax`/`CPUQuota`/`TasksMax`, so whatever `target.sizes`
+  declares is the guest's to abuse — and, memory being a ceiling the guest
+  converges on rather than a charge at boot ([probes](./probes.md)), abusing it
+  is the only way to pay for it. See
+  [item 11](./ledger/011-host-side-runs-as-you.md) and
+  [item 12](./ledger/012-no-resource-ceiling.md).
 
 Also note microvm.nix appends **`--enable-pci`** unconditionally for
 firecracker ≥ 1.13 (`lib/runners/firecracker.nix`), and `firecracker.extraArgs`
@@ -186,9 +189,10 @@ at account creation, and PAM rejects empty passwords for `su` without `nullok`.)
 
 This is **not** the perimeter. Egress filtering is enforced on the host, where
 the guest — root or not — cannot reach it, and the git tier is not a restriction
-at all any more but the absence of a channel ([notes](./notes.md) item 18).
-Guest uid separation buys protection from a clumsy agent, realistic file
-ownership, and parity with the bwrap jails' model.
+at all any more but the absence of a channel
+([item 18](./ledger/018-git-channel-direction.md)). Guest uid separation buys
+protection from a clumsy agent, realistic file ownership, and parity with the
+bwrap jails' model.
 
 `$HOME` is `/work/home`, i.e. on the volume: `~/.claude`, credentials and shell
 history survive reboots. That is most of the answer to agent auth — the rest is
@@ -225,12 +229,12 @@ there before `nix flake update doctrine` will see them.
 
 A provisioned capsule is not yet a capsule you can work in. There is no
 filesystem path into the guest (firecracker: no shares), so anything that has to
-get there arrives over the link or is baked into the closure — and which of those
-it is depends on what it is. The decomposition is the part worth having written
-down, because the three parts have different mechanisms and different trust
-properties. All three are built now, and they stayed three programs rather than
-becoming one: they differ in what they carry, in what may see it, and in how
-long they take.
+get there arrives over the link or is baked into the closure — and which of
+those it is depends on what it is. The decomposition is the part worth having
+written down, because the three parts have different mechanisms and different
+trust properties. All three are built now, and they stayed three programs rather
+than becoming one: they differ in what they carry, in what may see it, and in
+how long they take.
 
 | | what | mechanism | in the closure? | program |
 | --- | --- | --- | --- | --- |
@@ -245,8 +249,8 @@ neither, and a `jobs` count from a 32-thread machine inside a 4-vCPU guest is a
 worse default than none. So derive the sizing-shaped settings from the same
 `target.sizes` the VM is built from and keep them in the guest's config, where
 they cannot disagree with the machine they run on. This is the same asymmetry as
-[notes](./notes.md) item 16's: the *tool set* comes from the target because it is
-a build input, and policy does not.
+[item 16](./ledger/016-target-agnostic.md)'s: the *tool set* comes from the
+target because it is a build input, and policy does not.
 
 It is also the worked example for CLAUDE.md's "doctrine is the guinea pig, not
 the design": the capability is *render static guest config from the instance's
@@ -336,8 +340,8 @@ the volume, so [probes.md](./probes.md) is where it survives the capsule.
 Two things it refuses. A capsule with no commit at `guestPath` is a mistake, not
 a red — it does not run, and says to provision first. And the record lives
 *beside* the checkout, never in it: a record written into the worktree is a
-dirty worktree, which is exactly what `receive.denyCurrentBranch = updateInstead`
-refuses the next provision on.
+dirty worktree, which is exactly what `receive.denyCurrentBranch =
+updateInstead` refuses the next provision on.
 
 **Run 1: 109 s to green, and it reorders the design's priorities.**
 Time-to-interactive is ~2 minutes and this build is ~93% of it, so the boot
@@ -356,7 +360,8 @@ Running `nix develop` on doctrine's flake in the capsule needs three things:
    forgets everything in the overlay across reboot, so it wants recreating
    rather than trusting.
 2. `systemd.services.nix-daemon.environment` proxy vars. The daemon does the
-   fetching and does not inherit login-shell env (see [notes](./notes.md) item 6).
+   fetching and does not inherit login-shell env (see
+   [item 6](./ledger/006-proxy-env-login-shell-scope.md)).
 3. Allowlist: `cache.nixos.org`, `channels.nixos.org`, `api.github.com`.
 
 Then every overlay reset rebuilds `doctrine` via crane, plus `pub` /

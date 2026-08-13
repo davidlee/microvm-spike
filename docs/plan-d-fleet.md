@@ -8,13 +8,13 @@ host*, and which of that the current design makes cheap, dear or impossible.
 
 Plan C asked whether N capsules can run at once and priced the mechanism. They
 can, and it holds at N=2 ([status](./status.md)). This asks the question that
-follows and that Plan C left out: **N capsules are an inventory, and an inventory
-has to be administered** — assigned, re-assigned, inspected, recycled, thrown
-away.
+follows and that Plan C left out: **N capsules are an inventory, and an
+inventory has to be administered** — assigned, re-assigned, inspected, recycled,
+thrown away.
 
-Limitations here are structural: consequences of where a value lives, not of what
-has been built yet. Where something is merely unrun, this says so and links to
-[status.md](./status.md), which owns the present tense.
+Limitations here are structural: consequences of where a value lives, not of
+what has been built yet. Where something is merely unrun, this says so and links
+to [status.md](./status.md), which owns the present tense.
 
 ## 0. Settled
 
@@ -24,38 +24,38 @@ Decided in conversation, so the rest of the file can lean on it. Not built.
   at once. A slot's name carries no meaning, which is what makes an assignment
   record necessary rather than nice.
 - **`sizes.mem` drops to 6144, and the reason is the fleet rather than the
-  measurement.** [probes](./probes.md#what-a-capsule-costs-to-work-in) argued the
-  other way at N=1 — *"Not cut to 6 GiB on n = 1… a generous declaration costs
-  nothing until something touches it"* — and that argument is sound and expires
-  here: a ceiling is free per capsule and a reservation per fleet, because
-  nothing hands it back until a stop. What the cut is **not** justified by is
-  4513 MiB. That is a guest-side peak inside a `MemoryMax=7G` scope, which
+  measurement.** [probes](./probes.md#what-a-capsule-costs-to-work-in) argued
+  the other way at N=1 — *"Not cut to 6 GiB on n = 1… a generous declaration
+  costs nothing until something touches it"* — and that argument is sound and
+  expires here: a ceiling is free per capsule and a reservation per fleet,
+  because nothing hands it back until a stop. What the cut is **not** justified
+  by is 4513 MiB. That is a guest-side peak inside a `MemoryMax=7G` scope, which
   excludes the guest kernel, sshd, the RAM-backed journal and the tmpfs root — a
   scope figure read against a VM ceiling. The term the fleet is arithmetic on is
-  the *unit's* cgroup peak: 7169 / 7510 / 7774 / 6801 / 7845 MiB across five cold
-  builds, and once **8365 against a declared 8192**, where the +173 MiB is host
-  page cache for the VMM's image and volume reads — charged to the unit,
+  the *unit's* cgroup peak: 7169 / 7510 / 7774 / 6801 / 7845 MiB across five
+  cold builds, and once **8365 against a declared 8192**, where the +173 MiB is
+  host page cache for the VMM's image and volume reads — charged to the unit,
   reclaimable, with `memory.events` zero throughout. So a slot costs `mem` plus
   ~0.2 GiB observed, and six at 6144 is ~36-37 GiB.
 - **Six hot is the arithmetic; four is the recommendation.** 36 GiB against 60.4
   GiB of host RAM is not what binds. What binds is that this host had **13.1 GiB
-  available with both capsules idle** and ordinary work running, and that an idle
-  built capsule holds 6141 MiB of `anon` while the guest inside it reports 481
-  MiB used ([probes](./probes.md#what-a-capsule-holds-after-it-has-built)) — the
-  ratchet, which only a stop closes. No capsule has run at a 6144 ceiling yet, so
-  the per-unit peak wants re-taking after the drop; until then four hot is the
-  number with evidence under it.
+  available with both capsules idle** and ordinary work running, and that an
+  idle built capsule holds 6141 MiB of `anon` while the guest inside it reports
+  481 MiB used ([probes](./probes.md#what-a-capsule-holds-after-it-has-built)) —
+  the ratchet, which only a stop closes. No capsule has run at a 6144 ceiling
+  yet, so the per-unit peak wants re-taking after the drop; until then four hot
+  is the number with evidence under it.
 - **`~/flakes` takes this repo locally.** The `github:davidlee/oubliette` input
   exists so darwin can evaluate the flake, not because the host wants a round
   trip; Sleipnir overrides it with `git+file:///home/david/dev/microvm-spike` at
   rebuild time. Not `path:`, which copies the working tree unfiltered and would
   drag `.vm/`'s volume images into the store. Class 3 below becomes commit →
   switch.
-- **The existing capsules are expendable.** `capsule` and `capsule-b` get renamed
-  into slots rather than special-cased.
-- **Two modes, one mechanism.** This host is a dev machine and can be permissive;
-  a future agent-ranch cannot. Nothing here may bake the permissive answer in as
-  the architecture — it has to fall out as a declaration.
+- **The existing capsules are expendable.** `capsule` and `capsule-b` get
+  renamed into slots rather than special-cased.
+- **Two modes, one mechanism.** This host is a dev machine and can be
+  permissive; a future agent-ranch cannot. Nothing here may bake the permissive
+  answer in as the architecture — it has to fall out as a declaration.
 - **Longer term, a slot has a class**, EC2-shaped: `small`, `high-cpu`, and
   perhaps a role (`worker`, `auditor`). Noted as a goal, deliberately not chased
   here — but see §6 for the two ways to get it wrong.
@@ -78,14 +78,15 @@ Decided in conversation, so the rest of the file can lean on it. Not built.
 | what the capsule is *for* | nowhere (L5) | — |
 
 The pattern: **the base commit is the only axis deliberately made a run-time
-value** (NOTES item 18, Plan C item 2), and it is the only one that moves without
-a rebuild. Everything else about a capsule's identity is declared in this repo or
-baked into the guest closure. Right for one capsule; it is what the fleet runs
-into.
+value** (NOTES item 18, Plan C item 2), and it is the only one that moves
+without a rebuild. Everything else about a capsule's identity is declared in
+this repo or baked into the guest closure. Right for one capsule; it is what the
+fleet runs into.
 
 ## 2. The rebuild classes
 
-Five, and knowing which one a change lands in is most of the administrative cost:
+Five, and knowing which one a change lands in is most of the administrative
+cost:
 
 0. **Run time, no build.** `provision`, `inject`, `collect`, `fetch`, `start`,
    `stop`, `ssh`, `admin`, `baseline`; editing `perimeter/egress-allow.txt` plus
@@ -94,56 +95,54 @@ Five, and knowing which one a change lands in is most of the administrative cost
 2. **Guest image.** `nix build .#capsule`, then `sudo microvm -u <name>` for
    *each* capsule and a restart, because a created VM tracks its state directory
    and not the flake (CLAUDE.md). Triggered by `vm/*`, by `target.nix`'s `sizes`
-   / `caches` / `guestConfig` / `extraTools` — `sizes` **perhaps** only rebuilding
-   the runner rather than the image, which is §5's inference and §9's step 2 —
-   and by `nix flake update target` —
-   which needs a *commit in the target repo* first (`git+file:` reads committed
-   HEAD).
+   / `caches` / `guestConfig` / `extraTools` — `sizes` **perhaps** only
+   rebuilding the runner rather than the image, which is §5's inference and §9's
+   step 2 — and by `nix flake update target` — which needs a *commit in the
+   target repo* first (`git+file:` reads committed HEAD).
 3. **Host rebuild.** Anything in `host/`, `setup.nix` declarations, and
-   `capsules.nix`. Until the §0 override, also a push: `~/flakes` took the module
-   from GitHub, so declaring a capsule meant commit → push → `nix flake update
-   oubliette` → `nixos-rebuild switch`.
+   `capsules.nix`. Until the §0 override, also a push: `~/flakes` took the
+   module from GitHub, so declaring a capsule meant commit → push → `nix flake
+   update oubliette` → `nixos-rebuild switch`.
 4. **Create / update the instance.** `just up <name>` (`microvm -c`) needs *this
-   checkout*, because the instance name resolves as a flake attribute (NOTES item
-   21); `microvm -u <name>` after every class-2 change.
+   checkout*, because the instance name resolves as a flake attribute (NOTES
+   item 21); `microvm -u <name>` after every class-2 change.
 
-The two heaviest are the two the fleet leans on hardest: **declaring a capsule is
-class 3**, and **pointing a capsule at a different project is class 2 + 4** — and
-class 3 too, if it is also a new instance. The cheapest axis, base commit, is the
-one that already got the treatment. §5 and §6 are about giving the others the
-same treatment, and §5 is why that is affordable.
+The two heaviest are the two the fleet leans on hardest: **declaring a capsule
+is class 3**, and **pointing a capsule at a different project is class 2 + 4** —
+and class 3 too, if it is also a new instance. The cheapest axis, base commit,
+is the one that already got the treatment. §5 and §6 are about giving the others
+the same treatment, and §5 is why that is affordable.
 
 ## 3. User stories
 
 Each is a thing a human wants to do on a Tuesday. `today:` is what happens now.
 
-**S1 — a new project arrives.** A capsule confining `~/dev/otherthing`, alongside
-the doctrine ones.
-*today:* **alongside, no; instead of, yes and it has been done.** panopticon is
-confined on branch `second-target` — cold-green on a brand-new allowlist, 3 s and
-105 MiB of volume ([notes](./notes.md) item 23,
+**S1 — a new project arrives.** A capsule confining `~/dev/otherthing`,
+alongside the doctrine ones. *today:* **alongside, no; instead of, yes and it
+has been done.** panopticon is confined on branch `second-target` — cold-green
+on a brand-new allowlist, 3 s and 105 MiB of volume
+([item 23](./ledger/023-second-target.md),
 [probes](./probes.md#the-cold-build-on-a-second-target)) — so the port is priced
 rather than hypothetical. What is not possible is *both at once*: one
-`inputs.target.url` literal, one `target.nix`, one `capsuleVm`, and every declared
-capsule bound to that same value, so the switch is a branch and a class-2/3 chain.
-(L1)
+`inputs.target.url` literal, one `target.nix`, one `capsuleVm`, and every
+declared capsule bound to that same value, so the switch is a branch and a
+class-2/3 chain. (L1)
 
 **S2 — two slices of one project at once.** Two capsules on doctrine, different
-base commits, different slices.
-*today:* works, and is measured — two capsules, two base commits, both
-cold-baselined green ([probes](./probes.md#two-cold-builds-at-once)). Collected
-refs are namespaced `refs/capsule/<name>/*`, so `capsule all fetch` lands both in
-one repo without collision. The gaps are elsewhere: nothing records which slice a
-capsule holds (L5), and neither prompt nor motd can say which capsule you are in
-(NOTES item 21).
+base commits, different slices. *today:* works, and is measured — two capsules,
+two base commits, both cold-baselined green
+([probes](./probes.md#two-cold-builds-at-once)). Collected refs are namespaced
+`refs/capsule/<name>/*`, so `capsule all fetch` lands both in one repo without
+collision. The gaps are elsewhere: nothing records which slice a capsule holds
+(L5), and neither prompt nor motd can say which capsule you are in (NOTES item
+21).
 
 **S3 — rebase a capsule onto a newer base.** The branch moved; move the capsule
-without losing its work.
-*today:* `capsule <n> collect` then `capsule <n> provision <ref>`. Refused if the
-guest's worktree is dirty (`updateInstead`), refused if it would discard guest
-commits; `--force` insists and discards them. Right defaults. Missing: anything
-that shows the divergence before you decide (L6), so the safe sequence is two
-commands and a habit.
+without losing its work. *today:* `capsule <n> collect` then `capsule <n>
+provision <ref>`. Refused if the guest's worktree is dirty (`updateInstead`),
+refused if it would discard guest commits; `--force` insists and discards them.
+Right defaults. Missing: anything that shows the divergence before you decide
+(L6), so the safe sequence is two commands and a habit.
 
 **S4 — throw one away and start clean.** This capsule is wedged; a fresh one
 under the same name.
@@ -169,18 +168,17 @@ namespace. It does not answer *what commit*, *dirty or not*, *how full the
 volume is* — the binding constraint — *did the baseline pass*, or *is an agent
 running in there*. Each needs an ssh round trip and none is a column. (L6)
 
-**S7 — reset just `$HOME`.** The agent's own state is confused; keep the checkout
-and the caches.
-*today:* not possible short of destroying the volume. `$HOME` is `/work/home` on
-the same volume as everything else, so the axes cannot be separated. (L7)
+**S7 — reset just `$HOME`.** The agent's own state is confused; keep the
+checkout and the caches. *today:* not possible short of destroying the volume.
+`$HOME` is `/work/home` on the same volume as everything else, so the axes
+cannot be separated. (L7)
 
 **S8 — leave an agent running and come back.** Start an agent in slot C, close
-the laptop, reattach later; do that for three capsules.
-*today:* an agent runs in an interactive ssh session the human holds, and dies
-with the terminal. `capsule-baseline` already solves this shape for a *build* —
-setsid, a record on the volume, re-running attaches to the run in flight — but
-nothing generalises it and an interactive agent needs a pty that pattern does not
-give. (L9)
+the laptop, reattach later; do that for three capsules. *today:* an agent runs
+in an interactive ssh session the human holds, and dies with the terminal.
+`capsule-baseline` already solves this shape for a *build* — setsid, a record on
+the volume, re-running attaches to the run in flight — but nothing generalises
+it and an interactive agent needs a pty that pattern does not give. (L9)
 
 **S9 — look at what it built.** The project has a dev server; put a browser on
 it.
@@ -192,19 +190,18 @@ verb, no record of which capsule owns which host port, nothing stopping two
 capsules from claiming the same one. (L10)
 
 **S10 — retire a capsule.** Done with it; give the host its resources back.
-*today:* stop, delete the state dir by hand, remove the name from `capsules.nix`,
-take the class-3 chain to make the units go away. Its quarantine at
-`/var/lib/capsule/collect/<n>.git` is left behind and nothing reaps it (retention
-is open — [status](./status.md)). Deleting the *name* is at least safe by design:
-indices are declared, so neighbours do not renumber.
+*today:* stop, delete the state dir by hand, remove the name from
+`capsules.nix`, take the class-3 chain to make the units go away. Its quarantine
+at `/var/lib/capsule/collect/<n>.git` is left behind and nothing reaps it
+(retention is open — [status](./status.md)). Deleting the *name* is at least
+safe by design: indices are declared, so neighbours do not renumber.
 
-**S11 — a secret rotated.** The token on this host changed; running capsules hold
-stale copies.
-*today:* `capsule <n> inject <payload> --force` per capsule, and the force
-discards whatever the guest wrote there. Deliberate (NOTES item 22) — but an
-N-times ritual with no way to ask which capsules are stale. Injection *at start*
-would make the ritual a restart, and it is written but **unshipped on this host**
-until `~/flakes` relocks ([status](./status.md)).
+**S11 — a secret rotated.** The token on this host changed; running capsules
+hold stale copies. *today:* `capsule <n> inject <payload> --force` per capsule,
+and the force discards whatever the guest wrote there. Deliberate (NOTES item
+22) — but an N-times ritual with no way to ask which capsules are stale.
+Injection *at start* would make the ritual a restart, and it is written but
+**unshipped on this host** until `~/flakes` relocks ([status](./status.md)).
 
 **S12 — two projects with different dependency hosts.** One needs crates.io, the
 other npm.
@@ -217,8 +214,8 @@ Structural, numbered for citation. None is a bug; each is a place the design
 bought something else.
 
 - **L1 — one target per *image*, so one at a time on this host.** The target
-  reaches the guest as a flake input literal, which cannot be computed, and every
-  declared capsule is bound to one `capsuleVm` value so that "one image, N
+  reaches the guest as a flake input literal, which cannot be computed, and
+  every declared capsule is bound to one `capsuleVm` value so that "one image, N
   capsules" is structural rather than a promise (`flake.nix`, NOTES item 21). A
   second target is a second image: +3.0 GiB of erofs, its own tool set, its own
   allowlist, its own `target.nix`. Priced in
@@ -227,30 +224,30 @@ bought something else.
   **was not taken**: `declared` carries `index` and nothing else.
 
   What is no longer speculative is the *port*. panopticon is a second target on
-  branch `second-target`, and it cost `target.nix` wholesale, one allowlist file,
-  `inputs.target.url`, and **one guest capability** — nix-ld, which is now on this
-  branch too because every non-nix-native toolchain needs it and none supplies a
-  different value for it (NOTES item 23). Nothing generic changed. So the
-  limitation is concurrency and the class-2/3 chain, not parameterisation: two
-  targets on one host is `git switch` plus a rebuild, and two targets *at once* is
-  D7.
+  branch `second-target`, and it cost `target.nix` wholesale, one allowlist
+  file, `inputs.target.url`, and **one guest capability** — nix-ld, which is now
+  on this branch too because every non-nix-native toolchain needs it and none
+  supplies a different value for it (NOTES item 23). Nothing generic changed. So
+  the limitation is concurrency and the class-2/3 chain, not parameterisation:
+  two targets on one host is `git switch` plus a rebuild, and two targets *at
+  once* is D7.
 - **L2 — sizes are global, and probably needn't be.** vcpu, mem and volume come
   from `target.nix` for every capsule alike. They live in the runner rather than
   the erofs, so per-slot sizes should cost a kilobyte each — but that rests on
   the one inferred claim in this file, and §5 has the eval that settles it.
 - **L3 — one allowlist per host, not per capsule.** The proxy already takes
   `CAPSULE_ALLOWLIST` per unit and the units are already per capsule; only the
-  module option is singular. A per-capsule allowlist is a field and a bind mount,
-  not a mechanism. The *naming* half is already decided and in use:
+  module option is singular. A per-capsule allowlist is a field and a bind
+  mount, not a mechanism. The *naming* half is already decided and in use:
   `perimeter/egress-allow-<target>.txt`, one file per target, with doctrine's
   plain `egress-allow.txt` grandfathered (NOTES item 23).
 - **L4 — the volume has no verbs.** Created by microvm.nix, destroyed by
   `rm -rf`. Reset, clone, snapshot and size are all out-of-band operations on a
   path under `/var/lib/microvms`, where a typo is expensive.
-- **L5 — a capsule has no purpose, and cannot say its own name.** Nothing records
-  what a capsule was assigned to, and one image means every guest greets you as
-  `agent@capsule` (NOTES item 21, knowingly paid). At N=2 that was already why two
-  probe results were indistinguishable by prompt.
+- **L5 — a capsule has no purpose, and cannot say its own name.** Nothing
+  records what a capsule was assigned to, and one image means every guest greets
+  you as `agent@capsule` (NOTES item 21, knowingly paid). At N=2 that was
+  already why two probe results were indistinguishable by prompt.
 - **L6 — status stops at the door.** Every column is a host-side fact or a
   liveness ping. The facts a human steers by — commit, dirty, disk, baseline
   verdict, is an agent running — live inside the guest and are reachable only by
@@ -259,22 +256,22 @@ bought something else.
   `target/` share a lifetime because they share a disk, so freshness is
   all-or-nothing and "reset the agent's state" and "start over" are one
   operation.
-- **L8 — every capsule pays the cold build.** On doctrine that is ~109 s and ~93%
-  of time-to-interactive, per fresh volume, and nothing reuses another capsule's
-  work — but the term is target-shaped, not the capsule's: panopticon's is 3 s
-  against an 8.31 s boot, so nothing generic should be tuned against either
-  ([probes](./probes.md#the-cold-build-on-a-second-target)). Two host constraints
-  on any fix. `/var/lib` is **ext4, so there is no reflink** — a cloned volume is
-  a real copy, against the host's own headroom, which
+- **L8 — every capsule pays the cold build.** On doctrine that is ~109 s and
+  ~93% of time-to-interactive, per fresh volume, and nothing reuses another
+  capsule's work — but the term is target-shaped, not the capsule's:
+  panopticon's is 3 s against an 8.31 s boot, so nothing generic should be tuned
+  against either ([probes](./probes.md#the-cold-build-on-a-second-target)). Two
+  host constraints on any fix. `/var/lib` is **ext4, so there is no reflink** —
+  a cloned volume is a real copy, against the host's own headroom, which
   [probes](./probes.md#figures) owns and no plan should spell twice. And because
   nothing discards, **a volume's allocation is its high-water mark, not its
   current usage** — an image that once held a 6.9 GiB untuned build still copies
   6.9 GiB after it is cleaned. So clone cost is a function of the source's
   *history*, which is a second argument for cloning from a base that was never
   worked in (D4) rather than from a peer. The host-level lever, if clones become
-  routine: a btrfs subvolume for `/var/lib/microvms`, which makes them
-  near-free — the runner already tries `chattr +C` for exactly that world, and it
-  is a no-op on ext4.
+  routine: a btrfs subvolume for `/var/lib/microvms`, which makes them near-free
+  — the runner already tries `chattr +C` for exactly that world, and it is a
+  no-op on ext4.
 - **L9 — no detached session.** An agent's life is an ssh session's life. The
   detach pattern exists (`host/baseline.nix`) but only for a non-interactive
   command.
@@ -283,29 +280,29 @@ bought something else.
 - **L11 — declaring a capsule is a git push.** Class 3, plus the GitHub round
   trip. Fixed by §0's local input, which is why that is step one.
 - **L12 — one broken slot denies the whole host, and the chain that does it is
-  not obvious.** Nothing in `host/services.nix` is `wantedBy` anything: a start of
-  `microvm@<name>` wants its proxy, the proxy `BindsTo` the guard, and the guard
-  `requires` **every** declared namespace unit and audits all of them every 10 s.
-  So a ten-slot pool costs nothing at rest — no namespace exists until the first
-  capsule starts — and then costs all ten at once, on the first start. The failure
-  that matters is not an idle slot but a *broken* one: a namespace unit that
-  refuses takes the guard with it, and the guard is on every proxy's `BindsTo`, so
-  **no capsule on the host can start**, not merely the broken one. Correct for a
-  perimeter — a partial teardown is worse — and at N=2 indistinguishable from
-  robust. At N=10 it is the argument for a degraded mode: a slot that cannot come
-  up should be excludable from the audit set without a rebuild, or the pool's
-  weakest member gates the fleet.
+  not obvious.** Nothing in `host/services.nix` is `wantedBy` anything: a start
+  of `microvm@<name>` wants its proxy, the proxy `BindsTo` the guard, and the
+  guard `requires` **every** declared namespace unit and audits all of them
+  every 10 s. So a ten-slot pool costs nothing at rest — no namespace exists
+  until the first capsule starts — and then costs all ten at once, on the first
+  start. The failure that matters is not an idle slot but a *broken* one: a
+  namespace unit that refuses takes the guard with it, and the guard is on every
+  proxy's `BindsTo`, so **no capsule on the host can start**, not merely the
+  broken one. Correct for a perimeter — a partial teardown is worse — and at N=2
+  indistinguishable from robust. At N=10 it is the argument for a degraded mode:
+  a slot that cannot come up should be excludable from the audit set without a
+  rebuild, or the pool's weakest member gates the fleet.
 - **L13 — `defaultBranch` has no run-time override, and it is the odd one out.**
   Every other host-side target value either belongs to the guest (`sizes`,
-  `caches`, `guestConfig`) or has one — `path` has `CAPSULE_REPO` and the module's
-  `repo` option, `allowlist` has `CAPSULE_ALLOWLIST` and its own option.
-  `defaultBranch` is interpolated straight into `capsule-provision` and
+  `caches`, `guestConfig`) or has one — `path` has `CAPSULE_REPO` and the
+  module's `repo` option, `allowlist` has `CAPSULE_ALLOWLIST` and its own
+  option. `defaultBranch` is interpolated straight into `capsule-provision` and
   `capsule-collect`, so a target switch is a rebuild for that field alone, and
-  until it is one the module path's copies refuse a provision of the new target's
-  branch — correctly, and with a clear message (NOTES item 23). Recorded rather
-  than fixed at the time, because switching targets was a rebuild anyway. §6.2 is
-  where it stops being harmless: target as run-time state cannot ship while a
-  program spells the branch.
+  until it is one the module path's copies refuse a provision of the new
+  target's branch — correctly, and with a clear message (NOTES item 23).
+  Recorded rather than fixed at the time, because switching targets was a
+  rebuild anyway. §6.2 is where it stops being harmless: target as run-time
+  state cannot ship while a program spells the branch.
 
 ## 5. Read from source: where a capsule's identity actually lives
 
@@ -315,12 +312,13 @@ move as Plan C's
 [host-module question](./plan-c-multi-capsule.md#the-host-module-question-answered-from-source).
 
 **`microvm -c` is ten lines.** In a temp dir: write the flake ref to a file,
-`nix build -o current "$FLAKE"#nixosConfigurations."$NAME".config.microvm.declaredRunner`,
-`mv` the dir to `/var/lib/microvms/$NAME`, `chown :kvm -R`, `chmod -R a+rX`,
-`chmod g+w`, and two gcroot symlinks — `current` and `booted` — keyed on the
-*slot's* directory, not on the attribute. `-u` is the same build in place. So a
-capsule's whole binding to a nix artefact is **one symlink in its state
-directory**, and the gcroots follow the slot rather than the flavour.
+`nix build -o current
+"$FLAKE"#nixosConfigurations."$NAME".config.microvm.declaredRunner`, `mv` the
+dir to `/var/lib/microvms/$NAME`, `chown :kvm -R`, `chmod -R a+rX`, `chmod g+w`,
+and two gcroot symlinks — `current` and `booted` — keyed on the *slot's*
+directory, not on the attribute. `-u` is the same build in place. So a capsule's
+whole binding to a nix artefact is **one symlink in its state directory**, and
+the gcroots follow the slot rather than the flavour.
 
 **The machine config is not in the image.** `declaredRunner` is a shell script
 plus a ~1 KB JSON:
@@ -331,11 +329,11 @@ plus a ~1 KB JSON:
 ```
 
 and the volume's size is a `truncate -s 32768M` in the script, applied only when
-the image file does not yet exist (`microvm-run`, lines 13-14 on this host, right
-after a `chattr +C` that is a no-op on ext4). So the *hypervisor* configuration is
-a kilobyte beside a 3.0 GiB erofs that the runner merely references — and a
-volume's declared size is fixed at first boot, so D3's `resize` is delete and
-recreate rather than a verb of its own.
+the image file does not yet exist (`microvm-run`, lines 13-14 on this host,
+right after a `chattr +C` that is a no-op on ext4). So the *hypervisor*
+configuration is a kilobyte beside a 3.0 GiB erofs that the runner merely
+references — and a volume's declared size is fixed at first boot, so D3's
+`resize` is delete and recreate rather than a verb of its own.
 
 **This is the one claim in this file that is inferred rather than read.** Two
 runners differing only in `mem` share an image *if and only if* nothing in the
@@ -361,8 +359,8 @@ source: `build()` refuses outright when a `toplevel` symlink is present — *"Th
 MicroVM is managed fully declaratively and cannot be updated manually"* — and
 `microvm -l` reads that same link for its up-to-date comparison. So a program of
 ours owning `current` can write `toplevel` too, and upstream's `-u` then refuses
-rather than silently rebuilding `nixosConfigurations.<slot>`, which by that point
-would be the wrong attribute.
+rather than silently rebuilding `nixosConfigurations.<slot>`, which by that
+point would be the wrong attribute.
 
 Two things to check before leaning on that, and the second is the one that could
 bite hard:
@@ -373,8 +371,8 @@ bite hard:
 - **whether anything reconciles declaratively-managed VMs.** `toplevel` is how
   microvm.nix marks a VM as owned by `microvm.vms.<name>`, and `~/flakes`
   declares none — so a host-side reconciler that sees a marked state directory
-  with no matching declaration is a plausible way to lose a volume. Read the host
-  module's units before writing that symlink, not after.
+  with no matching declaration is a plausible way to lose a volume. Read the
+  host module's units before writing that symlink, not after.
 
 ## 6. The shape this suggests
 
@@ -405,9 +403,10 @@ That gives both modes from one mechanism, which is what §0 requires:
 - **ranch** — a flavour per target, and assignment restricted to what a slot's
   flavour can serve. Same mechanism, different declaration.
 
-Changing a slot's flavour is then a stop, a `nix build -o current`, and a start —
-no `capsules.nix` edit, no host rebuild, no push. Adding a flavour is a rebuild,
-which is the right way round: rare and declared versus frequent and cheap.
+Changing a slot's flavour is then a stop, a `nix build -o current`, and a start
+— no `capsules.nix` edit, no host rebuild, no push. Adding a flavour is a
+rebuild, which is the right way round: rare and declared versus frequent and
+cheap.
 
 Three consequences to accept before any of it is built:
 
@@ -416,36 +415,38 @@ Three consequences to accept before any of it is built:
    host-side policy keyed by target name (NOTES item 16) — but
    [contract-target.md](./contract-target.md) describes a per-target record the
    host holds rather than a global file.
-2. **The seed becomes assignment-driven.** An unassigned slot boots empty with no
-   checkout, which is more honest than one hardcoded to doctrine. `capsule <slot>
-   assign <target> [ref]` writes the record, pushes it, provisions, injects,
-   baselines. The seed's remaining job is the generic part — the volume's
-   skeleton and its ownership — and the target-shaped part (checkout directory,
-   cache directories, `guestConfig` links) should be done **by the host over the
-   channel that already exists**, not by a guest-side applier reading a pushed
-   file. Same reasoning as everywhere else here: the host initiates, the guest
-   stays dumb, and there is no new guest program to keep in step.
+2. **The seed becomes assignment-driven.** An unassigned slot boots empty with
+   no checkout, which is more honest than one hardcoded to doctrine. `capsule
+   <slot> assign <target> [ref]` writes the record, pushes it, provisions,
+   injects, baselines. The seed's remaining job is the generic part — the
+   volume's skeleton and its ownership — and the target-shaped part (checkout
+   directory, cache directories, `guestConfig` links) should be done **by the
+   host over the channel that already exists**, not by a guest-side applier
+   reading a pushed file. Same reasoning as everywhere else here: the host
+   initiates, the guest stays dumb, and there is no new guest program to keep in
+   step.
 3. **The config payload must be refresh-always.** `guestConfig` is currently a
-   *symlink into the store*, precisely so a stale copy cannot outlive the sizes it
-   was rendered from (`vm/capsule.nix`). As a pushed payload it loses that unless
-   the host re-pushes at every start — which restores the property and keeps the
-   host the source. Payloads are write-if-absent by deliberate decision (NOTES
-   item 22); this is a *derived* payload, and the distinction wants a field on the
-   declaration rather than a change of policy. The identity payload below needs
-   the same field, so it is one extension, not two.
+   *symlink into the store*, precisely so a stale copy cannot outlive the sizes
+   it was rendered from (`vm/capsule.nix`). As a pushed payload it loses that
+   unless the host re-pushes at every start — which restores the property and
+   keeps the host the source. Payloads are write-if-absent by deliberate
+   decision (NOTES item 22); this is a *derived* payload, and the distinction
+   wants a field on the declaration rather than a change of policy. The identity
+   payload below needs the same field, so it is one extension, not two.
 
 4. **The four host programs bake the target into their store paths, and this is
    NOTES item 20 one level up.** `host/programs.nix` derives `guestRepo` from
-   `target.guestPath`, and hands `baseline` its `command`, `workdir`, `recordDir`
-   and `measure` from `target.nix`; `git-channel.nix` takes `defaultBranch` and
-   `collectMaxPackBytes` the same way. One target makes that invisible. Two
-   targets make it four programs per target — the exact shape of the bug that
-   stood between N=1 and N=2, where a socket path baked into a store path meant a
-   program per capsule. The fix rhymes too: those values arrive at run time from
-   the assignment record, the way `--capsule` already does, and one store path
-   goes on serving everything. **This is D7's first task, not a detail of it** —
-   and it is worth doing even if flavours never happen, because it is the same
-   coupling the repo has already decided against once.
+   `target.guestPath`, and hands `baseline` its `command`, `workdir`,
+   `recordDir` and `measure` from `target.nix`; `git-channel.nix` takes
+   `defaultBranch` and `collectMaxPackBytes` the same way. One target makes that
+   invisible. Two targets make it four programs per target — the exact shape of
+   the bug that stood between N=1 and N=2, where a socket path baked into a
+   store path meant a program per capsule. The fix rhymes too: those values
+   arrive at run time from the assignment record, the way `--capsule` already
+   does, and one store path goes on serving everything. **This is D7's first
+   task, not a detail of it** — and it is worth doing even if flavours never
+   happen, because it is the same coupling the repo has already decided against
+   once.
 
 **Identity falls out of the same payload.** A refresh-always `/work/.capsule`,
 sourced by the guest's `interactiveShellInit` exactly as `.env` already is, lets
@@ -456,20 +457,20 @@ image structural. It is not quite free: the sourcing line is a guest change
 initialisation depends on ordering in `/etc/bashrc`, which wants checking rather
 than assuming — the motd and a login banner are the fallback if it does not.
 
-**The allowlist stays host-side.** Since target is now run time, the proxy cannot
-read it from the guest's copy. Q1's answer: bind-mount a *directory* of
+**The allowlist stays host-side.** Since target is now run time, the proxy
+cannot read it from the guest's copy. Q1's answer: bind-mount a *directory* of
 allowlists read-only into the proxy's namespace and have it select
 `<dir>/<target>.txt` at start, from the host's assignment record. Re-assigning a
 slot's target is then a proxy restart, and L3 falls out for free.
 
-**Where classes must not go.** Class is machine config and belongs in the runner.
-A *role* — worker, auditor: which allowlist, whether it may collect, what it may
-be assigned — is policy and belongs in the record. A label like
+**Where classes must not go.** Class is machine config and belongs in the
+runner. A *role* — worker, auditor: which allowlist, whether it may collect,
+what it may be assigned — is policy and belongs in the record. A label like
 `worker-highcpu-A` is one string over two axes; keep them separate underneath or
 the runner starts carrying policy. And the slot id itself stays short: it is on
-the wire as `cap-<id>` and IFNAMSIZ is 15, so `capsules.nix` refuses anything over
-11 characters. The id is `a`…`j`; the composite is a rendered label in status and
-in the prompt, never a namespace name.
+the wire as `cap-<id>` and IFNAMSIZ is 15, so `capsules.nix` refuses anything
+over 11 characters. The id is `a`…`j`; the composite is a rendered label in
+status and in the prompt, never a namespace name.
 
 **What stays unavoidable:** one flake input literal per flavour's tool set. An
 input url cannot be computed (NOTES item 16). Rare, and it is the only place a
@@ -478,32 +479,32 @@ repo name appears.
 ## 7. Directions
 
 - **D1 — the assignment record.** `/var/lib/capsule/<slot>/`: target, base sha,
-  purpose, class, state, lineage. Written by `capsule`, read by status, pushed to
-  the guest as identity. It is what makes an abstract slot legible, and every
+  purpose, class, state, lineage. Written by `capsule`, read by status, pushed
+  to the guest as identity. It is what makes an abstract slot legible, and every
   other direction here either writes to it or reads from it.
 - **D2 — the pool.** Declare `a`…`j` once, and make assignment run-time state.
   Turns S1, S4 and S10 from rebuilds into commands. The cost is not idle
-  namespaces — nothing starts at boot, so an unassigned slot is a declaration and
-  nothing else — it is L12: on the first start of *any* capsule the guard pulls in
-  all ten, and any one of them that will not come up denies the whole host. A pool
-  wants the degraded mode L12 asks for, in the same change.
+  namespaces — nothing starts at boot, so an unassigned slot is a declaration
+  and nothing else — it is L12: on the first start of *any* capsule the guard
+  pulls in all ten, and any one of them that will not come up denies the whole
+  host. A pool wants the degraded mode L12 asks for, in the same change.
 - **D3 — volume verbs.** `capsule <slot> volume {df,reset,reset-home,clone-from
-  <m>}`, host-side, refusing while the VM runs. `reset` is S4 without the
-  `rm -rf`; `clone-from` is S5, and on ext4 it is a sparse copy of ~1.1 GiB —
-  seconds against doctrine's 109 s, and worth much less on a target whose baseline
-  is 3 s (L8). No `resize`: the size is set at first boot (§5). Also the guard on
-  a flavour swap: a volume carrying one
-  flavour's caches is silent garbage under another, so `assign` refuses a flavour
-  change on a non-clean volume and offers `--reset`.
+  <m>}`, host-side, refusing while the VM runs. `reset` is S4 without the `rm
+  -rf`; `clone-from` is S5, and on ext4 it is a sparse copy of ~1.1 GiB —
+  seconds against doctrine's 109 s, and worth much less on a target whose
+  baseline is 3 s (L8). No `resize`: the size is set at first boot (§5). Also
+  the guard on a flavour swap: a volume carrying one flavour's caches is silent
+  garbage under another, so `assign` refuses a flavour change on a non-clean
+  volume and offers `--reset`.
 - **D4 — clone semantics, decided rather than inherited.** A cloned volume
   carries the source's ssh host keys, injected credentials and `.env`. Scrub by
   default, `--identity` to keep — dev convenience is one flag, the ranch default
   is the safe one. And clone from a *base* rather than from a worked-in capsule:
   a slot is a valid clone source while it is `baselined` and not yet `dirty`,
-  which is Q3's state model —
-  `unassigned → provisioned(sha) → baselined(sha) → dirty`. The mechanism belongs
-  here (worktree dirty, `HEAD != base sha`, `$HOME` touched since baseline, or an
-  interactive session opened); the *policy* about what may be reused is doctrine's.
+  which is Q3's state model — `unassigned → provisioned(sha) → baselined(sha) →
+  dirty`. The mechanism belongs here (worktree dirty, `HEAD != base sha`,
+  `$HOME` touched since baseline, or an interactive session opened); the
+  *policy* about what may be reused is doctrine's.
 - **D5 — status answers the steering questions.** Add columns fed by the ssh
   round trip `answers` already pays for: base sha, dirty/ahead, `df /work`, last
   baseline verdict and age, current-versus-peak memory — the last because the
@@ -514,68 +515,73 @@ repo name appears.
   calls per capsule. One caveat on the baseline column: read the *record*, never
   the exit status. `capsule-baseline`'s login-shell bug is fixed in-tree and
   unshipped on this host, so the installed copy still exits 1 on green builds
-  ([status](./status.md), NOTES item 24) — and the record on the volume was right
-  throughout, which is the property that column should inherit.
-- **D6 — detached agent sessions.** Generalise `host/baseline.nix`'s pattern with
-  a pty: a multiplexer in the guest closure and `capsule <slot> attach`. What
-  makes N > 2 workable for a human, and independent of everything above.
-- **D7 — flavours.** §6's split. A second target *is* real (L1), so what this now
-  waits on is wanting two of them **at once**; a switch is already a branch. Its
-  first task is §6's consequence 4 — the four programs' target-shaped values, of
-  which L13 is the one with no override at all — and nothing above forecloses it.
+  ([status](./status.md), NOTES item 24) — and the record on the volume was
+  right throughout, which is the property that column should inherit.
+- **D6 — detached agent sessions.** Generalise `host/baseline.nix`'s pattern
+  with a pty: a multiplexer in the guest closure and `capsule <slot> attach`.
+  What makes N > 2 workable for a human, and independent of everything above.
+- **D7 — flavours.** §6's split. A second target *is* real (L1), so what this
+  now waits on is wanting two of them **at once**; a switch is already a branch.
+  Its first task is §6's consequence 4 — the four programs' target-shaped
+  values, of which L13 is the one with no override at all — and nothing above
+  forecloses it.
 
 ## 8. Questions a second project will raise
 
 Not answerable from doctrine, and worth asking before the first one arrives:
 
 - **Does it need a service to test against?** A database or a queue must be in
-  the guest closure or nowhere ([notes](./notes.md) item 4, open) — and the guest
-  closure is this repo's, so a target has no way to declare "run postgres". The
-  generic capability would be *target-declared guest services*, and it does not
-  exist. Under §6 it would be a property of a flavour.
-- **Does it have a flake at all?** `toolsPackage = null` degrades to `extraTools`
-  from this repo's nixpkgs and loses the no-drift property — and the second target
-  found that for many repos that path is **structurally unavailable**, not merely
-  worse: `extraTools` is bare nixpkgs attr names, so a tool set containing a
-  `python3.withPackages (…)` has no name to give it. A target exports a package or
-  it is not a target; `extraTools` is a supplement, never a substitute (NOTES item
-  23). A non-nix project is still the real test of the degraded path.
+  the guest closure or nowhere ([item 4](./ledger/004-live-postgres.md), open) —
+  and the guest closure is this repo's, so a target has no way to declare "run
+  postgres". The generic capability would be *target-declared guest services*,
+  and it does not exist. Under §6 it would be a property of a flavour.
+- **Does it have a flake at all?** `toolsPackage = null` degrades to
+  `extraTools` from this repo's nixpkgs and loses the no-drift property — and
+  the second target found that for many repos that path is **structurally
+  unavailable**, not merely worse: `extraTools` is bare nixpkgs attr names, so a
+  tool set containing a `python3.withPackages (…)` has no name to give it. A
+  target exports a package or it is not a target; `extraTools` is a supplement,
+  never a substitute (NOTES item 23). A non-nix project is still the real test
+  of the degraded path.
 - **What does its dev loop look like from outside?** S9 stops being a nicety for
   anything web-shaped, and doctrine — with `just web-build` — is already that
   shape.
 - **How big is its checkout and its build tree?** No reflink, a 32 GiB volume
   declared per slot, and the host's remaining headroom in
-  [probes](./probes.md#figures). Disk is the fleet's real ceiling — and the spread
-  is wide enough to matter: doctrine's baseline leaves ~1.1 GiB on the volume and
-  panopticon's ~105 MiB, a factor of twelve for the same verb.
-- **Where do its secrets come from?** `setup.nix` is a host-wide declaration, not
-  a per-target one. Two projects with different API keys share one payload list.
+  [probes](./probes.md#figures). Disk is the fleet's real ceiling — and the
+  spread is wide enough to matter: doctrine's baseline leaves ~1.1 GiB on the
+  volume and panopticon's ~105 MiB, a factor of twelve for the same verb.
+- **Where do its secrets come from?** `setup.nix` is a host-wide declaration,
+  not a per-target one. Two projects with different API keys share one payload
+  list.
 - **Does it tolerate N concurrent sessions on one credential?** NOTES item 2,
   still open, and the fleet is what makes it literal.
 - **Who may assign which repo to which slot?** Trivial on a dev machine, where
-  every repo is the human's. On a ranch it is the whole question, and it lands on
-  the assignment record — which is the argument for that record being host-side
-  and authoritative rather than a convenience.
+  every repo is the human's. On a ranch it is the whole question, and it lands
+  on the assignment record — which is the argument for that record being
+  host-side and authoritative rather than a convenience.
 
 ## 9. Order of work
 
-1. **§0's local flake input.** One line at the rebuild, and it takes the push out
-   of class 3 — which every step below churns.
+1. **§0's local flake input.** One line at the rebuild, and it takes the push
+   out of class 3 — which every step below churns.
 2. **Settle §5's inference, before anything is built on it.** One eval, already
    written out in §5, comparing `toplevel.drvPath` with and without a changed
    `microvm.mem`. Identical paths means the mem drop below is free of the image
    and a class costs a kilobyte; different paths means the drop is a 3.0 GiB
-   rebuild plus `microvm -u` per slot, and §6's table is wrong about where `class`
-   lives. It is the cheapest step here and the one the two after it depend on.
+   rebuild plus `microvm -u` per slot, and §6's table is wrong about where
+   `class` lives. It is the cheapest step here and the one the two after it
+   depend on.
 3. **Rename to slots**, and drop `sizes.mem` to 6144 in the same breath, since
    both need the same rebuild. The two existing capsules are expendable, so
    recreate rather than migrate — a `mv` of the state directory would also want
    its two gcroot symlinks re-pointed, and the volumes are worth less than the
    care. Take a per-unit `memory.peak` off the first cold build afterwards: no
-   capsule has ever run at a 6144 ceiling, so §0's four-hot recommendation is the
-   old ceiling's figures reasoned forward. What the rename actually touches,
+   capsule has ever run at a 6144 ceiling, so §0's four-hot recommendation is
+   the old ceiling's figures reasoned forward. What the rename actually touches,
    beyond `capsules.nix`:
-   - **the devshell path's assumptions.** `vm <name>` resolves a flake attribute,
+   - **the devshell path's assumptions.** `vm <name>` resolves a flake
+     attribute,
      and `vm-stop` asks the guest to halt only when the name is literally
      `capsule` — one link, one guest, so any other name is reaped rather than
      asked. Both need to follow the rename or the devshell shape quietly becomes
@@ -589,8 +595,8 @@ Not answerable from doctrine, and worth asking before the first one arrives:
      whether the default becomes "the only running capsule, else refuse" —
      better for a fleet, but it makes a program's target depend on host state,
      which is the kind of thing this repo has refused before (NOTES item 20).
-4. **D1 + D5, the record and the columns.** Cheapest useful pair, and a fleet has
-   to be legible before it can be administered.
+4. **D1 + D5, the record and the columns.** Cheapest useful pair, and a fleet
+   has to be legible before it can be administered.
 5. **D3 + D4, volume verbs and clone semantics.** S4 and S5 are the two most
    frequent administrative actions and one of them is currently a hand-typed
    `rm -rf`.

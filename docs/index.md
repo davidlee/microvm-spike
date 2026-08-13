@@ -11,7 +11,7 @@ architecture invariants and the gotchas that have already cost time, is
 | what must a repo be, for this to confine it? | [contract-target.md](./contract-target.md) |
 | what does doctrine ask of this, and supply to it? | [contract-doctrine.md](./contract-doctrine.md) |
 | what does the confinement actually claim? | [threat-model.md](./threat-model.md) |
-| why was *that* decided, and what was tried first? | [notes.md](./notes.md) — the numbered ledger |
+| why was *that* decided, and what was tried first? | [ledger/index.md](./ledger/index.md) — the numbered ledger |
 | what has been measured, and what is the number? | [probes.md](./probes.md) |
 | what would N capsules on one host cost? | [plan-c-multi-capsule.md](./plan-c-multi-capsule.md) |
 | ...and what would implementing that touch? | [plan-c-implementation.md](./plan-c-implementation.md) |
@@ -23,14 +23,16 @@ architecture invariants and the gotchas that have already cost time, is
 
 ## Conventions
 
-- **[notes.md](./notes.md) is cited as `NOTES item N`**, from source comments as
-  well as from the other docs. Numbers are frozen and append-only: resolve an item
-  in place, never renumber, never delete.
+- **[the ledger](./ledger/index.md) is cited as `NOTES item N`**, from source
+  comments as well as from the other docs. The citation is an id, not a path:
+  the item lives in `ledger/NNN-slug.md`, one file each, and moving or renaming
+  a file changes nothing about how it is cited. Numbers are frozen and
+  append-only: resolve an item in place, never renumber, never delete.
 - **[probes.md](./probes.md) owns the figures.** Link to it instead of copying a
-  number — the last time a measurement lived in three files, two of them were the
-  harness's own patience rather than the capsule's.
+  number — the last time a measurement lived in three files, two of them were
+  the harness's own patience rather than the capsule's.
 - **[status.md](./status.md) owns the present tense.** Plans record what a thing
   would cost, not whether it has happened yet.
-- There is no changelog. `git log` is the record, and the ledger's resolved items
-  carry the reasoning a changelog would lose.
+- There is no changelog. `git log` is the record, and the ledger's resolved
+  items carry the reasoning a changelog would lose.
 - `*.local.md` is gitignored — personal reference material, not project docs.

@@ -7,24 +7,24 @@ ends and its findings have landed as knowledge records.
 
 The durable half — which records this boundary answers to, how evidence leaves,
 and what doctrine supplies as a *target* — is
-[contract-doctrine.md](./contract-doctrine.md). Anything in here that outlives the
-round belongs there instead.
+[contract-doctrine.md](./contract-doctrine.md). Anything in here that outlives
+the round belongs there instead.
 
-Doctrine-side anchors: `RFC-025` § *The microVM turn*, `IMP-426` (the work item),
-`QUE-212` (the one blocking question), `CPT-002` (the threat ranking that sets
-the priorities below). Read via `doctrine <kind> show <ID>` in `/workspace/doctrine`
-— not from files.
+Doctrine-side anchors: `RFC-025` § *The microVM turn*, `IMP-426` (the work
+item), `QUE-212` (the one blocking question), `CPT-002` (the threat ranking that
+sets the priorities below). Read via `doctrine <kind> show <ID>` in
+`/workspace/doctrine` — not from files.
 
 ---
 
 ## The frame, in one paragraph
 
 Doctrine's capsule contract (`SPEC-030`) was written against a bubblewrap
-backend and measured there. `SL-248` shipped it; `SL-252` was abandoned trying to
-make its conformance fixture defensible; `RSK-231` called the whole surface over
-budget. This spike is the candidate replacement boundary. What is *not* yet known
-is which of doctrine's requirements the VM satisfies naturally, which it makes
-harder, and which it makes meaningless. That is what this round measures.
+backend and measured there. `SL-248` shipped it; `SL-252` was abandoned trying
+to make its conformance fixture defensible; `RSK-231` called the whole surface
+over budget. This spike is the candidate replacement boundary. What is *not* yet
+known is which of doctrine's requirements the VM satisfies naturally, which it
+makes harder, and which it makes meaningless. That is what this round measures.
 
 **The bar for this round is a price, not a proof.** Every item below wants an
 answer of the form *"costs about this much, here's the shape, here's what it
@@ -55,20 +55,21 @@ transport survives.
 **The rule, stated correctly.** `DEC-135` chose Git bundle ingestion under a
 structural rule: trusted control-plane code never runs Git **in a
 capsule-authored repository** — because git reads config, hooks and
-`.gitattributes` filters from the repo it runs in, so a capsule-written repo used
-as execution context is arbitrary code execution. The rule is about **execution
-context**, not about bundles. `ADR-020` says the same at architecture altitude:
-*no trusting capsule-controlled Git configuration.*
+`.gitattributes` filters from the repo it runs in, so a capsule-written repo
+used as execution context is arbitrary code execution. The rule is about
+**execution context**, not about bundles. `ADR-020` says the same at
+architecture altitude: *no trusting capsule-controlled Git configuration.*
 
 `REQ-451`'s six bounds — path, symlink, quiescence, time, byte, object — tame a
-specific hazard: under bubblewrap the natural channel was **a file appearing in a
-shared location**, which is racy and path-traversable. The VM has no shares, so
-most of that class is *absent*, not defended.
+specific hazard: under bubblewrap the natural channel was **a file appearing in
+a shared location**, which is racy and path-traversable. The VM has no shares,
+so most of that class is *absent*, not defended.
 
 **The actual defect here is direction, not format.** The spike has the guest
-**push**: the host runs `receive-pack` as a live hostile-input-parsing service on
-a port the guest can reach, the mirror is guest-written, and the ref-restriction
-hook, `capsule-git` group and mirror-sync uid all exist to confine that.
+**push**: the host runs `receive-pack` as a live hostile-input-parsing service
+on a port the guest can reach, the mirror is guest-written, and the
+ref-restriction hook, `capsule-git` group and mirror-sync uid all exist to
+confine that.
 
 **Invert it.** Host-initiated `git fetch ssh://guest/…` into a fresh quarantine
 repo keeps `upload-pack` guest-side, runs the host's git in a **host-authored**
@@ -83,33 +84,33 @@ already exists.
 | B | A, plus host-side `git bundle create` after the fetch | only if something genuinely needs a snapshottable artifact (see below); cost of the extra step |
 
 **There is no third candidate.** An outbox block device the host mounts is ruled
-out by `ASM-010` — the host never hands guest-authored filesystem metadata to the
-host kernel, and `ro`/`nosuid`/`nodev`/`noexec` do not mitigate it because the
-parse happens before those options constrain anything. This repo already held
-that line (`vm/capsule.nix`: *"with fuse2fs or debugfs, never `mount`"*); an
-earlier draft of this packet proposed it anyway and was wrong. Do not spend probe
-effort re-establishing it.
+out by `ASM-010` — the host never hands guest-authored filesystem metadata to
+the host kernel, and `ro`/`nosuid`/`nodev`/`noexec` do not mitigate it because
+the parse happens before those options constrain anything. This repo already
+held that line (`vm/capsule.nix`: *"with fuse2fs or debugfs, never `mount`"*);
+an earlier draft of this packet proposed it anyway and was wrong. Do not spend
+probe effort re-establishing it.
 
-**A is expected to win.** Two caveats that survive it and should be answered, not
-assumed:
+**A is expected to win.** Two caveats that survive it and should be answered,
+not assumed:
 
 - `index-pack` still parses hostile bytes host-side. True of *every* option
   including bundles, so not a new risk — but `transfer.fsckObjects` plus a size
   ceiling is the answer, and the ceiling has to come from somewhere.
 - A fetch leaves **no artifact**. `DEC-133` separates the durable admission
-  journal from short-horizon forensic exhibits, and a live fetch produces nothing
-  to hash, retain or deterministically re-ingest. A retained quarantine repo may
-  serve. This is a retention question, not a security one — decide it, don't
-  drift.
+  journal from short-horizon forensic exhibits, and a live fetch produces
+  nothing to hash, retain or deterministically re-ingest. A retained quarantine
+  repo may serve. This is a retention question, not a security one — decide it,
+  don't drift.
 
 ### The consequence worth more than the fix — confirm this first
 
 If the result leaves by host-initiated fetch **and** provisioning enters by
 host-initiated push over the same ssh channel, the guest never initiates a
 connection to the host at all, and **git-daemon leaves the perimeter entirely**.
-`README.md`'s *"the only two ports the guest may reach"* becomes one — the proxy.
-`receive-pack`, the `refs/heads/capsule/*` update hook, the `capsule-git` group
-and the mirror-sync uid stop being *confined* and start being *absent*.
+`README.md`'s *"the only two ports the guest may reach"* becomes one — the
+proxy. `receive-pack`, the `refs/heads/capsule/*` update hook, the `capsule-git`
+group and the mirror-sync uid stop being *confined* and start being *absent*.
 
 That is deletion rather than mitigation, which is exactly the shape `RSK-231`
 asked for. Confirm it before shaping anything downstream: if it holds, several
@@ -136,10 +137,11 @@ cost per instance under one-image-plus-runners versus N blobs; which of the five
 axes are actually satisfied versus merely plausible; teardown — does the VMM
 exit, is the tap released, is state genuinely gone.
 
-[NOTES item 17](./notes.md) has done this scoping already. The deciding cost is the guest
-image, and the two per-instance values that must leave the closure are the
-address and the **base commit**. A kernel param works for neither — it lands in
-`toplevel`. The netns work makes the guest bit-identical, which is the lever.
+[NOTES item 17](./ledger/017-more-than-one-capsule.md) has done this scoping
+already. The deciding cost is the guest image, and the two per-instance values
+that must leave the closure are the address and the **base commit**. A kernel
+param works for neither — it lands in `toplevel`. The netns work makes the guest
+bit-identical, which is the lever.
 
 **Known sharp edge:** firecracker does not exit on guest poweroff — it halts the
 vCPU and holds the tap, so the next start fails `Device or resource busy`. Any
@@ -155,8 +157,8 @@ substrate for the defence against the threat that actually arrives — a worker
 that stays perfectly inside the boundary and produces plausible, wrong work.
 Confinement bounds the blast radius; this is what bounds the intent.
 
-**Measure:** two capsules concurrently under the netns design; cost of the second
-against the first (shared closure should make it cheap); and confirm the
+**Measure:** two capsules concurrently under the netns design; cost of the
+second against the first (shared closure should make it cheap); and confirm the
 `probe/netns.sh` result holds for real VMs, not just the model — A cannot reach
 B, B cannot reach A, neither reaches the host beyond its allowed pair.
 
@@ -174,11 +176,11 @@ that there is no shared object store because there are no shares.
 `refs/heads/capsule/*` is refused" by the mirror's update hook. If the inversion
 holds, there is nothing to push to — the guest initiates no connection to the
 host at all — and the demonstration becomes *absence of a channel* rather than
-*refusal on a channel*, which is the stronger claim and needs no hook to make it.
-Settle P0 before writing this one.
+*refusal on a channel*, which is the stronger claim and needs no hook to make
+it. Settle P0 before writing this one.
 
-Cheap, and it is the one property that must hold identically on every backend, so
-it is worth having a spike-side demonstration to point at.
+Cheap, and it is the one property that must hold identically on every backend,
+so it is worth having a spike-side demonstration to point at.
 
 ### P1d. `REQ-451` / `REQ-452` — ingestion bounds
 
@@ -203,13 +205,14 @@ subject may not exist.
 ## How to report
 
 Per item: **the shape**, **the price**, **what it breaks**, and **what you did
-not measure**. That last one is not optional — `RFC-025`'s evidence discipline is
-that limits travel with claims, and four of `SL-248`'s defects were derivations
-that were accidentally correct in the one environment they had ever run in.
+not measure**. That last one is not optional — `RFC-025`'s evidence discipline
+is that limits travel with claims, and four of `SL-248`'s defects were
+derivations that were accidentally correct in the one environment they had ever
+run in.
 
-State the host. State whether it ran off-jail. `n = 1` is fine and expected; `n =
-1` presented as general is the failure mode this whole programme is recovering
+State the host. State whether it ran off-jail. `n = 1` is fine and expected; `n
+= 1` presented as general is the failure mode this whole programme is recovering
 from.
 
-Findings graduate out of this file into knowledge records (`QUE`/`DEC`/`EVD`) and
-into `IMP-426`. Then delete it.
+Findings graduate out of this file into knowledge records (`QUE`/`DEC`/`EVD`)
+and into `IMP-426`. Then delete it.

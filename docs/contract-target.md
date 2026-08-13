@@ -2,25 +2,25 @@
 
 The capsule is the product and the repo it confines is a client, so the
 integration surface is worth stating as a contract rather than discovering it
-per target. This file is that surface, field by field, in both directions: what a
-target must supply, and what it may rely on the capsule to provide.
+per target. This file is that surface, field by field, in both directions: what
+a target must supply, and what it may rely on the capsule to provide.
 
-The *rule* that produced this shape is in [CLAUDE.md](../CLAUDE.md) ("doctrine is
-the guinea pig, not the design") and the history is [notes](./notes.md) item 16.
-Neither is restated here. How far any of it has been exercised is
-[status.md](./status.md)'s to say; this file describes the interface, not its
-state. Usage — the commands in order, with a live target — is
-[README.md](../README.md).
+The *rule* that produced this shape is in [CLAUDE.md](../CLAUDE.md) ("doctrine
+is the guinea pig, not the design") and the history is
+[item 16](./ledger/016-target-agnostic.md). Neither is restated here. How far
+any of it has been exercised is [status.md](./status.md)'s to say; this file
+describes the interface, not its state. Usage — the commands in order, with a
+live target — is [README.md](../README.md).
 
 doctrine is one instance of this contract, and the other half of *its*
 relationship with this repo is [contract-doctrine.md](./contract-doctrine.md).
 
 ## The floor
 
-*Be a git repo on this host, and expose one flake package for this system that is
-your devshell's tool set.* Everything else is a `target.nix` field with a working
-absent path, and every one of those fields is **host-side** — nothing is ever
-read out of the target repo, because the agent can edit that.
+*Be a git repo on this host, and expose one flake package for this system that
+is your devshell's tool set.* Everything else is a `target.nix` field with a
+working absent path, and every one of those fields is **host-side** — nothing is
+ever read out of the target repo, because the agent can edit that.
 
 Two literals are unavoidable and nothing checks that they agree:
 
@@ -29,8 +29,8 @@ Two literals are unavoidable and nothing checks that they agree:
 
 Switching targets means editing both, or `--override-input target path:/…` for
 one build. Renaming the *input* is not free downstream either: the host's own
-config (`~/flakes`) carries `inputs.target.follows`, and its next lock fails on an
-input that no longer exists.
+config (`~/flakes`) carries `inputs.target.follows`, and its next lock fails on
+an input that no longer exists.
 
 ## Configuration — `target.nix`
 
@@ -64,12 +64,13 @@ not this table, before relying on one.
 ### What is deliberately not a target field
 
 - **The allowlist file is host-side, keyed by target.** The tempting version — a
-  `.capsule/egress-allow.txt` in the repo being worked on — hands the allowlist to
-  the thing being confined. Not directly, since the host reads the human's working
-  tree, but one careless merge of collected work and the agent has widened its own
-  egress. Same for `sizes` and `guestConfig`.
-- **Only the tool set comes from the target**, because it is a build input rather
-  than a control. Keep that asymmetry explicit or the perimeter argument leaks.
+  `.capsule/egress-allow.txt` in the repo being worked on — hands the allowlist
+  to the thing being confined. Not directly, since the host reads the human's
+  working tree, but one careless merge of collected work and the agent has
+  widened its own egress. Same for `sizes` and `guestConfig`.
+- **Only the tool set comes from the target**, because it is a build input
+  rather than a control. Keep that asymmetry explicit or the perimeter argument
+  leaks.
 - **`setup.nix` is not target-shaped at all.** Which agent you sign in as is a
   property of you, not of the repo under confinement, so a second target takes
   that list unchanged. Empty is a working value: a capsule with no injections is
@@ -77,8 +78,8 @@ not this table, before relying on one.
 
 ## What the capsule supplies back
 
-A target may rely on all of this. It is `vm/capsule.nix` plus the seed, and it is
-the same for every target.
+A target may rely on all of this. It is `vm/capsule.nix` plus the seed, and it
+is the same for every target.
 
 | | what |
 | --- | --- |
@@ -100,21 +101,22 @@ be, all of them firecracker's floor rather than choices:
 - **No host directory can ever be mounted in.** No shares, no passthrough
   (CLAUDE.md, "Firecracker constraints"). Anything that must get in arrives over
   the link or is in the closure.
-- **`nix` does not work in the guest.** The store is a generated read-only image;
-  a working `nix` needs `writableStoreOverlay` plus its own volume. A baseline
-  that shells out to nix cannot pass.
-- **There is no host service to reach.** A target whose tests want a database get
-  it inside the guest closure or not at all — the proxy is HTTP egress, not a
-  route ([notes](./notes.md) item 4 is this gap, open and unhit).
-- **`environment.variables` is login-shell scope.** Anything the target runs as a
-  guest unit needs its own environment; `capsule-baseline`'s `bash -l` exists for
-  exactly this reason ([notes](./notes.md) item 6).
+- **`nix` does not work in the guest.** The store is a generated read-only
+  image; a working `nix` needs `writableStoreOverlay` plus its own volume. A
+  baseline that shells out to nix cannot pass.
+- **There is no host service to reach.** A target whose tests want a database
+  get it inside the guest closure or not at all — the proxy is HTTP egress, not
+  a route ([item 4](./ledger/004-live-postgres.md) is this gap, open and unhit).
+- **`environment.variables` is login-shell scope.** Anything the target runs as
+  a guest unit needs its own environment; `capsule-baseline`'s `bash -l` exists
+  for exactly this reason
+  ([item 6](./ledger/006-proxy-env-login-shell-scope.md)).
 
 ## Commands and arguments at the boundary
 
 Everything crossing the boundary is host-initiated, runs as the human, and takes
 the capsule as an argument rather than being built per capsule
-([notes](./notes.md) item 20).
+([item 20](./ledger/020-which-capsule-a-program-means.md)).
 
 | command | arguments | touches the target repo? |
 | --- | --- | --- |
@@ -139,15 +141,15 @@ Environment, in the order a program consults it:
 
 The guest initiates nothing. It has no remote and no route to one, so what used
 to be a ref restriction is now the absence of a channel
-([notes](./notes.md) item 18). Work leaves as commits, through `capsule-collect`,
-into a quarantine repo — including any change the agent made to files the target
-treats as its own records.
+([item 18](./ledger/018-git-channel-direction.md)). Work leaves as commits,
+through `capsule-collect`, into a quarantine repo — including any change the
+agent made to files the target treats as its own records.
 
 ## Porting to a second target
 
 **Done once, so the price is a diff rather than an argument.** panopticon is the
-second target, on branch `second-target` — its cold `just check` is green through
-a brand-new allowlist ([notes](./notes.md) item 23,
+second target, on branch `second-target` — its cold `just check` is green
+through a brand-new allowlist ([item 23](./ledger/023-second-target.md),
 [probes](./probes.md#the-cold-build-on-a-second-target)). What that port changed
 outside this file: one allowlist file, `inputs.target.url`, and **one guest
 capability** — `programs.nix-ld`, because a pypi wheel, an npm prebuild and a Go
@@ -168,10 +170,10 @@ different one. Nothing else generic moved. In order:
 6. `caches` for its toolchain, `{}` if it has none.
 
 The likely friction is all in the last three: `extraTools`, `caches` and `sizes`
-are doctrine's toolchain wearing a general name — panopticon took half the memory
-and a quarter of the volume, which is what inheriting them would have got wrong.
-The review question, every time, is CLAUDE.md's: *would a different target need
-this code changed, or only a different value?*
+are doctrine's toolchain wearing a general name — panopticon took half the
+memory and a quarter of the volume, which is what inheriting them would have got
+wrong. The review question, every time, is CLAUDE.md's: *would a different
+target need this code changed, or only a different value?*
 
 Concurrent capsules on *different* targets is a much larger job than a different
 one — a different tool set is a different guest image, which is exactly the

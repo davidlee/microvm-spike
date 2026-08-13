@@ -18,25 +18,25 @@ config.
 ## Where this stands
 
 Where the *work* is up to is [status.md](./status.md), and the probe results and
-figures this plan reasons from are [probes.md](./probes.md) — neither is repeated
-here. What is specific to this plan:
+figures this plan reasons from are [probes.md](./probes.md) — neither is
+repeated here. What is specific to this plan:
 
 **Settled, with evidence.** The netns shape holds, in the model
 (`probe/netns.sh`), in a real boot (`probe/netns-boot.sh`,
 [the boot](#the-last-unknown--run-and-it-holds)) and now with the real perimeter
-in it (`probe/netns-egress.sh`, [egress](#egress-under-netns--run-and-it-holds)).
-All three are kept rather than thrown away: they are the evidence behind the
-addressing and isolation decisions below, and they are what to point at when this
-shape is proposed somewhere else. Re-run them after any change to the netns
-machinery.
+in it (`probe/netns-egress.sh`,
+[egress](#egress-under-netns--run-and-it-holds)). All three are kept rather than
+thrown away: they are the evidence behind the addressing and isolation decisions
+below, and they are what to point at when this shape is proposed somewhere else.
+Re-run them after any change to the netns machinery.
 
 **Decided.** Per-capsule proxy. Netns on the host-module path only, with the
 foreground path staying at N=1. Units generated per instance rather than
 templated. Reasons are with each decision, not here.
 
-**Two of this document's problems no longer exist — NOTES item 18 deleted them.**
-The git channel is host-initiated in both directions now, so there is no git
-daemon to replicate N times: everything below about per-capsule gitd uids,
+**Two of this document's problems no longer exist — NOTES item 18 deleted
+them.** The git channel is host-initiated in both directions now, so there is no
+git daemon to replicate N times: everything below about per-capsule gitd uids,
 per-capsule mirrors, whether one daemon can serve N safely, and the second port
 in the host's accept rule is describing a service that is gone. Read those
 sections as history. And the **base commit is already a runtime value** — the
@@ -51,10 +51,10 @@ the image measurement and `capsules.nix`.
 **Do not re-derive these.** Three claims in earlier drafts of this document were
 wrong, and are corrected in place rather than deleted: the forward drop does not
 stop cross-capsule reach, one git daemon cannot serve N capsules safely, and a
-per-instance kernel cmdline does not buy one guest image. Each is explained where
-it does its damage. Likewise two probe methodology traps that cost three runs —
-a denial-only network test needs a return path, and a probe borrowing production
-addressing tests production — are in
+per-instance kernel cmdline does not buy one guest image. Each is explained
+where it does its damage. Likewise two probe methodology traps that cost three
+runs — a denial-only network test needs a return path, and a probe borrowing
+production addressing tests production — are in
 [traps](./plan-c-implementation.md#traps-already-paid-for).
 
 ## The cost that shapes everything else
@@ -99,19 +99,19 @@ does not dedupe. Figures and how each was taken are in
 
 So N closures is **3.0 GiB of disk and one 3.0 GiB erofs pack per capsule**, on
 every tool-set bump — 9 GiB extra at N=4, against 180 GiB free on this host. Not
-fatal, and not free either. Since the netns machinery is now verified rather than
-speculative, mechanism (4) is cheaper than the thing it replaces on both axes,
-and this section stops being a trade-off.
+fatal, and not free either. Since the netns machinery is now verified rather
+than speculative, mechanism (4) is cheaper than the thing it replaces on both
+axes, and this section stops being a trade-off.
 
 **But the image is the smaller half, which was not obvious until it was
 measured.** A capsule that has done no real work carries a few hundred MiB of
 volume, and one `just web-build test` took it to **7.4 GiB** — 6.9 GiB of it
 `/work/doctrine`, i.e. `target/` and `node_modules`. Firecracker's virtio-block
 has no discard (NOTES item 15), so that is a high-water mark: deleting the build
-tree in the guest returns nothing to the host. And 7.4 is a floor — cargo's `target/` keeps
-growing with every profile, feature set and toolchain change, so a worked-in
-capsule trends toward its 32 GiB cap. One image saves 3.0 GiB per capsule;
-nothing saves the volume, and the volume is what decides N. See
+tree in the guest returns nothing to the host. And 7.4 is a floor — cargo's
+`target/` keeps growing with every profile, feature set and toolchain change, so
+a worked-in capsule trends toward its 32 GiB cap. One image saves 3.0 GiB per
+capsule; nothing saves the volume, and the volume is what decides N. See
 [disk](#disk-is-the-practical-limit).
 
 Four mechanisms:
@@ -122,8 +122,8 @@ Four mechanisms:
    guest becomes a plain DHCP client, identical in every capsule, and the
    per-instance value moves host-side where it belongs. **Must verify no default
    route can be emitted** (`EmitRouter=no` and whatever else networkd offers) —
-   this mechanism touches the one invariant that matters, so it needs a test that
-   fails loudly rather than a config that looks right.
+   this mechanism touches the one invariant that matters, so it needs a test
+   that fails loudly rather than a config that looks right.
 3. **Boot-time unit in the guest** reading the address from a kernel param.
    *Does not work as stated.* `microvm.kernelParams` takes `boot.kernelParams`
    into `toplevel` and so into the closure, so a per-instance cmdline is a
@@ -160,13 +160,13 @@ It dissolves three of the hardest problems here at once:
 
 - **Addressing.** Every capsule uses the identical /30 and the identical MAC.
   The guest config becomes bit-identical — one image, no DHCP, no boot-time
-  address arithmetic, no hostname regression, and the guest's proxy URL can go on
-  naming `net.host` at eval time. There is no git remote in the guest to worry
-  about. Most of the section above evaporates.
+  address arithmetic, no hostname regression, and the guest's proxy URL can go
+  on naming `net.host` at eval time. There is no git remote in the guest to
+  worry about. Most of the section above evaporates.
 - **Cross-capsule reach.** A cannot address B's tap, because B's tap is not in
   A's namespace. Structural rather than firewall-dependent — and it is the only
-  clean answer to the [weak host model
-  problem](#cross-capsule-reach-is-not-what-the-forward-drop-does).
+  clean answer to the
+  [weak host model problem](#cross-capsule-reach-is-not-what-the-forward-drop-does).
 - **The forward drop.** `net.ipv4.ip_forward` is **per-netns**. Set it to 0 in
   the capsule's namespace and it is *ours* — docker and tailscale cannot flip
   it. That global sysctl being someone else's is the whole reason the current
@@ -196,7 +196,8 @@ establishes:
 - **Real egress works**: a process in the namespace reaches the internet over
   the veth, while the guest still cannot with every upstream hop forwarding.
 - **A tap moves into a namespace and stays bindable**, and **a unix socket gets
-  ssh in without privilege** — see [plumbing](#plumbing--settled-by-the-same-probe).
+  ssh in without privilege** — see
+  [plumbing](#plumbing--settled-by-the-same-probe).
 
 Three costs it also found, none fatal, all needing to be designed in rather than
 discovered later:
@@ -221,9 +222,9 @@ discovered later:
    reachable resolver works. The fix keeps the chain rather than dropping to a
    public resolver, which would silently lose the DoT hop: give resolved an
    extra stub address on the capsule-facing link
-   (`services.resolved.settings.Resolve.DNSStubListenerExtra`) and each namespace an
-   `/etc/netns/<ns>/resolv.conf` naming it. Two lines, and the proxy still does
-   lookups as the host through the host's own chain.
+   (`services.resolved.settings.Resolve.DNSStubListenerExtra`) and each
+   namespace an `/etc/netns/<ns>/resolv.conf` naming it. Two lines, and the
+   proxy still does lookups as the host through the host's own chain.
 
 ### What it does to the host-config dependency
 
@@ -262,16 +263,16 @@ Cost of collecting that: namespace creation is root-side, so the host module
   namespace moves into a capsule namespace cleanly, is then gone from the root
   namespace entirely (a move, not a clone — nothing in root can delete it out
   from under the guest), and a process inside can bind an address on it. So
-  `microvm-tap-interfaces@%i` can stay exactly as it is: create, move, then start
-  the VMM. Moving is only unsafe under a VM that is already running, which is the
-  existing CLAUDE.md gotcha and unchanged. Creating the tap directly inside the
-  namespace also works, if ordering turns out to be easier that way.
+  `microvm-tap-interfaces@%i` can stay exactly as it is: create, move, then
+  start the VMM. Moving is only unsafe under a VM that is already running, which
+  is the existing CLAUDE.md gotcha and unchanged. Creating the tap directly
+  inside the namespace also works, if ordering turns out to be easier that way.
 - **ssh gets in over a unix socket, and needs no privilege.** `ip netns exec`
   wants CAP_SYS_ADMIN, so a sudo per `just ssh` was never acceptable. The
-  filesystem is not namespaced: a relay inside the capsule namespace listening on
-  `/run/capsule/<name>/ssh.sock` and connecting to the guest's port 22 is
-  reachable from the human's shell, and verified end-to-end here. So
-  `just ssh <name>` becomes an `ssh` with a `ProxyCommand` against that socket —
+  filesystem is not namespaced: a relay inside the capsule namespace listening
+  on `/run/capsule/<name>/ssh.sock` and connecting to the guest's port 22 is
+  reachable from the human's shell, and verified end-to-end here. So `just ssh
+  <name>` becomes an `ssh` with a `ProxyCommand` against that socket —
   host→guest only, no host-side port allocation, no guest egress added, and none
   of the cross-namespace fd-passing subtlety that socket activation would have
   needed. It also sidesteps identical guest addresses making a mess of
@@ -283,9 +284,9 @@ Verified against the pinned microvm.nix — `nixos-modules/host/default.nix` and
 `nixos-modules/microvm/interfaces.nix`. **Yes, and it needs no patch.**
 
 - **`microvm@` and `microvm-tap-interfaces@` are ordinary `systemd.services`
-  attributes**, so `serviceConfig.NetworkNamespacePath` merges in from the host's
-  config like any other option. Better: microvm.nix *already* emits a per-name
-  drop-in for each of them (`systemd.services."microvm@${name}" =
+  attributes**, so `serviceConfig.NetworkNamespacePath` merges in from the
+  host's config like any other option. Better: microvm.nix *already* emits a
+  per-name drop-in for each of them (`systemd.services."microvm@${name}" =
   {overrideStrategy = "asDropin"; …}`), so a per-instance namespace uses a
   mechanism the module itself uses in-tree — and there is no `%i` specifier
   expansion to gamble on.
@@ -321,18 +322,19 @@ first boot rather than after:
 ### The last unknown — run, and it holds
 
 **Firecracker comes up with its tap inside a namespace.** Measured, not read:
-`sudo probe-netns-boot` (`probe/netns-boot.sh`), 9 assertions, green. A namespace
-with `ip_forward=0`, `vm-capsule` created inside it, the existing runner started
-in there as the human — the VMM comes up, the guest boots to a login prompt, and
-its NIC carries traffic on the namespaced tap. The last unknown in the shape is
-gone, and nothing about the netns plan changes as a result.
+`sudo probe-netns-boot` (`probe/netns-boot.sh`), 9 assertions, green. A
+namespace with `ip_forward=0`, `vm-capsule` created inside it, the existing
+runner started in there as the human — the VMM comes up, the guest boots to a
+login prompt, and its NIC carries traffic on the namespaced tap. The last
+unknown in the shape is gone, and nothing about the netns plan changes as a
+result.
 
-Answering it did **not** mean the host module. An earlier reading of this section
-said the only way was step 5 — declare the VM in `~/flakes` and rebuild. Wrong,
-and expensively so: the unknown was firecracker's, not systemd's, so a namespace,
-a tap and the runner answered it with no host config at all. The host-module
-wiring is now bookkeeping against a known-good result rather than the experiment
-itself.
+Answering it did **not** mean the host module. An earlier reading of this
+section said the only way was step 5 — declare the VM in `~/flakes` and rebuild.
+Wrong, and expensively so: the unknown was firecracker's, not systemd's, so a
+namespace, a tap and the runner answered it with no host config at all. The
+host-module wiring is now bookkeeping against a known-good result rather than
+the experiment itself.
 
 It is the one probe that uses the live tap name, the live /30 and the live
 volume, which is otherwise the trap in
@@ -363,19 +365,19 @@ this time.
 **One host-side fact it cost a run to find, and the probe now encodes:** a
 root-side program cannot borrow your ssh agent. `sudo` strips `SSH_AUTH_SOCK`,
 and the key the guest authorises is `~/.ssh/id` — not a filename ssh tries by
-default — so ssh offered the wrong key and three checks failed while ping passed.
-Every ssh-shaped path here runs as the human for a reason; anything that ever
-runs one as root needs an identity handed to it, not inherited. The probe finds
-the agent socket itself (a socket is a file, so it crosses into the namespace
-unchanged) and refuses before booting if there is none.
+default — so ssh offered the wrong key and three checks failed while ping
+passed. Every ssh-shaped path here runs as the human for a reason; anything that
+ever runs one as root needs an identity handed to it, not inherited. The probe
+finds the agent socket itself (a socket is a file, so it crosses into the
+namespace unchanged) and refuses before booting if there is none.
 
 Two consequences to handle in the same pass, neither of them unknowns:
 
 - `just status` needs rewriting. `pgrep` still works (the PID namespace is
   untouched) but "is the tap there" stops being answerable from the root
   namespace at all. `ConditionPathExists=/sys/class/net/<tap>` inside a unit is
-  evaluated in that unit's namespace, so the units keep working while the human's
-  status command does not.
+  evaluated in that unit's namespace, so the units keep working while the
+  human's status command does not.
 - `vm-stop`'s ssh poweroff moves onto the unix socket, same as `just ssh`.
 
 ### Egress under netns — run, and it holds
@@ -384,9 +386,10 @@ Two consequences to handle in the same pass, neither of them unknowns:
 first run — the results are in [probes.md](./probes.md). It is the same real
 capsule in the same real namespace as the boot probe, with the real
 `capsule-proxy` joined to it and an aggregating namespace behind that. The
-allowlist answers 200 for a host on it and 403 for one off it; guest root holding
-the default route it can always add reaches nothing; each denial is paired with a
-control that deletes the rule or flips the sysctl and watches the wall fall over.
+allowlist answers 200 for a host on it and 403 for one off it; guest root
+holding the default route it can always add reaches nothing; each denial is
+paired with a control that deletes the rule or flips the sysctl and watches the
+wall fall over.
 
 **So nothing about the guest's confinement is unverified under netns any more.**
 What the order of work has left is assembling this out of systemd units instead
@@ -399,15 +402,15 @@ Two corrections it makes to this document, both cheap now and expensive later:
   namespace, that namespace's own forwarding plus the interface-pair drop and an
   RFC1918 drop, NAT and forwarding on the host, and an input drop on each
   capsule's tap for any destination but the tap address. Every one of them is
-  host-side and none is in the guest image, so the one-image claim is untouched —
-  but the host module is a module, not a unit.
+  host-side and none is in the guest image, so the one-image claim is untouched
+  — but the host module is a module, not a unit.
 - **DNS is a `~/flakes` edit, and it is load-bearing.** The three costs above
   called `DNSStubListenerExtra=` a two-line fix; the probe found this host has
   neither the stub address nor the firewall allow that a namespaced client would
   need on it, and fell back to a public resolver to finish the run. A capsule
   resolving outside the host's resolved → stubby → ControlD chain is a quiet
-  weakening of exactly what NOTES item 7 built, so it lands with the units rather
-  than after them.
+  weakening of exactly what NOTES item 7 built, so it lands with the units
+  rather than after them.
 
 ### Where netns applies, and where it does not
 
@@ -418,8 +421,8 @@ That is not a conflict, it is the split that already exists between
 `capsule-host` and `host/services.nix`. **The foreground path stays the current
 tap shape at N=1** — one capsule, no namespace, no privilege beyond the existing
 single sudo, which is what makes it usable for development. **Netns exists only
-on the host-module path**, which is the real posture and is where N capsules live
-anyway. The convention survives verbatim.
+on the host-module path**, which is the real posture and is where N capsules
+live anyway. The convention survives verbatim.
 
 Worth being explicit about, because the other reading — netns everywhere, and
 `sudo` in the dev loop — silently kills a convention that is there for a reason.
@@ -449,9 +452,9 @@ Then keep enumeration out of the three places it hurts:
   `host/perimeter-check.nix` keeps working — but the check's *rule* match has to
   learn the wildcard form, and that check is fail-closed, so get it wrong and
   nothing starts.
-- **The firewall's accept side:** *not* a bare wildcard — see [cross-capsule
-  reach](#cross-capsule-reach-is-not-what-the-forward-drop-does). The rule has
-  to match the interface **and the destination address together**
+- **The firewall's accept side:** *not* a bare wildcard — see
+  [cross-capsule reach](#cross-capsule-reach-is-not-what-the-forward-drop-does).
+  The rule has to match the interface **and the destination address together**
   (`iifname . ip daddr @capsule_taps`), or capsule A reaches capsule B's proxy
   and git daemon on B's tap address, granted by the very rule that was supposed
   to be written once. A *named nftables set* is how the rule itself still stays
@@ -460,15 +463,15 @@ Then keep enumeration out of the three places it hurts:
   second sudoers rule (`nft add element`), which is the price of not enumerating
   in someone else's config — and it is the ranch case that makes the price worth
   paying. `networking.firewall.interfaces` can express neither the wildcard nor
-  the daddr pairing, so this moves to `extraInputRules` either way, and the allow
-  side cannot be installed from this repo at all (NOTES item 7).
-  Moot under [netns](#netns-per-capsule), which is a large part of that option's
+  the daddr pairing, so this moves to `extraInputRules` either way, and the
+  allow side cannot be installed from this repo at all (NOTES item 7). Moot
+  under [netns](#netns-per-capsule), which is a large part of that option's
   appeal.
 - **The proxy's uid:** `DynamicUser = true` works — it writes only its
   `StateDirectory` — so no per-instance user declaration. The **git daemon's uid
   cannot** be dynamic: the mirror needs stable ownership and `owner` needs group
-  access to fetch `capsule/*` back out, which an ephemeral gid breaks. Static and
-  enumerated there.
+  access to fetch `capsule/*` back out, which an ephemeral gid breaks. Static
+  and enumerated there.
 
 ## Addressing
 
@@ -543,14 +546,13 @@ you cannot tell whose branch is whose, and `just branches` is a guessing game.
 ### One gitd or N?
 
 **N. Decided.** `git daemon --listen` may be repeated, so one daemon *could*
-serve every tap, and it is cheaper. It also fails [verification item
-3](./plan-c-implementation.md#verification-checklist) by construction: one
-daemon must allow every guest
-as a peer, and `--strict-paths` whitelists paths without binding a path to a
-source address. A then clones `git://…/B.git`, reads B's `capsule/*` — and
-pushes to it, since the update hook checks the ref namespace and not who asked.
-Read access alone breaks the claim; write access makes one agent able to rewrite
-another's work.
+serve every tap, and it is cheaper. It also fails
+[verification item 3](./plan-c-implementation.md#verification-checklist) by
+construction: one daemon must allow every guest as a peer, and `--strict-paths`
+whitelists paths without binding a path to a source address. A then clones
+`git://…/B.git`, reads B's `capsule/*` — and pushes to it, since the update hook
+checks the ref namespace and not who asked. Read access alone breaks the claim;
+write access makes one agent able to rewrite another's work.
 
 Note the shape of that: the daemon holding every capsule's *work* is the one
 that must be per-instance, while the proxy — the larger *parsing* surface, C
@@ -581,9 +583,9 @@ also retires `capsule-net up`'s sudo. Doing N capsules first and the host module
 second means building the instance machinery twice.
 
 Note where enumeration lands if you take it: declarative `microvm.vms` puts the
-instance list in `~/flakes`; imperative `microvm -c` keeps it here and puts state
-in `/var/lib/microvms/<name>`. Both are fine; pick one deliberately, since it
-decides whether adding a capsule is a rebuild or a command.
+instance list in `~/flakes`; imperative `microvm -c` keeps it here and puts
+state in `/var/lib/microvms/<name>`. Both are fine; pick one deliberately, since
+it decides whether adding a capsule is a rebuild or a command.
 
 ## Disk is the practical limit
 
@@ -592,15 +594,15 @@ item 15), plus a duplicated cargo/bun cache each, and, under mechanism (1) only,
 a 3.0 GiB guest image each
 ([measured](#the-cost-that-shapes-everything-else)).
 
-**One real number, and it moved once the capsule had build config.** One
-`just web-build test` used to take the volume from a fresh capsule's few hundred
-MiB — nearly all of it empty filesystem — to **7.4 GiB**, 6.9 GiB of that
+**One real number, and it moved once the capsule had build config.** One `just
+web-build test` used to take the volume from a fresh capsule's few hundred MiB —
+nearly all of it empty filesystem — to **7.4 GiB**, 6.9 GiB of that
 `/work/doctrine`. That was an *untuned* build: nothing had ever told the capsule
 what machine it was, so cargo's defaults applied. With `target.nix`'s
 `guestConfig` (`debug = 0`, `incremental = false`) the same workload leaves
 **1.1 GiB** in `/work/doctrine` and 144 MiB of crate cache — components summing
-to roughly **1.5 GiB** of volume, though the image itself has not been re-measured
-at that state. Either way, no discard means it never comes back.
+to roughly **1.5 GiB** of volume, though the image itself has not been
+re-measured at that state. Either way, no discard means it never comes back.
 [probes.md](./probes.md#figures) has both ends and how each was taken.
 
 **Read that as a floor, not a figure.** It is n = 1, on one target, and cargo in
@@ -628,16 +630,16 @@ edits web assets needs nothing like 32 GiB; and cache sharing, if it ever
 happens, aims at `/work/doctrine`, which is where the duplication is — a
 read-only shared volume plus per-capsule overlay, real machinery, and a shared
 *writable* volume across two VMs is corruption, not a shortcut. Note it; don't
-build it. **Weaker now than when it was written**: the duplicated term is 1.1 GiB
-per capsule rather than 6.9, so the config that costs nothing bought most of what
-the machinery would have.
+build it. **Weaker now than when it was written**: the duplicated term is 1.1
+GiB per capsule rather than 6.9, so the config that costs nothing bought most of
+what the machinery would have.
 
 ## No daemon
 
 The premise needs one correction: nix isn't running anything at run time today.
 `vm capsule` is build-then-exec and the only other invocation is `vm-stop`'s
-fallback. With prebuilt runners under systemd there is no nix in the loop at all,
-so there is no load for a dispatcher to take off it.
+fallback. With prebuilt runners under systemd there is no nix in the loop at
+all, so there is no load for a dispatcher to take off it.
 
 Everything a dispatcher would do — start/stop, per-instance state, ordering,
 restart policy, ceilings, logs — is systemd's job and microvm.nix's host module
@@ -651,8 +653,8 @@ daemons:
 
 The real dispatcher question hides underneath: *which capsule gets which task.*
 That is a scheduler over agents, not over VMs. It sits on top of `capsule
-start/stop/status` and changes nothing here, so keep it separable and out of this
-plan.
+start/stop/status` and changes nothing here, so keep it separable and out of
+this plan.
 
 ## Mixed targets: defer, but keep it possible
 
@@ -678,7 +680,8 @@ problem does not arise by construction — N agents already work against one
 shared persistent home, and N separate ones is strictly easier. The residual
 risk is *drift* between them (settings, MCP config, anything the agent writes to
 its own home and then depends on). That is a fix-in-post problem, not a fork in
-the road: the floor requirement is a writable home, and every shape here has one.
+the road: the floor requirement is a writable home, and every shape here has
+one.
 
 Credentials are the part with an actual constraint. `op` (1Password CLI) injects
 env vars by talking to a **host** unix socket at bind time, and firecracker has
@@ -698,8 +701,8 @@ becomes a per-capsule step, which means it belongs in the `capsule` CLI's start
 verb rather than in a ritual someone has to remember N times.
 
 **Built, and it cost no mechanism** — the interface is `setup.nix`'s `produce`
-fragment, which both shapes already are ([notes](./notes.md) item 22,
-[status](./status.md)).
+fragment, which both shapes already are
+([item 22](./ledger/022-secrets-at-start.md), [status](./status.md)).
 
 Two things not to do: secrets on the kernel cmdline (world-readable in the guest
 and, per the addressing note above, in the closure), and secrets in the guest's
@@ -722,11 +725,11 @@ case, not before the dev-machine case.
 
 ## Order of work
 
-1. ~~Spike the netns.~~ ~~One boot with a real guest.~~ ~~The perimeter in one.~~
-   **All three done — it holds**:
-   the namespace, the tap and the unix-socket way in
-   ([results](#probed-it-holds)), the host module taking the namespace without a
-   patch ([from source](#the-host-module-question-answered-from-source)), and
+1. ~~Spike the netns.~~ ~~One boot with a real guest.~~ ~~The perimeter in
+   one.~~ **All three done — it holds**: the namespace, the tap and the
+   unix-socket way in ([results](#probed-it-holds)), the host module taking the
+   namespace without a patch
+   ([from source](#the-host-module-question-answered-from-source)), and
    firecracker booting with its tap inside one, 9/9
    ([the boot](#the-last-unknown--run-and-it-holds)), and the real proxy serving
    the real guest in one, 27/27
@@ -742,7 +745,8 @@ case, not before the dev-machine case.
    and one pack per capsule per bump, which is what makes netns worth its unit.
 4. `capsules.nix` + the instance record. Under netns that is a name list and
    little else; without it, the index function, the wildcard drop and the
-   daddr-paired accept rule. The single capsule becomes instance zero either way.
+   daddr-paired accept rule. The single capsule becomes instance zero either
+   way.
 5. The VMM half of item 11, with per-instance ceilings — and namespace creation
    if (1) held, since that wants root anyway. Adding capsules after this is a
    unit start, not a design change.
@@ -750,24 +754,24 @@ case, not before the dev-machine case.
    gitd to generate — the git channel is host-initiated and per-capsule only in
    which URL it is pointed at (NOTES item 18).
 7. ~~The `capsule` CLI~~, ~~the aggregate `just` recipes~~ and ~~per-capsule
-   secret injection at start~~ — **all three done**
-   ([status](./status.md)); the injection needed a declaration and two changes
-   around it rather than a mechanism ([notes](./notes.md) item 22).
-   **The naming half was settled ahead of the CLI**, because the
-   four host programs needed it before N=2 could work at all: `--capsule <name>`,
-   `CAPSULE_NAME`, else `capsules.default`, with the transport derived from the
-   name rather than baked into a store path (NOTES item 20). That left the CLI the
-   systemctl verbs and the table, both of which it now has — it resolves a name and
-   execs, rather than owning the name.
+   secret injection at start~~ — **all three done** ([status](./status.md)); the
+   injection needed a declaration and two changes around it rather than a
+   mechanism ([item 22](./ledger/022-secrets-at-start.md)). **The naming half
+   was settled ahead of the CLI**, because the four host programs needed it
+   before N=2 could work at all: `--capsule <name>`, `CAPSULE_NAME`, else
+   `capsules.default`, with the transport derived from the name rather than
+   baked into a store path (NOTES item 20). That left the CLI the systemctl
+   verbs and the table, both of which it now has — it resolves a name and execs,
+   rather than owning the name.
 8. ~~Only then: a second target, if it is still wanted.~~ **Done, and green.**
    panopticon on branch `second-target`: `target.nix`, one allowlist file, one
    flake literal, and one export added *in the target*. Outside those, the port
    changed exactly one thing — `programs.nix-ld` in the guest, which no target
    parameterises — so the claim item 16 could only make is now a diff
-   ([notes](./notes.md) item 23). Cold `just check` in **3 s** against doctrine's
-   109, which is the finding that outlives the port: the largest term in
-   time-to-interactive is target-shaped
-   ([probes](./probes.md#the-cold-build-on-a-second-target)). What it did *not* do
-   is run on the module path, or run beside doctrine — the second is this
+   ([item 23](./ledger/023-second-target.md)). Cold `just check` in **3 s**
+   against doctrine's 109, which is the finding that outlives the port: the
+   largest term in time-to-interactive is target-shaped
+   ([probes](./probes.md#the-cold-build-on-a-second-target)). What it did *not*
+   do is run on the module path, or run beside doctrine — the second is this
    document's much larger job, since a second tool set is a second guest image.
 

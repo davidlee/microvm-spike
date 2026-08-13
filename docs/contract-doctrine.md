@@ -13,31 +13,31 @@ could import this evidence without being confined by it, and a different target
 could be confined without holding a single requirement.
 
 Which of the below has actually been answered is [status.md](./status.md)'s to
-say, and every figure is [probes.md](./probes.md)'s. This file names the surface.
-[import-doctrine.md](./import-doctrine.md) is a different thing again — a
-**disposable round packet** that directed one round of probes; it is deleted when
-its findings land as records. This file is the durable part.
+say, and every figure is [probes.md](./probes.md)'s. This file names the
+surface. [import-doctrine.md](./import-doctrine.md) is a different thing again —
+a **disposable round packet** that directed one round of probes; it is deleted
+when its findings land as records. This file is the durable part.
 
 ## Role 1 — doctrine as client
 
 ### Which records this boundary answers to
 
-Read them with `doctrine <kind> show <ID>` in doctrine's own checkout, never from
-files. Nothing here copies record text: it would drift, and doctrine's tooling is
-the reader.
+Read them with `doctrine <kind> show <ID>` in doctrine's own checkout, never
+from files. Nothing here copies record text: it would drift, and doctrine's
+tooling is the reader.
 
 | record | what it asks of a capsule | where this repo's answer is kept |
 | --- | --- | --- |
 | `RFC-025` § *The microVM turn* | the frame for replacing the bubblewrap boundary | [design.md](./design.md) |
 | `IMP-426` | the work item every round here reports into | [status.md](./status.md) |
 | `SPEC-030` | the capsule contract as written against bubblewrap and measured there — this boundary is the candidate replacement | [threat-model.md](./threat-model.md) |
-| `REQ-448`, `DEC-191` | the authority floor: no canonical ref mutation, no canonical credentials, no writable shared object store, no control-plane state | [threat-model.md](./threat-model.md); the git channel's direction is [notes](./notes.md) item 18 |
+| `REQ-448`, `DEC-191` | the authority floor: no canonical ref mutation, no canonical credentials, no writable shared object store, no control-plane state | [threat-model.md](./threat-model.md); the git channel's direction is [item 18](./ledger/018-git-channel-direction.md) |
 | `REQ-450` | fresh mutable state on five axes — checkout, repository, runtime, temporary state, process | [probes.md](./probes.md), `freshness.sh` |
 | `REQ-454`, `RT-1`, `CPT-002` | verification runs in a *separate* fresh capsule from the work it judges | [probes.md](./probes.md), `two-capsules.sh`; the N case is [plan-c-multi-capsule.md](./plan-c-multi-capsule.md) |
-| `REQ-451`, `REQ-452`, `QUE-213` | ingestion bounds, and the ceiling a `fetch` has no knob for | [notes](./notes.md) item 18; the byte/disk bound is open in [status.md](./status.md) |
+| `REQ-451`, `REQ-452`, `QUE-213` | ingestion bounds, and the ceiling a `fetch` has no knob for | [item 18](./ledger/018-git-channel-direction.md); the byte/disk bound is open in [status.md](./status.md) |
 | `DEC-135`, `ADR-020` | the host's git never runs in a capsule-authored repository — the rule is about execution context, not about bundles | `host/git-channel.nix`: a host-authored quarantine, `--no-tags`, `transfer.fsckObjects` |
 | `ASM-010` | the host never hands guest-authored filesystem metadata to the host kernel | `vm/capsule.nix`: the volume is read with fuse2fs or debugfs, never `mount` |
-| `QUE-212`, `DEC-192`, `EVD-016`, `EVD-017` | which direction a result leaves by | [notes](./notes.md) item 18 — host-initiated both ways, the daemon deleted rather than confined |
+| `QUE-212`, `DEC-192`, `EVD-016`, `EVD-017` | which direction a result leaves by | [item 18](./ledger/018-git-channel-direction.md) — host-initiated both ways, the daemon deleted rather than confined |
 | `DEC-133`, `DEC-193` | the durable admission journal versus short-horizon exhibits, and how long a quarantine is kept | open here: the quarantine is the exhibit and nothing in this repo sets its retention |
 | `DEC-189` | a conformance row needs a falsifying delta, and row membership does not port | why REQ-450's process axis is deliberately **unrowed** here — a capsule is a separate kernel, so a permanently green row is misleading evidence rather than extra assurance |
 | `DEC-190` | the conformance suite splits into a neutral verdict kernel and per-mechanism payloads | out of scope for this repo: a suite needs a capsule to measure |
@@ -52,8 +52,8 @@ the hypervisor boundary does not change them.
 ### How evidence leaves
 
 One probe answers one design question, and its result becomes one doctrine
-evidence record. The mapping is not incidental — it is why `probe/` is kept in the
-tree at all:
+evidence record. The mapping is not incidental — it is why `probe/` is kept in
+the tree at all:
 
 | probe | record |
 | --- | --- |
@@ -61,25 +61,26 @@ tree at all:
 | `freshness.sh` | `EVD-019` |
 | `two-capsules.sh` | `EVD-020` |
 
-`netns.sh` and `netns-egress.sh` carry no record in
-[probes.md](./probes.md); the P0 transport probes landed as `EVD-016`/`EVD-017`.
-That file is the authority on what each probe last returned, and the only place a
-figure lives — so a record it does not name is one to check doctrine-side rather
-than to assume absent.
+`netns.sh` and `netns-egress.sh` carry no record in [probes.md](./probes.md);
+the P0 transport probes landed as `EVD-016`/`EVD-017`. That file is the
+authority on what each probe last returned, and the only place a figure lives —
+so a record it does not name is one to check doctrine-side rather than to assume
+absent.
 
 The reporting shape, per item: **the shape**, **the price**, **what it breaks**,
 and **what you did not measure**. The last is not optional — limits travel with
 claims. State the host. State whether it ran off-jail. `n = 1` is fine and
-expected; `n = 1` presented as general is the failure mode this whole programme is
-recovering from.
+expected; `n = 1` presented as general is the failure mode this whole programme
+is recovering from.
 
 **Corrections travel in both directions, and that is the load-bearing half.**
-`EVD-019` carried "16 GiB per capsule is what binds at N", which had been read off
-`target.nix` — a configuration fact — and travelled as a measurement into this
-repo's ledger, its status doc, that record, and the design of the very probe that
-refuted it. `DEC-189` says a row needs a falsifying delta; the corollary is that a
-number needs one too. A figure withdrawn here is withdrawn there, struck in place
-rather than deleted ([notes](./notes.md) item 12).
+`EVD-019` carried "16 GiB per capsule is what binds at N", which had been read
+off `target.nix` — a configuration fact — and travelled as a measurement into
+this repo's ledger, its status doc, that record, and the design of the very
+probe that refuted it. `DEC-189` says a row needs a falsifying delta; the
+corollary is that a number needs one too. A figure withdrawn here is withdrawn
+there, struck in place rather than deleted
+([item 12](./ledger/012-no-resource-ceiling.md)).
 
 ### The direction of the dependency
 
@@ -91,8 +92,8 @@ keeps this repo evidence rather than governance.
 ## Role 2 — doctrine as target instance
 
 What doctrine declares, as an instance of
-[contract-target.md](./contract-target.md). Everything below is a *value*; none of
-it is a mechanism, and none of it may become one.
+[contract-target.md](./contract-target.md). Everything below is a *value*; none
+of it is a mechanism, and none of it may become one.
 
 | field | doctrine's value | what breaks if doctrine changes it |
 | --- | --- | --- |
@@ -107,39 +108,40 @@ it is a mechanism, and none of it may become one.
 
 Three obligations that are not fields:
 
-- **Its flake input reads committed HEAD.** `git+file:` means uncommitted work in
-  doctrine is invisible to the capsule; a tool-set change needs a commit there and
-  `nix flake update target` here.
-- **The jailed `claude`/`codex` wrappers stay out of `dev-tools`.** They are bwrap
-  wrappers binding host paths that do not exist in the VM. The capsule's
+- **Its flake input reads committed HEAD.** `git+file:` means uncommitted work
+  in doctrine is invisible to the capsule; a tool-set change needs a commit
+  there and `nix flake update target` here.
+- **The jailed `claude`/`codex` wrappers stay out of `dev-tools`.** They are
+  bwrap wrappers binding host paths that do not exist in the VM. The capsule's
   confinement is the VM.
-- **Doctrine's own tooling runs on the checkout, not on the host's records.** The
-  guest carries the `doctrine` binary via `dev-tools` ([notes](./notes.md) item 5),
-  so an agent in a capsule reads and writes records *in its own clone* at
-  `<volumePath>/doctrine` — not doctrine's bwrap path, and not this host's copy.
-  Record edits come back the way every other change does: as commits, through
-  `capsule-collect`, into a quarantine the human then chooses to fetch from.
+- **Doctrine's own tooling runs on the checkout, not on the host's records.**
+  The guest carries the `doctrine` binary via `dev-tools`
+  ([item 5](./ledger/005-doctrine-binary-in-guest.md)), so an agent in a capsule
+  reads and writes records *in its own clone* at `<volumePath>/doctrine` — not
+  doctrine's bwrap path, and not this host's copy. Record edits come back the
+  way every other change does: as commits, through `capsule-collect`, into a
+  quarantine the human then chooses to fetch from.
 
 **The boundary that matters most.** doctrine's needs may inform a default; they
 may never carry the mechanism. The cargo config is the worked example — the
 capability is *render static guest config from the instance's declared
 reservation*, not "support cargo", and emphatically not "copy the human's
 `~/.cargo/config.toml`", which describes a machine the capsule is not. The smell
-is a toolchain's name appearing anywhere but `target.nix`. CLAUDE.md has the full
-rule and its three limbs.
+is a toolchain's name appearing anywhere but `target.nix`. CLAUDE.md has the
+full rule and its three limbs.
 
 ## Role 3 — driving a slice from doctrine (parked)
 
-Not built, and parked deliberately rather than forgotten: a skill that runs a real
-doctrine slice inside a capsule, `capsule-run`-shaped — **argv supplied by
+Not built, and parked deliberately rather than forgotten: a skill that runs a
+real doctrine slice inside a capsule, `capsule-run`-shaped — **argv supplied by
 doctrine, so this repo never learns what a slice is.** That is the same
 generic-capability-plus-a-value rule as `baseline`, one altitude up.
 
-Where it attaches, if it lands: the four host programs already are the boundary's
-verbs, and they already take the capsule as an argument
-([notes](./notes.md) item 20). What is missing is a *run a command and return its
-verdict* verb with escalation semantics — what happens when the slice fails, who
-decides to retry, and in which capsule. ssh plus tmux is the play until those
-settle; a scheduler over agents sits on top of `capsule start/stop/status` and
-changes nothing here
+Where it attaches, if it lands: the four host programs already are the
+boundary's verbs, and they already take the capsule as an argument
+([item 20](./ledger/020-which-capsule-a-program-means.md)). What is missing is a
+*run a command and return its verdict* verb with escalation semantics — what
+happens when the slice fails, who decides to retry, and in which capsule. ssh
+plus tmux is the play until those settle; a scheduler over agents sits on top of
+`capsule start/stop/status` and changes nothing here
 ([plan-c-multi-capsule.md](./plan-c-multi-capsule.md), "No daemon").

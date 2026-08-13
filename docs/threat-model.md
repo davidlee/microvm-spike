@@ -2,7 +2,7 @@
 
 What the confinement claims, and what it does not. The shape it describes is in
 [design.md](./design.md); the items that keep it honest are in
-[notes.md](./notes.md).
+[ledger/index.md](./ledger/index.md).
 
 Guest ring-0 to host, largest surface first:
 
@@ -18,7 +18,8 @@ Guest ring-0 to host, largest surface first:
    the host kernel parses them. This is surface the bwrap jails do *not* have —
    a bwrap process holds no effective `CAP_NET_RAW`, because the host netns is
    owned by the initial user namespace. Which is why none of the host config in
-   README "Host requirements" is optional ([notes](./notes.md) item 7).
+   README "Host requirements" is optional
+   ([item 7](./ledger/007-host-config.md)).
 4. **The one host service on the /30.** tinyproxy — C, parsing guest-authored
    HTTP. There were two; the second was a git daemon running `receive-pack` as
    the host user on a repo whose objects then flowed into the real tree, and it

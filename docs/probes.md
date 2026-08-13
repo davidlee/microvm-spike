@@ -1,9 +1,9 @@
 # Probes — the evidence, and its last result
 
-`probe/` is evidence, not scaffolding: each probe answers one design question and
-is kept so the answer stays checkable. This file is **the one place a probe's
-figures and verdict are recorded** — everything else links here rather than
-restating a number, because a figure copied into three documents is three
+`probe/` is evidence, not scaffolding: each probe answers one design question
+and is kept so the answer stays checkable. This file is **the one place a
+probe's figures and verdict are recorded** — everything else links here rather
+than restating a number, because a figure copied into three documents is three
 figures the first time one of them is edited.
 
 All of them need root, so they are the user's to run. `just build` shellchecks
@@ -17,11 +17,11 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
 | `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, twice (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
-One figure here comes from something that is not a probe: `capsule-baseline` is a
-lifecycle command a human runs on a capsule they are about to work in, and it
+One figure here comes from something that is not a probe: `capsule-baseline` is
+a lifecycle command a human runs on a capsule they are about to work in, and it
 happens to produce [the cold build](#the-cold-build). It needs no root, and it
 needs the real perimeter up — which is why it is not in `probe/`
-([notes](./notes.md) item 19).
+([item 19](./ledger/019-baseline-build-and-figures.md)).
 
 ## What netns.sh established
 
@@ -31,18 +31,18 @@ being per-netns means the forward control is *ours* rather than shared with
 docker and tailscale. The inverted control — flip the namespace's `ip_forward`
 to 1 and the guest walks straight out — is what proves the switch does the work.
 
-Three costs it found: a guest reaches its own capsule's egress address (weak host
-model, one scope down); whatever aggregates the capsules' egress forwards, so
-proxy-to-proxy needs an interface-pair drop; and DNS needs
+Three costs it found: a guest reaches its own capsule's egress address (weak
+host model, one scope down); whatever aggregates the capsules' egress forwards,
+so proxy-to-proxy needs an interface-pair drop; and DNS needs
 `DNSStubListenerExtra=` plus `/etc/netns/<ns>/resolv.conf`.
 
 ## What netns-boot.sh established
 
 The VMM comes up with its tap created inside the namespace, the guest boots and
-answers ssh in there, its NIC carries traffic on the namespaced tap, and the tap,
-the guest and its ssh port are all unreachable from the root namespace. ssh and
-git both cross a unix socket into it unprivileged. **No host config was needed**
-— the boot was never systemd's question, which is what
+answers ssh in there, its NIC carries traffic on the namespaced tap, and the
+tap, the guest and its ssh port are all unreachable from the root namespace. ssh
+and git both cross a unix socket into it unprivileged. **No host config was
+needed** — the boot was never systemd's question, which is what
 [Plan C](./plan-c-multi-capsule.md) said otherwise until this ran.
 
 It is the deliberate exception to the never-borrow-live-addressing rule, and its
@@ -52,11 +52,11 @@ running VM.
 
 ## What netns-egress.sh established
 
-The last unverified claim in the netns shape, and the only remaining one that was
-security-shaped: **the perimeter survives the move into a namespace.** 27
+The last unverified claim in the netns shape, and the only remaining one that
+was security-shaped: **the perimeter survives the move into a namespace.** 27
 assertions, green on the first run. `netns.sh` had modelled the confinement with
-veths and `netns-boot.sh` had booted the real guest, but neither ever had a proxy
-in it — netns.sh's stage 2 reached the internet with a bare connect, and
+veths and `netns-boot.sh` had booted the real guest, but neither ever had a
+proxy in it — netns.sh's stage 2 reached the internet with a bare connect, and
 netns-boot's namespace has no upstream at all on purpose.
 
 What is now measured rather than reasoned:
@@ -69,15 +69,15 @@ What is now measured rather than reasoned:
   tool set comes from the target's flake and a probe may not assume what is in
   it.
 - **Guest root cannot get out any other way, and the namespace's `ip_forward` is
-  what stops it.** The route the design assumes guest root can add was added, and
-  the guest still reached neither the internet nor the aggregator its own proxy
-  leaves through. Flip the namespace's `ip_forward` to 1 and both work; flip it
-  back and both stop.
+  what stops it.** The route the design assumes guest root can add was added,
+  and the guest still reached neither the internet nor the aggregator its own
+  proxy leaves through. Flip the namespace's `ip_forward` to 1 and both work;
+  flip it back and both stop.
 - **The weak-host-model cost netns.sh found is fixable and is fixed.** With the
   proxy's egress veth address local to the capsule namespace, a guest packet to
-  it is INPUT there and no forwarding switch touches it. An input drop on the tap
-  for any destination but the tap address closes it, verified by removing the
-  drop, watching the guest reach it, and putting it back.
+  it is INPUT there and no forwarding switch touches it. An input drop on the
+  tap for any destination but the tap address closes it, verified by removing
+  the drop, watching the guest reach it, and putting it back.
 - **The aggregator is a capsule-to-capsule path, and one interface-pair rule
   closes it.** `iifname "eg-wan*" oifname "eg-wan*" drop` plus an RFC1918 drop
   from capsule sources stops a capsule reaching its sibling *or* the host's own
@@ -90,10 +90,10 @@ What is now measured rather than reasoned:
 Two things it settled that were not the question:
 
 - **The unit inventory is bigger than "one oneshot unit and two drop-ins."** A
-  working perimeter under netns also needs, per capsule, a veth to an aggregating
-  namespace, that namespace's own forwarding and rules, NAT and forwarding on the
-  host, and the two drops above. All of it is host-side and none of it is in the
-  guest.
+  working perimeter under netns also needs, per capsule, a veth to an
+  aggregating namespace, that namespace's own forwarding and rules, NAT and
+  forwarding on the host, and the two drops above. All of it is host-side and
+  none of it is in the guest.
 - **DNS is per-namespace, and that is the trap to design around rather than
   discover.** Loopback is per-namespace, so the host's stub on `127.0.0.53` is
   not reachable from a capsule namespace — asserted. The probe writes
@@ -103,23 +103,24 @@ Two things it settled that were not the question:
   is `DNSStubListenerExtra` on that address *and* an input allow for port 53 on
   that link, since the host firewall covers every interface including one this
   repo created.
-  - **Run 1 fell back; run 2 did not.** The host module now installs both halves,
+  - **Run 1 fell back; run 2 did not.** The host module now installs both
+    halves,
     so the re-run after that rebuild opened with `NOTE the host's own resolver
     answers on 10.101.0.1 — the capsule keeps its DoT chain`. That closes the
     half of the perimeter the first 27/27 could not claim.
 
 Like `netns-boot.sh` it borrows the live tap, /30 and volume, for the same
 reason: the guest image has `net.nix` in it, so the real capsule is the subject.
-Everything it adds is on its own addressing (10.100/16, 10.101/30) and it refuses
-to start on an overlap.
+Everything it adds is on its own addressing (10.100/16, 10.101/30) and it
+refuses to start on an overlap.
 
 ## Figures
 
-Provenance matters here, because the two disk figures people reach for were taken
-by different means and one of them is *not* what the probe measures.
+Provenance matters here, because the two disk figures people reach for were
+taken by different means and one of them is *not* what the probe measures.
 
-Freshness has run twice. Run 2 is the current figure and run 1 is kept beside it,
-because two samples say more about the noise than either says alone.
+Freshness has run twice. Run 2 is the current figure and run 1 is kept beside
+it, because two samples say more about the noise than either says alone.
 
 | figure | value | run 1 | source | note |
 | --- | --- | --- | --- | --- |
@@ -128,7 +129,7 @@ because two samples say more about the noise than either says alone.
 | guest kernel / initrd | 381 MiB / 25 MiB | — | same | shared |
 | volume, after boot before provision | 260 MiB | 260 | freshness | allocated blocks (`du -B1`). Empty ext4 for a 32 GiB declaration — this much exists before any content does |
 | volume, after provision | 296 MiB | 296 | freshness | so a provision costs **36 MiB** on disk, against a 32 MiB repository. The declared 32 GiB is sparse and is not a disk cost |
-| volume, provisioned plus some ssh work | 385 MiB | — | hand-measured, [notes](./notes.md) item 15 | same order — a pre-build capsule is ~300-400 MiB either way |
+| volume, provisioned plus some ssh work | 385 MiB | — | hand-measured, [item 15](./ledger/015-things-that-only-grow.md) | same order — a pre-build capsule is ~300-400 MiB either way |
 | volume, one `just web-build test` in, **untuned** | 7.4 GiB | — | hand-measured, item 15 | 6.9 GiB of it `/work/doctrine`. Taken when the capsule had no build config at all — full debuginfo, incremental cache. **Superseded**: with `guestConfig` the same workload leaves 1.1 GiB, below. Kept because the gap is the argument for the config existing |
 | `/work/doctrine`, same workload, **tuned** | **1.1 GiB** | — | hand-measured, below | `debug = 0`, `incremental = false`. A **floor**, not a plateau — no discard, and `target/` accretes |
 | host disk available under `/var/lib` | **166 GiB** of 1.78 TiB, **91% used** | — | hand-measured, `df /var/lib`, 2026-08-13 | `/var/lib` is on the root filesystem, `/dev/nvme0n1p2`, **ext4 — so no reflink**: a cloned volume is a real copy of the source's *allocated* blocks, which is its high-water mark and not its current usage. This row is what bounds the number of capsules, and it is the only reading of it — [Plan C](./plan-c-multi-capsule.md#disk-is-the-practical-limit)'s 180 GiB is the same disk earlier and its N table is that much optimistic |
@@ -143,9 +144,9 @@ because two samples say more about the noise than either says alone.
 | git channel over the relay socket | 93.7 MiB/s out, 117.9 MiB/s back, 66.9k objects / 32 MiB | — | hand-measured, unit path, n=1 each way | same order as the tap did directly, so the relay costs nothing on bulk. It is `socat` on both ends and a TCP hop inside the namespace, and it still beats the disk |
 | keystroke echo through the relay socket | 18-20 ms a character | — | hand-measured, pty round trip, n=7 in one session | Nagle on the relay's TCP leg: socat sets no `TCP_NODELAY` and ssh cannot set it on a socket it did not open. The first character was 1 ms and the rest clumped, which is the signature. `,nodelay` is now on the unit and **the post-fix figure is unmeasured** |
 
-**Two figures from run 1 were the harness's, not the capsule's** (`572a303`), and
-the corrections are the reason this file exists. Run 2 carries both, and both
-resolved:
+**Two figures from run 1 were the harness's, not the capsule's** (`572a303`),
+and the corrections are the reason this file exists. Run 2 carries both, and
+both resolved:
 
 - Teardown at 22.68 s was `halt_guest` waiting out twenty seconds for a VMM exit
   firecracker is documented never to produce on guest poweroff, then reporting
@@ -177,9 +178,9 @@ that counts it as one is worse than a checklist that admits the gap.
 
 ## What two-capsules.sh established
 
-**28/28 green, twice**, one runner store path serving both capsules — and on run 2
-one set of host programs serving both as well (see the asymmetry it found, below).
-The four independences hold in both runs, and the pair costs this:
+**28/28 green, twice**, one runner store path serving both capsules — and on run
+2 one set of host programs serving both as well (see the asymmetry it found,
+below). The four independences hold in both runs, and the pair costs this:
 
 | figure | run 1 | run 2 | note |
 | --- | --- | --- | --- |
@@ -198,10 +199,10 @@ what "a ceiling, not a charge" predicts and what a per-capsule charge could not
 produce. Everything else reproduced inside a tenth of a second, including the
 0.18 s cost of the second capsule to three significant figures.
 
-Provenance, since limits travel with claims: run 2 was taken on Sleipnir from the
-working tree, *before* the commit that carries the one-program change — the runner
-and the host programs were both built from a dirty tree, which the probe's own
-output says. Same host and same target as run 1.
+Provenance, since limits travel with claims: run 2 was taken on Sleipnir from
+the working tree, *before* the commit that carries the one-program change — the
+runner and the host programs were both built from a dirty tree, which the
+probe's own output says. Same host and same target as run 1.
 
 **A figure was withdrawn, and it is the more useful artefact.** Both this file
 and doctrine's EVD-019 carried "16 GiB per capsule" as the term that binds at N.
@@ -220,8 +221,8 @@ high-water mark and never returns it. The corollary, next to doctrine's DEC-189
 config file has none.**
 
 Four independences, because REQ-454 wants a candidate verified in a *separate*
-capsule from the one that produced it, and a verifier sharing anything load-bearing
-with its subject is not a verifier:
+capsule from the one that produced it, and a verifier sharing anything
+load-bearing with its subject is not a verifier:
 
 - **addressing** — a marker file on each volume, read back through the shared
   address from each namespace. A capsule cannot reach its sibling because it
@@ -230,11 +231,11 @@ with its subject is not a verifier:
   to configure.
 - **storage** — two volumes, and neither marker is visible from the other side.
 - **history** — provisioned from two different base commits off one image, which
-  is the transport inversion's whole premise ([notes](./notes.md) item 17: the
-  base commit had to leave the closure or N capsules means N images). Each is
-  then collected into its own quarantine, because attribution is the other half
-  of REQ-454 — a verdict that cannot be tied to the capsule that produced it is
-  not evidence.
+  is the transport inversion's whole premise
+  ([item 17](./ledger/017-more-than-one-capsule.md): the base commit had to
+  leave the closure or N capsules means N images). Each is then collected into
+  its own quarantine, because attribution is the other half of REQ-454 — a
+  verdict that cannot be tied to the capsule that produced it is not evidence.
 - **lifecycle** — halt one, the other keeps answering.
 
 It forced a change in the harness, and that is a finding in itself. Two capsules
@@ -245,13 +246,14 @@ either. A VMM is now identified by its namespace (`ip netns pids`), never by its
 name. The probe reports both counts every run, so the day they agree is visible.
 
 The asymmetry it exposed on the way past: `capsule-collect` took its capsule's
-name as an argument, `capsule-provision` baked its socket path into a store path.
-Two capsules therefore needed two provision programs — fine for a probe, not fine
-for N, and it was the finding that made the transport a run-time argument
-(`--capsule <name>`, [notes](./notes.md) item 20). **Run 2 is that fix under its
-own probe**: one program set, `--capsule` per call, and the four assertions that
-depend on it — each capsule provisioning over its own socket, each collecting into
-its own quarantine — green with the 28 unchanged.
+name as an argument, `capsule-provision` baked its socket path into a store
+path. Two capsules therefore needed two provision programs — fine for a probe,
+not fine for N, and it was the finding that made the transport a run-time
+argument (`--capsule <name>`,
+[item 20](./ledger/020-which-capsule-a-program-means.md)). **Run 2 is that fix
+under its own probe**: one program set, `--capsule` per call, and the four
+assertions that depend on it — each capsule provisioning over its own socket,
+each collecting into its own quarantine — green with the 28 unchanged.
 
 ## What a capsule costs to work in
 
@@ -286,10 +288,10 @@ together, and memory is a ceiling rather than a charge (see the withdrawal
 above), so a generous declaration costs nothing until something touches it. That
 is the whole argument for declaring headroom instead of measuring it away.
 
-**The build is a spike, not a plateau** — 0 to 4 GiB in ~25 s, back under 500 MiB
-within 15 s of finishing. Two capsules building *simultaneously* is therefore
-still the open question the pair probe left, and it is a scheduling question, not
-an arithmetic one.
+**The build is a spike, not a plateau** — 0 to 4 GiB in ~25 s, back under 500
+MiB within 15 s of finishing. Two capsules building *simultaneously* is
+therefore still the open question the pair probe left, and it is a scheduling
+question, not an arithmetic one.
 
 **What this is not: a cold build.** The crate cache was already warm (144 MiB),
 so nothing was fetched. `cargo clean` empties `target/`, not `~/.cargo`. That
@@ -299,9 +301,10 @@ figure is the next section's.
 
 `capsule-baseline`, run 1 — `20260812T055327Z`, base `4662e64e`, on a volume
 whose image had been deleted. Not a probe: a lifecycle command that produces a
-figure ([notes](./notes.md) item 19). Its own record is the source, and the
-record is on the volume — `/work/baseline/history.tsv` plus the run's log — which
-is why it is copied here, since freshness deletes volumes.
+figure ([item 19](./ledger/019-baseline-build-and-figures.md)). Its own record
+is the source, and the record is on the volume — `/work/baseline/history.tsv`
+plus the run's log — which is why it is copied here, since freshness deletes
+volumes.
 
 | figure | value | note |
 | --- | --- | --- |
@@ -330,13 +333,13 @@ build is ~93% of it**, and every other figure in this file is noise beside it.
 It is paid per *fresh* capsule, because `/work/home` and the caches are on the
 volume freshness deletes.
 
-**That 93% is this target's, not the capsule's** — the next section takes the same
-figure on a second target and gets 3 s, where the boot dominates instead.
+**That 93% is this target's, not the capsule's** — the next section takes the
+same figure on a second target and gets 3 s, where the boot dominates instead.
 
 One thing the run also confirmed in passing: `proxy : http://10.99.0.1:3128` at
 the head of the log. The `bash -l` in `capsule-baseline` is load-bearing exactly
-as [notes](./notes.md) item 6 says — without it nothing would have fetched, and
-the failure would have looked like the network.
+as [item 6](./ledger/006-proxy-env-login-shell-scope.md) says — without it
+nothing would have fetched, and the failure would have looked like the network.
 
 **It is three runs now, on two capsules, through the module path.** Runs 2 and 3
 came out of the N=2 bring-up: each capsule provisioned to a *different* base
@@ -349,19 +352,19 @@ commit and baselined cold on its own fresh volume, one after the other, both
 | 2 | `capsule` | `ebb555fb0` | 115 | 124 → 1254 |
 | 3 | `capsule-b` | `ccc6ddc64` | 104 | 124 → 1253 |
 
-So the cold build is **109 s ± ~5%** rather than one reading, and the ~1.1 GiB of
-volume it costs reproduced twice to within a MiB. Each of the three proves its own
-coldness by the same arithmetic — `.cargo` after exceeds all three caches before.
-What is still n = 1 is *sequential*: nothing here says what two of these cost run
-at once, which is the [open](./status.md) load question and the reason these three
-are the control for it.
+So the cold build is **109 s ± ~5%** rather than one reading, and the ~1.1 GiB
+of volume it costs reproduced twice to within a MiB. Each of the three proves
+its own coldness by the same arithmetic — `.cargo` after exceeds all three
+caches before. What is still n = 1 is *sequential*: nothing here says what two
+of these cost run at once, which is the [open](./status.md) load question and
+the reason these three are the control for it.
 
 ## The cold build, on a second target
 
 The same command on a different repo, which is what makes it worth a section:
 `capsule-baseline` against panopticon (branch `second-target`,
-[notes](./notes.md) item 23), devshell path, fresh volume, base `2c4b024`. Its
-own `/work/baseline/history.tsv` is the source.
+[item 23](./ledger/023-second-target.md)), devshell path, fresh volume, base
+`2c4b024`. Its own `/work/baseline/history.tsv` is the source.
 
 | figure | value | note |
 | --- | --- | --- |
@@ -375,43 +378,45 @@ own `/work/baseline/history.tsv` is the source.
 **The interesting figure is the ratio, not the number.** 3 s against doctrine's
 109 s is ~36×, and the volume 105 MiB against ~1.1 GiB is ~12×. So the claim
 above that *the cold build is ~93% of time-to-interactive* is **doctrine's, not
-the capsule's**: on this target the 8.31 s boot is the largest term and the build
-is a rounding error on it. The largest term in time-to-interactive is
+the capsule's**: on this target the 8.31 s boot is the largest term and the
+build is a rounding error on it. The largest term in time-to-interactive is
 target-shaped. Nothing generic should be optimised against either number.
 
 **One run cost a fix, and it was the guest rather than the port.** The first
 attempt is in the same record — `status 127` in 1 s — and it had done everything
 right up to the last step: interpreter found, 31 packages resolved, project
 built, and then it could not *exec* the `ruff` it had installed, because NixOS
-ships no `/lib64` loader and a pypi wheel is built for generic linux. `vm/capsule.nix`
-grew `programs.nix-ld` for it, which is the one thing outside `target.nix` and
-the allowlist that this port changed ([notes](./notes.md) item 23).
+ships no `/lib64` loader and a pypi wheel is built for generic linux.
+`vm/capsule.nix` grew `programs.nix-ld` for it, which is the one thing outside
+`target.nix` and the allowlist that this port changed
+([item 23](./ledger/023-second-target.md)).
 
 **And one correction to the instrument, in the same family as the slice's
-`memory.peak`.** `capsule-baseline` measured every path in a single `du -sm`, and
-`du` charges a hardlinked inode to whichever argument came first. uv hardlinks
-its `.venv` out of its cache, so the record read **checkout 105 MiB, cache
-4 MiB** when the trees are **8 and 97** — the checkout was being charged for the
-cache's blocks. The total, 109 MiB, was right throughout: that is what the volume
-actually pays, because the volume pays for an inode once.
+`memory.peak`.** `capsule-baseline` measured every path in a single `du -sm`,
+and `du` charges a hardlinked inode to whichever argument came first. uv
+hardlinks its `.venv` out of its cache, so the record read **checkout 105 MiB,
+cache 4 MiB** when the trees are **8 and 97** — the checkout was being charged
+for the cache's blocks. The total, 109 MiB, was right throughout: that is what
+the volume actually pays, because the volume pays for an inode once.
 
 This mattered beyond tidiness, and it is why the fix is worth its lines. The
 coldness proof in the previous section is *arithmetic on the recorded split* —
 cache-after must exceed all-caches-before — and with the buggy split this run
 reported 4 MiB after against 4 MiB before, so **it could not have proven its own
-coldness**. `sizes()` now asks each path on its own and `total()` keeps the single
-invocation, so the two answer their own questions: what each tree holds, and what
-the volume pays. Those may no longer sum, deliberately. doctrine never exposed
-this because cargo shares no inodes between `target/` and `.cargo`, which is the
-general shape of the thing — a second target is where an instrument calibrated on
-one gets read against something else.
+coldness**. `sizes()` now asks each path on its own and `total()` keeps the
+single invocation, so the two answer their own questions: what each tree holds,
+and what the volume pays. Those may no longer sum, deliberately. doctrine never
+exposed this because cargo shares no inodes between `target/` and `.cargo`,
+which is the general shape of the thing — a second target is where an instrument
+calibrated on one gets read against something else.
 
 ## What a capsule holds after it has built
 
 The ratchet the pair probe predicted — no balloon, so a capsule is charged its
 high-water mark and never returns it — measured for the first time, and it is
 large. `just load`, reading each unit's **cgroup** rather than its process, with
-both capsules **idle**, no agent running, hours after their cold baselines above.
+both capsules **idle**, no agent running, hours after their cold baselines
+above.
 
 | figure | value | note |
 | --- | --- | --- |
@@ -423,48 +428,52 @@ both capsules **idle**, no agent running, hours after their cold baselines above
 | host memory available | 13.1 GiB of 60.4 | both capsules idle, other work running |
 
 **A capsule's host charge can exceed the RAM it was given**, and `capsule-b`'s
-8365 against a declared 8192 is that: the cgroup carries the guest's touched pages
-*and* the host page cache for the image and volume reads the VMM did, which is
-real memory the host is holding on that capsule's behalf. The declaration bounds
-what the guest can address, not what the unit costs.
+8365 against a declared 8192 is that: the cgroup carries the guest's touched
+pages *and* the host page cache for the image and volume reads the VMM did,
+which is real memory the host is holding on that capsule's behalf. The
+declaration bounds what the guest can address, not what the unit costs.
 
 The instrument matters as much as the number. Per-process RSS says 6033 and 6908
-MiB for the same two capsules — lower, and not comparable between them, because it
-double-counts the one read-only image both have mapped (12175 MiB,
+MiB for the same two capsules — lower, and not comparable between them, because
+it double-counts the one read-only image both have mapped (12175 MiB,
 [freshness](#freshness)) while missing page cache charged to neither. PSS would
 settle that and `smaps_rollup` is unreadable for another uid's process by the
-human, which everything host-side here is by design ([notes](./notes.md) item 11).
-The cgroup has neither problem: shared pages are charged once, the slice total is
-the aggregate, and **`memory.peak` comes from the kernel, so the peak does not
-depend on a sampler's interval.**
+human, which everything host-side here is by design
+([item 11](./ledger/011-host-side-runs-as-you.md)). The cgroup has neither
+problem: shared pages are charged once, the slice total is the aggregate, and
+**`memory.peak` comes from the kernel, so the peak does not depend on a
+sampler's interval.**
 
-Two consequences, both of which shape the load question rather than answering it:
+Two consequences, both of which shape the load question rather than answering
+it:
 
-- **A slice's peak is not a session's peak, and nothing in the reading says so.**
-  `systemctl stop` destroys a unit's cgroup, so a unit's `memory.peak` resets when
-  it restarts — but the slice above it **stays active with no members**, measured:
-  `system-microvm.slice` reported `ActiveEnterTimestamp` of 18:31, hours before the
-  units that were in it at 01:06, with both capsules stopped in between and the
-  cgroup never garbage-collected. So the slice's peak spans every capsule that has
-  run since the slice went active, and re-reading it later re-reads the *first*
-  session that set it. 16305 was read twice, sessions apart, identical to the MiB;
-  that was the tell. `just load` now reads every peak at start as well as at end
-  and marks an unmoved one as not set by this run.
-- **A capsule that has built once holds most of its ceiling until it is stopped.**
-  Freshness returns it; nothing else does. So "what N capsules cost" has two
-  different answers — at peak, and afterwards — and the second one is the one that
-  decides how many fit. Note what the arithmetic does *not* do: 16305 MiB for two
-  is not a rehabilitation of the withdrawn 16 GiB per capsule. Same order, wrong
-  shape, and it was reasoned from a config file.
+- **A slice's peak is not a session's peak, and nothing in the reading says
+  so.** `systemctl stop` destroys a unit's cgroup, so a unit's `memory.peak`
+  resets when it restarts — but the slice above it **stays active with no
+  members**, measured: `system-microvm.slice` reported `ActiveEnterTimestamp` of
+  18:31, hours before the units that were in it at 01:06, with both capsules
+  stopped in between and the cgroup never garbage-collected. So the slice's peak
+  spans every capsule that has run since the slice went active, and re-reading
+  it later re-reads the *first* session that set it. 16305 was read twice,
+  sessions apart, identical to the MiB; that was the tell. `just load` now reads
+  every peak at start as well as at end and marks an unmoved one as not set by
+  this run.
+- **A capsule that has built once holds most of its ceiling until it is
+  stopped.** Freshness returns it; nothing else does. So "what N capsules cost"
+  has two different answers — at peak, and afterwards — and the second one is
+  the one that decides how many fit. Note what the arithmetic does *not* do:
+  16305 MiB for two is not a rehabilitation of the withdrawn 16 GiB per capsule.
+  Same order, wrong shape, and it was reasoned from a config file.
 - **What a built capsule holds is guest RAM the VMM cannot hand back, and the
   guest's own view disagrees by 5.7 GiB.** The 7168 MiB an idle built capsule
-  charges its cgroup splits into `anon` **6141 MiB**, page cache 965 MiB and 29 MiB
-  of slab; inside that same guest, `free -m` reports **481 MiB used**, 2383
-  buff/cache and 5373 free of 7943. Neither reading is wrong. A page the guest has
-  ever touched is faulted into the VMM's mapping, and firecracker has no balloon
-  and no free-page reporting (CLAUDE.md), so a guest-side free is invisible from
-  the host. The ratchet above *is* that gap, which is why only a stop closes it —
-  and why a run whose peaks must mean something starts from freshly started units.
+  charges its cgroup splits into `anon` **6141 MiB**, page cache 965 MiB and 29
+  MiB of slab; inside that same guest, `free -m` reports **481 MiB used**, 2383
+  buff/cache and 5373 free of 7943. Neither reading is wrong. A page the guest
+  has ever touched is faulted into the VMM's mapping, and firecracker has no
+  balloon and no free-page reporting (CLAUDE.md), so a guest-side free is
+  invisible from the host. The ratchet above *is* that gap, which is why only a
+  stop closes it — and why a run whose peaks must mean something starts from
+  freshly started units.
 - **The concurrency figure has to be taken on fresh volumes**, with three cold
   builds as its control, and not on capsules that have already built. Measuring
   two warm builds on ratcheted units would price a state nobody starts from.
@@ -474,18 +483,19 @@ Two consequences, both of which shape the load question rather than answering it
 `avg300`, while the machine felt perfectly responsive — that was other agents on
 the same host grepping and running a large JS harness, not the capsules: inside
 their own cgroups io pressure was `0.00` and 544 µs total for their whole
-lifetimes. A host-wide figure on a shared machine is not a capsule figure, which is
-why `just load` reads per-unit pressure and keeps `MemAvailable` as context rather
-than as evidence.
+lifetimes. A host-wide figure on a shared machine is not a capsule figure, which
+is why `just load` reads per-unit pressure and keeps `MemAvailable` as context
+rather than as evidence.
 
 ## Two cold builds at once
 
 The load figure Plan C had owed since the withdrawn ceiling: **what two capsules
-cost when both are doing the expensive thing at the same time.** Not a probe — two
-`capsule-baseline` runs through the module path, on fresh volumes, both provisioned
-to the *same* commit so concurrency is the only variable. `20260812T150641Z`, both
-stamps in the same second because both were launched from one `;`-separated line.
-The control is the three sequential cold runs above.
+cost when both are doing the expensive thing at the same time.** Not a probe —
+two `capsule-baseline` runs through the module path, on fresh volumes, both
+provisioned to the *same* commit so concurrency is the only variable.
+`20260812T150641Z`, both stamps in the same second because both were launched
+from one `;`-separated line. The control is the three sequential cold runs
+above.
 
 | figure | `capsule` | `capsule-b` | sequential control |
 | --- | --- | --- | --- |
@@ -494,45 +504,47 @@ The control is the three sequential cold runs above.
 | `memory.peak` of the unit | **7774 MiB** | **6801 MiB** | against a declared ceiling of 8192 |
 | `memory.events`, every field | all **0** | all **0** | so both peaks are true high-water marks |
 
-**Concurrency at N=2 is close to free.** The slower of the pair is 121 s against a
-control whose own spread is 104–115; the pair costs ~5% at the tail and nothing
-collapses. Neither unit reached its 8192 ceiling and neither was reclaimed even
-once, so **RAM is not what binds at N=2** — which is what [Plan
-C](./plan-c-multi-capsule.md) assumed from the disk table and had never measured.
-The four-run agreement on 1253 MiB of volume, now across two capsules and two
-concurrency regimes, is the stronger claim in the table: the cost of a cold build
-is a disk cost, and it is stable.
+**Concurrency at N=2 is close to free.** The slower of the pair is 121 s against
+a control whose own spread is 104–115; the pair costs ~5% at the tail and
+nothing collapses. Neither unit reached its 8192 ceiling and neither was
+reclaimed even once, so **RAM is not what binds at N=2** — which is what
+[Plan C](./plan-c-multi-capsule.md) assumed from the disk table and had never
+measured. The four-run agreement on 1253 MiB of volume, now across two capsules
+and two concurrency regimes, is the stronger claim in the table: the cost of a
+cold build is a disk cost, and it is stable.
 
-**The pair's peak is a bound, not a figure: [7774, 14575] MiB.** The lower bound is
-the larger unit, the upper their sum, and the truth is between because two peaks
-need not have coincided in time. The slice would have settled it and could not —
-its own peak had been set in an earlier session (above), which is the finding this
-run produced about its instrument rather than about the capsules. Fixed forward,
-not backfilled: no slice figure is quoted for this run.
+**The pair's peak is a bound, not a figure: [7774, 14575] MiB.** The lower bound
+is the larger unit, the upper their sum, and the truth is between because two
+peaks need not have coincided in time. The slice would have settled it and could
+not — its own peak had been set in an earlier session (above), which is the
+finding this run produced about its instrument rather than about the capsules.
+Fixed forward, not backfilled: no slice figure is quoted for this run.
 
-**A second instrument agrees, and the ratchet is what it agrees about.** Stopping
-`capsule-b` the next evening printed systemd's own accounting line for the unit:
-`6.6G memory peak` over `52min` of wall clock. That is 6801 MiB read a different
-way, by a different mechanism, at the end of a unit's life rather than by sampling
-it — and it was still 6801 MiB *52 minutes after the build finished*, with an idle
-guest in between. So the peak is held until the cgroup is destroyed, which is
-exactly the ratchet above and the reason a stop is what resets it.
+**A second instrument agrees, and the ratchet is what it agrees about.**
+Stopping `capsule-b` the next evening printed systemd's own accounting line for
+the unit: `6.6G memory peak` over `52min` of wall clock. That is 6801 MiB read a
+different way, by a different mechanism, at the end of a unit's life rather than
+by sampling it — and it was still 6801 MiB *52 minutes after the build
+finished*, with an idle guest in between. So the peak is held until the cgroup
+is destroyed, which is exactly the ratchet above and the reason a stop is what
+resets it.
 
 **What else was running, because on this host that is part of the reading.** One
-other agent actively working, noctalia's indexer visible in `iotop`, niri plus idle
-terminals and Firefox. No `.vm/load.tsv` was taken, so this section claims **nothing
-about cpu or io pressure** — the durations and the kernel's peaks are the whole of
-it, and both are per-cgroup. The next section is where that gap closed.
+other agent actively working, noctalia's indexer visible in `iotop`, niri plus
+idle terminals and Firefox. No `.vm/load.tsv` was taken, so this section claims
+**nothing about cpu or io pressure** — the durations and the kernel's peaks are
+the whole of it, and both are per-cgroup. The next section is where that gap
+closed.
 
 ## Pressure under two concurrent cold builds
 
-The same shape run again the next morning, and this time the pressure question is
-answered: `20260813T013622Z` and `20260813T013623Z` (the **guest's clock is UTC**
-and this host is AEST, so those stamps are 11:36 the same morning — a thing worth
-knowing before reading any file mtime in a guest against a host clock). Fresh
-volumes both sides, both `mib_before` 124, both provisioned to the same commit
-`46507a9e0`, stamps one second apart from one launch line. So it is a replication
-of the section above with one instrument added.
+The same shape run again the next morning, and this time the pressure question
+is answered: `20260813T013622Z` and `20260813T013623Z` (the **guest's clock is
+UTC** and this host is AEST, so those stamps are 11:36 the same morning — a
+thing worth knowing before reading any file mtime in a guest against a host
+clock). Fresh volumes both sides, both `mib_before` 124, both provisioned to the
+same commit `46507a9e0`, stamps one second apart from one launch line. So it is
+a replication of the section above with one instrument added.
 
 | figure | `capsule` | `capsule-b` | the run above |
 | --- | --- | --- | --- |
@@ -546,45 +558,45 @@ of the section above with one instrument added.
 **Neither cpu nor io contention is anywhere near binding at N=2, and io is the
 smaller of the two by an order of magnitude.** As a share of each capsule's own
 build, cpu stall is **0.033%** on both and io stall is **0.002%**. That reverses
-what [Plan C](./plan-c-multi-capsule.md)'s disk table led this repo to expect — io
-was the term predicted to show first, and it is the one that barely registers.
-`full` sits within a few percent of `some` in every column, so what little stalling
-happened stalled everything in the cgroup at once; at these magnitudes that is a
-remark about shape, not a cost.
+what [Plan C](./plan-c-multi-capsule.md)'s disk table led this repo to expect —
+io was the term predicted to show first, and it is the one that barely
+registers. `full` sits within a few percent of `some` in every column, so what
+little stalling happened stalled everything in the cgroup at once; at these
+magnitudes that is a remark about shape, not a cost.
 
 **The stall figures are `total=` deltas, not samples, and their window is each
 cgroup's whole life** — boot, the build, and about fifteen minutes of idle after
-it. They are therefore an **upper bound** on what the builds themselves paid, and
-the bound is what makes them usable: even if every microsecond fell inside the
-build, it is 0.03%. What they cannot say is *when*, because **no sampler ran** —
-these came out of the live cgroups afterwards, which was only possible because
-nothing had been stopped in between. `just load` reads cpu and io `total=` at start
-as well as at end now, for the same reason it reads the memory peaks twice, so the
-next run gets the window as well as the integral.
+it. They are therefore an **upper bound** on what the builds themselves paid,
+and the bound is what makes them usable: even if every microsecond fell inside
+the build, it is 0.03%. What they cannot say is *when*, because **no sampler
+ran** — these came out of the live cgroups afterwards, which was only possible
+because nothing had been stopped in between. `just load` reads cpu and io
+`total=` at start as well as at end now, for the same reason it reads the memory
+peaks twice, so the next run gets the window as well as the integral.
 
-**The durations replicate and the peaks do not.** 113 / 118 against 112 / 121, with
-a sequential control of 109 / 115 / 104 — the concurrency claim holds and the spread
-narrowed. The peaks moved the other way round between capsules (7169 / 7510 against
-7774 / 6801), which is what the ratchet predicts: a peak is whatever that guest
-happened to touch, not a property of the workload, and the pair bound is again a
-bound — **[7510, 14679] MiB**. The slice read 16305 MiB peak, unchanged, still the
-figure an earlier session set.
+**The durations replicate and the peaks do not.** 113 / 118 against 112 / 121,
+with a sequential control of 109 / 115 / 104 — the concurrency claim holds and
+the spread narrowed. The peaks moved the other way round between capsules (7169
+/ 7510 against 7774 / 6801), which is what the ratchet predicts: a peak is
+whatever that guest happened to touch, not a property of the workload, and the
+pair bound is again a bound — **[7510, 14679] MiB**. The slice read 16305 MiB
+peak, unchanged, still the figure an earlier session set.
 
-**What else was running:** an interactive agent session on this host, ssh'ing into
-both guests throughout the window the totals cover. The rest of the host's load was
-not recorded for this run, which is a real limit on the io figure specifically —
-a quiet host is the easy case for io.
+**What else was running:** an interactive agent session on this host, ssh'ing
+into both guests throughout the window the totals cover. The rest of the host's
+load was not recorded for this run, which is a real limit on the io figure
+specifically — a quiet host is the easy case for io.
 
 ## What freshness.sh explicitly does not measure
 
-The **cold build**. The namespace has no upstream at all, so nothing in the guest
-can fetch a crate, and the first `cargo build` on a fresh volume is the largest
-cost freshness actually imposes. Measuring it *inside the probe* still needs the
-proxy joined to the namespace, i.e. the host module — but measuring it at all
-needed only a fresh volume on the devshell path, and `capsule-baseline` has now
-done that: **109 s**, above. So freshness's price is no longer "asserted but not
-priced"; the probe's own 22 assertions simply are not where the price comes from,
-and the two should not be conflated.
+The **cold build**. The namespace has no upstream at all, so nothing in the
+guest can fetch a crate, and the first `cargo build` on a fresh volume is the
+largest cost freshness actually imposes. Measuring it *inside the probe* still
+needs the proxy joined to the namespace, i.e. the host module — but measuring it
+at all needed only a fresh volume on the devshell path, and `capsule-baseline`
+has now done that: **109 s**, above. So freshness's price is no longer "asserted
+but not priced"; the probe's own 22 assertions simply are not where the price
+comes from, and the two should not be conflated.
 
 ## Still unproven
 
