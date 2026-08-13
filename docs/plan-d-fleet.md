@@ -71,7 +71,7 @@ Decided in conversation, so the rest of the file can lean on it. Not built.
 | secret payload *declaration* | `setup.nix` | host rebuild |
 | **target repo** | `inputs.target.url` + `target.nix`, **global** | one image at a time, and switching is a branch (L1) |
 | tool set | the target's own flake | guest rebuild + `microvm -u` per capsule |
-| `defaultBranch` | interpolated into `capsule-provision` and `capsule-collect` | host rebuild, and **no run-time override exists** (L13) |
+| `defaultBranch` | interpolated into `capsule-provision` and into the guest's seed | host rebuild, and **no run-time override exists** (L13) |
 | sizes (vcpu, mem, volume) | `target.nix`, **global** | class 2 — but they are in the runner, not the image; §5 (L2) |
 | allowlist *content* | a plain file | edit + `systemctl restart capsule-proxy-<n>` |
 | allowlist *file* (a different one per capsule) | `services.capsule-perimeter.allowlist`, one for the host | host rebuild (L3) |
@@ -296,13 +296,27 @@ bought something else.
   Every other host-side target value either belongs to the guest (`sizes`,
   `caches`, `guestConfig`) or has one — `path` has `CAPSULE_REPO` and the
   module's `repo` option, `allowlist` has `CAPSULE_ALLOWLIST` and its own
-  option. `defaultBranch` is interpolated straight into `capsule-provision` and
-  `capsule-collect`, so a target switch is a rebuild for that field alone, and
-  until it is one the module path's copies refuse a provision of the new
+  option. `defaultBranch` is interpolated straight into `capsule-provision`, so
+  a target switch is a rebuild for that field alone, and
+  until it is one the module path's copy refuses a provision of the new
   target's branch — correctly, and with a clear message (NOTES item 23).
   Recorded rather than fixed at the time, because switching targets was a
   rebuild anyway. §6.2 is where it stops being harmless: target as run-time
   state cannot ship while a program spells the branch.
+
+  **Decided: deletion, not the missing override.** `defaultBranch` goes, and
+  what replaces it is an optional `workBranch` on the profile, defaulting to
+  `work` — a different field, not the same one with a default. Two consumers
+  allow it: the guest's seed and `capsule-provision`'s symref check and push
+  refspec. `capsule-collect` never reads it (`+refs/heads/*`), so half the
+  problem was never there. A project that cares what its work is called states
+  it; doctrine probably will, because the name is how work gets identified. L13
+  then closes by subtraction rather than by a fifth override — a pinned profile
+  field is run-time by construction. Written up in
+  [contract-target.md](./contract-target.md), including the separation the
+  rename depends on: `capsule-provision <ref>` is a ref in the *target repo* and
+  is untouched, `workBranch` is the branch *inside the guest*, and only the
+  second was ever target-shaped.
 
 ## 5. Read from source: where a capsule's identity actually lives
 
@@ -382,10 +396,24 @@ is a nix artefact.
 | noun | what it is | lives | cost to change |
 | --- | --- | --- | --- |
 | **slot** | index → namespace, uplink /30, socket, units | `capsules.nix` | class 3, once |
-| **flavour** | a tool set — the only irreducible per-target closure content | a flake attribute | class 2 to *add*; a symlink to *re-point* |
-| **class** | machine config: mem, vcpu, volume | the runner's JSON | ~1 KB per combination, if §5's eval holds |
-| **assignment** | target, base sha, purpose, state, lineage | `/var/lib/capsule/<slot>/` | run time, free |
-| **volume** | checkout, `$HOME`, caches, `target/` | `/var/lib/microvms/<slot>` | verbs (D3) |
+| **flavour** | a tool set — the only irreducible per-target closure content | **composed**, not declared: the profile's floor plus the assignment's extras | class 2 to *add a fragment*; a symlink to *re-point* |
+| **class** | machine config: mem, vcpu | the runner's JSON | ~1 KB per combination, if §5's eval holds |
+| **assignment** | profile, policy, class, extras, base commit, purpose | `/var/lib/capsule/<slot>/` | run time, free unless the composition is unbuilt |
+| **volume** | checkout, `$HOME`, caches, `target/`, **and its own size** | `/var/lib/microvms/<slot>` | verbs (D3); size fixed at creation |
+
+Six nouns, not five, and the sixth is the one the first draft left inside
+"target": **policy** — allowlist and ingestion bounds — which has a different
+owner from a project's semantics and is what
+[item 25](./ledger/025-assignment-is-a-perimeter-verb.md) is about. Volume size
+has also come out of `class`: §5 read it as a `truncate` applied only at first
+boot, so a class carrying it could let an assignment claim a size its disk was
+never created with. `class` is `mem` and `vcpu`; storage is the volume's.
+
+The field-by-field version of all of this, and the ownership rule it rests on,
+is [contract-assignment.md](./contract-assignment.md); where a flavour's tools
+come from and how they compose is
+[contract-flavour.md](./contract-flavour.md). Both are unbuilt and both were
+written before D1, deliberately — see §9.
 
 **Only the tool set has to be in the image.** Decomposing what is target-shaped
 in the closure today: `toolsPackage` and `extraTools` are genuinely closure
@@ -396,25 +424,63 @@ sizes are in the runner rather than the image, which is §5's one inferred claim
 and §9's step 2. So the axis worth naming is not the
 target but the **flavour**, and a target becomes host-side run-time state.
 
+Two things a flavour must not inherit from today's single-target shape, both in
+[contract-flavour.md](./contract-flavour.md). Its tools **need not come from the
+repo being confined** — a shared tool repo serving a class of projects is one
+input, one closure and one image for eight repos that export nothing, and
+requiring each of them to grow a flake is requiring the wrong repo to change.
+And a flavour is **not declared and selected at all — it is composed**, from a
+floor the project states and extras the assigner adds, out of a fragment
+vocabulary the host declares:
+
+    flavour = compose(profile.floor, assignment.extras)
+
+so the identity is the composition rather than a name someone typed. The extras
+are the cross-project half and are expected to be broad and few — `agents`
+(`claude`, `pi`, `rg`, `tree`, fileutils, shell) and `dev-facilities` (`neovim`,
+`nushell`, `btop`) are the worked pair, wanted by nearly every slot and
+therefore costing one image between them. The arithmetic runs the other way for
+a fragment only one slot uses: distinct composition, its own 3.0 GiB. Collisions
+are a build failure with an explicit `lib.hiPrio` override, which is nix's
+answer rather than a new one — a silently shadowed toolchain is what exit 127 in
+a guest looks like (NOTES item 23). And a composition nobody has built is a
+build, so **whether `assign` may wait for one or must refuse is a per-host
+declaration** — the dev/ranch split falling out of §0 again rather than being
+chosen here.
+
 That gives both modes from one mechanism, which is what §0 requires:
 
-- **dev host** — one flavour carrying every project's tools. Assignment is fully
-  run time: doctrine can hand slot `d` a repo and a sha with no build at all.
-- **ranch** — a flavour per target, and assignment restricted to what a slot's
-  flavour can serve. Same mechanism, different declaration.
+- **dev host** — a broad vocabulary, and a novel composition builds on demand
+  with `assign` waiting for it. In practice nearly every slot lands on the same
+  composition, so assignment is fully run time: doctrine can hand slot `d` a
+  repo and a sha with no build at all.
+- **ranch** — a narrow vocabulary per slot, and an unbuilt composition refused
+  rather than built. Assignment is then *guaranteed* cheap, and pre-building the
+  allowed compositions is a job upstream. Same mechanism, different declaration.
 
-Changing a slot's flavour is then a stop, a `nix build -o current`, and a start
-— no `capsules.nix` edit, no host rebuild, no push. Adding a flavour is a
-rebuild, which is the right way round: rare and declared versus frequent and
-cheap.
+Changing what a slot runs is then a stop, a `nix build -o current`, and a start
+— no `capsules.nix` edit, no host rebuild, no push. Adding a *fragment to the
+vocabulary* is a rebuild, which is the right way round: rare and declared versus
+frequent and cheap.
 
 Three consequences to accept before any of it is built:
 
-1. **`target.nix` becomes `targets/<name>.nix`, host-side, one per target.** The
-   contract is unchanged — still nothing read *out of* the confined repo, still
-   host-side policy keyed by target name (NOTES item 16) — but
-   [contract-target.md](./contract-target.md) describes a per-target record the
-   host holds rather than a global file.
+1. **`target.nix` splits into a profile and a policy, one of each per project,
+   host-side.** The contract is unchanged — still nothing read *out of* the
+   confined repo, still host-side and keyed by name (NOTES item 16) — but it
+   becomes two documents with two owners rather than one file with fifteen
+   fields (NOTES item 25). The profile is project semantics and is what an
+   assigner may name freely; the policy is a control and is selected from a set
+   the slot declares.
+
+   **And the run-time interface is a validated document, not a nix file.**
+   Authoring in nix and rendering to JSON in a directory is what this host will
+   do, because nix is what it has and the profile is checked at build time for
+   free. But a program reads the rendered document at run time, so a controller
+   that never runs `nixos-rebuild` stays possible — which is the whole point of
+   making a target run-time state. `perimeter/egress-allow.txt` is the precedent
+   already in the tree: a plain file rather than a store path, for exactly this
+   reason.
 2. **The seed becomes assignment-driven.** An unassigned slot boots empty with
    no checkout, which is more honest than one hardcoded to doctrine. `capsule
    <slot> assign <target> [ref]` writes the record, pushes it, provisions,
@@ -425,14 +491,23 @@ Three consequences to accept before any of it is built:
    reading a pushed file. Same reasoning as everywhere else here: the host
    initiates, the guest stays dumb, and there is no new guest program to keep in
    step.
-3. **The config payload must be refresh-always.** `guestConfig` is currently a
-   *symlink into the store*, precisely so a stale copy cannot outlive the sizes
-   it was rendered from (`vm/capsule.nix`). As a pushed payload it loses that
-   unless the host re-pushes at every start — which restores the property and
-   keeps the host the source. Payloads are write-if-absent by deliberate
-   decision (NOTES item 22); this is a *derived* payload, and the distinction
-   wants a field on the declaration rather than a change of policy. The identity
-   payload below needs the same field, so it is one extension, not two.
+3. **The config payload must be refresh-always — but "always" means the pinned
+   generation, not the latest document.** `guestConfig` is currently a *symlink
+   into the store*, precisely so a stale copy cannot outlive the sizes it was
+   rendered from (`vm/capsule.nix`). As a pushed payload it loses that unless
+   the host re-pushes at every start — which restores the property and keeps the
+   host the source. Payloads are write-if-absent by deliberate decision (NOTES
+   item 22); this is a *derived* payload, and the distinction wants a field on
+   the declaration rather than a change of policy. The identity payload below
+   needs the same field, so it is one extension, not two.
+
+   What the first draft got wrong is *which document* gets re-read. A
+   **profile** is pinned at the assignment's generation, so editing a project's
+   caches or its baseline does not silently change what a running capsule is
+   doing with no verb run against it. A **policy** is live, because a tightening
+   has to reach a running capsule without a re-assign. Two owners, two clocks;
+   one field on the payload declaration says which
+   ([contract-assignment.md](./contract-assignment.md), NOTES item 25).
 
 4. **The four host programs bake the target into their store paths, and this is
    NOTES item 20 one level up.** `host/programs.nix` derives `guestRepo` from
@@ -460,8 +535,19 @@ than assuming — the motd and a login banner are the fallback if it does not.
 **The allowlist stays host-side.** Since target is now run time, the proxy
 cannot read it from the guest's copy. Q1's answer: bind-mount a *directory* of
 allowlists read-only into the proxy's namespace and have it select
-`<dir>/<target>.txt` at start, from the host's assignment record. Re-assigning a
-slot's target is then a proxy restart, and L3 falls out for free.
+`<dir>/<policy>.txt` at start, from the host's assignment record. Re-assigning a
+slot is then a proxy restart, and L3 falls out for free.
+
+**But that makes `assign` a perimeter-mutating verb, and the fix is the sixth
+noun.** If the *project* names the allowlist, then whoever may hand a slot a
+project may hand it a wider perimeter — the exposure is authority rather than
+reach, since the guest still cannot see or touch the record. So the assignment
+names a **policy** separately from a **profile**, and the set of policies a slot
+may take is declared host-side per slot; `assign` selects within it or is
+refused. A dev host declaring that set as "any" is §0's permissive mode falling
+out of a declaration, which is what §0 requires of every mechanism here. NOTES
+item 25, and `collectMaxPackBytes` is on the same side of that line as the
+allowlist.
 
 **Where classes must not go.** Class is machine config and belongs in the
 runner. A *role* — worker, auditor: which allowlist, whether it may collect,
@@ -472,16 +558,25 @@ the wire as `cap-<id>` and IFNAMSIZ is 15, so `capsules.nix` refuses anything
 over 11 characters. The id is `a`…`j`; the composite is a rendered label in
 status and in the prompt, never a namespace name.
 
-**What stays unavoidable:** one flake input literal per flavour's tool set. An
-input url cannot be computed (NOTES item 16). Rare, and it is the only place a
-repo name appears.
+**What stays unavoidable:** one flake input literal per repo whose packages a
+flavour composes. An input url cannot be computed (NOTES item 16). The count
+follows the number of *tool sources* rather than the number of projects, which
+is the point: eight projects on one shared base are one input, and it is the
+only place a repo name appears.
 
 ## 7. Directions
 
-- **D1 — the assignment record.** `/var/lib/capsule/<slot>/`: target, base sha,
-  purpose, class, state, lineage. Written by `capsule`, read by status, pushed
-  to the guest as identity. It is what makes an abstract slot legible, and every
-  other direction here either writes to it or reads from it.
+- **D1 — the assignment record.** `/var/lib/capsule/<slot>/`, and the field list
+  is [contract-assignment.md](./contract-assignment.md)'s rather than this
+  file's. Written by `capsule`, read by status, pushed to the guest as identity.
+  It is what makes an abstract slot legible, and every other direction here
+  either writes to it or reads from it. Three properties that are cheap now and
+  expensive to retrofit, so they are part of D1 and not a later tidy: **desired
+  state and observations are separate objects** — otherwise nothing can answer
+  *is this slot doing what it was told*; the base is stored as the **resolved
+  commit** with the requested ref kept only as provenance; and each slot carries
+  a **generation** integer, which is what makes a late answer refusable once
+  anything detached exists (D6).
 - **D2 — the pool.** Declare `a`…`j` once, and make assignment run-time state.
   Turns S1, S4 and S10 from rebuilds into commands. The cost is not idle
   namespaces — nothing starts at boot, so an unassigned slot is a declaration
@@ -499,7 +594,19 @@ repo name appears.
 - **D4 — clone semantics, decided rather than inherited.** A cloned volume
   carries the source's ssh host keys, injected credentials and `.env`. Scrub by
   default, `--identity` to keep — dev convenience is one flag, the ranch default
-  is the safe one. And clone from a *base* rather than from a worked-in capsule:
+  is the safe one.
+
+  **The rule underneath is a trust boundary, not a cache-compatibility
+  problem.** A volume also carries the previous assignment's caches and build
+  tree, and under a new project, flavour or policy those are not stale garbage —
+  they are *input supplied by a different principal*, and a build that reads
+  them is a build the new owner did not specify. So reuse across a change of
+  project, flavour or policy ownership is refused on a non-clean volume, with
+  `--reset` as the answer, and a dev host may waive that by declaration. Stating
+  it this way rather than as "the caches would be useless" is what makes the
+  ranch default fall out instead of being argued for twice.
+
+  And clone from a *base* rather than from a worked-in capsule:
   a slot is a valid clone source while it is `baselined` and not yet `dirty`,
   which is Q3's state model — `unassigned → provisioned(sha) → baselined(sha) →
   dirty`. The mechanism belongs here (worktree dirty, `HEAD != base sha`,
@@ -526,6 +633,27 @@ repo name appears.
   values, of which L13 is the one with no override at all — and nothing above
   forecloses it.
 
+  **The four programs are the start of the inventory, not the whole of it.** The
+  guest image also knows the project's name, its checkout path, its branch, its
+  cache directories, its `guestConfig`, its motd and `commands`, its sizes and
+  its tool set — and only the last is irreducibly a flavour's. Three
+  generalisations make most of the rest disappear rather than become
+  parameters, which is the cheaper move and is worth doing even before flavours:
+
+  - **the checkout goes at a generic path**, not `<volumePath>/<name>` —
+    `target.guestPath`'s derivation from `name` is a courtesy that costs a
+    project name in the closure, and the display name belongs in the identity
+    payload where the prompt already wants it;
+  - **caches go at a derived path keyed by the env var**, so `caches` becomes a
+    list of names rather than a map to directories. Strictly fewer degrees of
+    freedom for the same capability, and `cachePaths` still derives;
+  - **run records go beside them under a generic directory**, which is what
+    `capsule-baseline`'s `recordDir` already is in spirit — beside the checkout,
+    never inside it.
+
+  What is left after that is a tool closure and a handful of values, which is
+  what §6 claims and this is the check on the claim.
+
 ## 8. Questions a second project will raise
 
 Not answerable from doctrine, and worth asking before the first one arrives:
@@ -542,7 +670,10 @@ Not answerable from doctrine, and worth asking before the first one arrives:
   tool set containing a `python3.withPackages (…)` has no name to give it. A
   target exports a package or it is not a target; `extraTools` is a supplement,
   never a substitute (NOTES item 23). A non-nix project is still the real test
-  of the degraded path.
+  of the degraded path — and the answer it wants is not a better absent path but
+  a tool set from somewhere other than the project
+  ([contract-flavour.md](./contract-flavour.md)), which is the case that makes
+  composition load-bearing rather than convenient.
 - **What does its dev loop look like from outside?** S9 stops being a nicety for
   anything web-shaped, and doctrine — with `just web-build` — is already that
   shape.
@@ -559,7 +690,11 @@ Not answerable from doctrine, and worth asking before the first one arrives:
 - **Who may assign which repo to which slot?** Trivial on a dev machine, where
   every repo is the human's. On a ranch it is the whole question, and it lands
   on the assignment record — which is the argument for that record being
-  host-side and authoritative rather than a convenience.
+  host-side and authoritative rather than a convenience. The half of it that is
+  answerable now, because it is a design constraint rather than a policy: an
+  assigner is free in profile, base and purpose, and confined to a declared set
+  in policy, flavour and class (NOTES item 25,
+  [contract-assignment.md](./contract-assignment.md)).
 
 ## 9. Order of work
 
@@ -595,14 +730,24 @@ Not answerable from doctrine, and worth asking before the first one arrives:
      whether the default becomes "the only running capsule, else refuse" —
      better for a fleet, but it makes a program's target depend on host state,
      which is the kind of thing this repo has refused before (NOTES item 20).
-4. **D1 + D5, the record and the columns.** Cheapest useful pair, and a fleet
+4. **Fix the contracts, before D1 writes a record.** The artifacts are
+   [contract-assignment.md](./contract-assignment.md) and
+   [contract-flavour.md](./contract-flavour.md), plus the ownership column in
+   [contract-target.md](./contract-target.md). The reason for the ordering is
+   narrow and worth stating: a persistent record is the most likely place for
+   today's single-target assumptions to survive a transition meant to remove
+   them, and the assumption that matters most is the one that fuses a project
+   with its perimeter (NOTES item 25). Design cost only — no build, no
+   mechanism, and it deliberately stops short of an execution contract, which is
+   [contract-doctrine.md](./contract-doctrine.md) Role 3's to say why.
+5. **D1 + D5, the record and the columns.** Cheapest useful pair, and a fleet
    has to be legible before it can be administered.
-5. **D3 + D4, volume verbs and clone semantics.** S4 and S5 are the two most
+6. **D3 + D4, volume verbs and clone semantics.** S4 and S5 are the two most
    frequent administrative actions and one of them is currently a hand-typed
    `rm -rf`.
-6. **D6, detached sessions.** When N > 2 stops being a probe and starts being a
+7. **D6, detached sessions.** When N > 2 stops being a probe and starts being a
    Tuesday.
-7. **D7 + D2's dynamic half, flavours and targets as data.** Once two projects
+8. **D7 + D2's dynamic half, flavours and targets as data.** Once two projects
    are wanted **at once** — one at a time already works, and the port cost is a
    diff rather than an argument (L1, NOTES item 23). It starts with the four
    programs' target-shaped values (§6.4) and L13, since neither flavours nor

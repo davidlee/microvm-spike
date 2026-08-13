@@ -15,12 +15,33 @@ live target — is [README.md](../README.md).
 doctrine is one instance of this contract, and the other half of *its*
 relationship with this repo is [contract-doctrine.md](./contract-doctrine.md).
 
+Two sibling contracts cover what happens once there is more than one of
+anything, and neither is built:
+[contract-flavour.md](./contract-flavour.md) is where a guest's capabilities and
+tool closure come from, and
+[contract-assignment.md](./contract-assignment.md) is what a slot is assigned
+and who may say so. This file describes today's single-target shape; where each
+of its fields is headed is the `owner` column below.
+
 ## The floor
 
 *Be a git repo on this host, and expose one flake package for this system that
 is your devshell's tool set.* Everything else is a `target.nix` field with a
 working absent path, and every one of those fields is **host-side** — nothing is
 ever read out of the target repo, because the agent can edit that.
+
+**Stated plainly, because hedging it would mislead: the supported set is
+nix-integrated projects.** A target exports a package or it is not a target —
+`toolsPackage = null` plus `extraTools` is bare nixpkgs attr names, so a tool
+set assembled by a function has no name to give and the absent path is
+*structurally* unavailable rather than merely worse
+([item 23](./ledger/023-second-target.md)). That is a defensible contract and
+this repo commits to it as the current one. Where it is headed is
+[contract-flavour.md](./contract-flavour.md): what a target owes is a *floor* —
+the fragments it cannot be built or tested without — and exporting a package
+your devshell shares becomes the convenient way to supply one rather than the
+only way. A floor may be a single reference to a shared base and nothing else,
+which is what makes a repo with no flake at all confinable.
 
 Two literals are unavoidable and nothing checks that they agree:
 
@@ -37,23 +58,70 @@ an input that no longer exists.
 `rec`, so the guest paths derive from `name` and `volumePath` rather than being
 spelled on both sides.
 
-| field | read by | required | absent path |
-| --- | --- | --- | --- |
-| `name` | guest (checkout dir, motd), host (`services.capsule-perimeter.repo` default) | yes | — |
-| `path` | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host |
-| `volumePath` | both: the volume's mount point, and what `caches`/`guestConfig`/records resolve against | yes | — |
-| `guestPath` | both: the guest's checkout | derived | — |
-| `toolsPackage` | guest: `packages.<system>.<name>` from the target's own flake | in practice yes | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Available only to a target whose whole tool set is a list of nixpkgs attr names**: `extraTools` is a supplement, never a substitute, so anything built by a function — a `python3.withPackages (…)` has no attr name — has to export a package (NOTES item 23) |
-| `extraTools` | guest: nixpkgs attr names, resolved against the *guest's* pkgs | no | `[]` |
-| `allowlist` | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
-| `caches` | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
-| `cachePaths` | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
-| `defaultBranch` | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — , and **the only field with no run-time override at all**: it is interpolated into `capsule-provision` and `capsule-collect`, so the module path's copies keep the old target's branch until the host is rebuilt, and a provision against them refuses (NOTES item 23) |
-| `collectMaxPackBytes` | host: `capsule-collect`'s `ulimit -f` | yes | — |
-| `commands` | guest: the motd's line about the target's own entrypoints | no | `""` |
-| `baseline` | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
-| `sizes` | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
-| `guestConfig` | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
+The `owner` column is an **analysis of what is already here**, not a planned
+change: it says which authority each field answers to, and it is the reason a
+single file holding all of them is a coupling rather than a convenience.
+`profile` is project semantics, `flavour` is the tool closure, `class` is the
+machine reservation, `policy` is a host control, and `capsule` marks a field
+that is not target-shaped at all. Where each is headed is
+[contract-assignment.md](./contract-assignment.md) and
+[contract-flavour.md](./contract-flavour.md); nothing about today's shape
+changes until they are built.
+
+| field | owner | read by | required | absent path |
+| --- | --- | --- | --- | --- |
+| `name` | profile | guest (checkout dir, motd), host (`services.capsule-perimeter.repo` default) | yes | — |
+| `path` | profile | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host |
+| `volumePath` | capsule | both: the volume's mount point, and what `caches`/`guestConfig`/records resolve against | yes | — |
+| `guestPath` | capsule | both: the guest's checkout | derived | — |
+| `toolsPackage` | flavour | guest: `packages.<system>.<name>` from the target's own flake | in practice yes | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Available only to a target whose whole tool set is a list of nixpkgs attr names**: `extraTools` is a supplement, never a substitute, so anything built by a function — a `python3.withPackages (…)` has no attr name — has to export a package (NOTES item 23) |
+| `extraTools` | flavour | guest: nixpkgs attr names, resolved against the *guest's* pkgs | no | `[]` |
+| `allowlist` | **policy** | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
+| `caches` | profile | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
+| `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
+| `defaultBranch` | profile | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — , and **the only field with no run-time override at all**: it is interpolated into `capsule-provision`, so the module path's copy keeps the old target's branch until the host is rebuilt, and a provision against it refuses (NOTES item 23). `capsule-collect` does **not** read it — it fetches `+refs/heads/*`, so it is already branch-agnostic. **Decided: deleted, replaced by an optional `workBranch` defaulting to `work`** — see below |
+| `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
+| `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
+| `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
+| `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
+| `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
+
+**Two rows are the ones the column exists for.** `allowlist` and
+`collectMaxPackBytes` are host controls — what a capsule may talk to, and how
+much may come back — sitting in the same file as `commands` and a motd string.
+That is harmless while a target is a build-time literal and one host has one
+allowlist, and it stops being harmless the moment assigning a project is a
+run-time verb, because the project would then be naming its own perimeter
+([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)).
+
+**And `defaultBranch` is being deleted — decided, unbuilt.** What replaces it is
+a different field with a working default, not the same field with one:
+`workBranch`, defaulting to `work`, meaning *where this capsule puts its
+commits*. `defaultBranch` means *the target's canonical branch*, and the rename
+is what carries the decision: a capsule needs a base commit and somewhere local
+to land commits, and it never needed to know that doctrine's canonical branch is
+`edge`.
+
+The mechanics allow it outright. There are exactly two consumers — the guest's
+seed (`git init --initial-branch`, `init.defaultBranch`) and `capsule-provision`
+(the advertised-symref check, and the push refspec). `capsule-collect` fetches
+`+refs/heads/*:refs/capsule/<name>/*` and never reads the field at all, so it is
+already branch-agnostic. Both remaining consumers need *a* name and neither
+needs *that* name; the symref check is about the seed and the pusher agreeing,
+which is preserved by both reading the same profile field.
+
+The two things called "branch" separate cleanly on the way past.
+`capsule-provision <ref>` is a ref **in the target repo on this host** — that is
+unaffected, still required and still deliberately undefaulted, and it survives
+on the assignment as `base.ref` provenance beside the commit it resolved to.
+`workBranch` is the branch **inside the guest**. Only the second one is going.
+
+A project that cares what its work is called — likely, if the name is how the
+work gets identified — sets `workBranch` explicitly. That is the field doing its
+job: optional, defaulted, and *stated by whoever cares* rather than inherited
+from a repo's conventions. And it closes Plan D's L13 by subtraction: the one
+host-side value with no run-time override becomes a pinned profile field, which
+is run-time by construction.
 
 `extraTools = []` is the absent path a second target exercised (NOTES item 23),
 and `toolsPackage = null` is the one that turned out to be **narrower than it
@@ -95,22 +163,40 @@ is the same for every target.
 | foreign binaries | a loader for generic-linux dynamically linked executables (nix-ld), so a toolchain that *downloads* a prebuilt binary — a pypi wheel's, an npm package's, a Go module's vendored one — can run it. NixOS ships no `/lib64` loader, and without this the failure is `Could not start dynamically linked executable`, one second into an otherwise healthy run |
 | user | `agent`, uid 1000, no sudo and no su; root reachable by key from the host only |
 
-Four limits that shape what a `baseline` — or any command run in the guest — can
-be, all of them firecracker's floor rather than choices:
+Four limits shape what a `baseline` — or any command run in the guest — can be.
+**They are not the same kind of thing, and a target should not come to depend on
+the second kind.** An *invariant* is what the confinement claims and will keep
+claiming under a different backend; a *current floor* is what this hypervisor
+happens to impose, and a seatbelt or VM-based shape
+([plan-b-other-jails.md](./plan-b-other-jails.md)) could lift it without any of
+the claims changing.
+
+Invariants — these hold whatever runs underneath:
 
 - **No host directory can ever be mounted in.** No shares, no passthrough
   (CLAUDE.md, "Firecracker constraints"). Anything that must get in arrives over
-  the link or is in the closure.
+  the link or is in the closure. Firecracker enforces it; the confinement would
+  assert it anyway, since a shared directory is a channel the perimeter does not
+  mediate.
+- **There is no route out except the proxy**, and therefore no host service
+  reachable by address. A target whose tests want a database gets it inside the
+  guest closure or not at all ([item 4](./ledger/004-live-postgres.md) is this
+  gap, open and unhit). What is *not* invariant is that the database cannot be
+  in the closure — that is a missing capability, and
+  [contract-flavour.md](./contract-flavour.md) is where it would land.
+
+Current floor — true today, and true because of firecracker plus this guest's
+construction rather than because of anything the confinement promises:
+
 - **`nix` does not work in the guest.** The store is a generated read-only
   image; a working `nix` needs `writableStoreOverlay` plus its own volume. A
-  baseline that shells out to nix cannot pass.
-- **There is no host service to reach.** A target whose tests want a database
-  get it inside the guest closure or not at all — the proxy is HTTP egress, not
-  a route ([item 4](./ledger/004-live-postgres.md) is this gap, open and unhit).
+  baseline that shells out to nix cannot pass. This is a construction choice
+  with a known price, not a claim.
 - **`environment.variables` is login-shell scope.** Anything the target runs as
   a guest unit needs its own environment; `capsule-baseline`'s `bash -l` exists
   for exactly this reason
-  ([item 6](./ledger/006-proxy-env-login-shell-scope.md)).
+  ([item 6](./ledger/006-proxy-env-login-shell-scope.md)). NixOS's, not the
+  capsule's.
 
 ## Commands and arguments at the boundary
 

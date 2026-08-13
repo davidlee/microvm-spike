@@ -98,7 +98,7 @@ of it is a mechanism, and none of it may become one.
 | field | doctrine's value | what breaks if doctrine changes it |
 | --- | --- | --- |
 | `toolsPackage` | `packages.dev-tools` — a `buildEnv` over its `devToolPkgs`, agent-free | the guest loses its tool set. This is the one limb of the floor doctrine has to keep satisfying |
-| `defaultBranch` | `edge` | the guest's initial HEAD and the branch a provision lands on; a mismatch is a push that moves a ref and leaves the worktree alone |
+| `defaultBranch` | `edge` | the guest's initial HEAD and the branch a provision lands on; a mismatch is a push that moves a ref and leaves the worktree alone. **Being deleted** in favour of an optional `workBranch` defaulting to `work` ([contract-target.md](./contract-target.md)) — doctrine is expected to be a target that *does* set it, since the branch name is how a piece of work gets identified, and that is the field working rather than a reason to keep the old one |
 | `baseline` | `just web-build test` | `capsule-baseline` has nothing to take a cold-build figure with |
 | `commands` | `just test / just web-build` | the motd stops naming its entrypoints. Cosmetic |
 | `caches` | `CARGO_HOME`, `BUN_INSTALL_CACHE_DIR` | those caches move into guest RAM, since the guest's root is tmpfs |
@@ -145,3 +145,31 @@ happens when the slice fails, who decides to retry, and in which capsule. ssh
 plus tmux is the play until those settle; a scheduler over agents sits on top of
 `capsule start/stop/status` and changes nothing here
 ([plan-c-multi-capsule.md](./plan-c-multi-capsule.md), "No daemon").
+
+**Why the contract is not written yet, which is a decision and not an
+omission.** Two reasons, and the second is the load-bearing one:
+
+1. doctrine does not want to care about this yet. A contract drafted now would
+   be drafted against a client with no requirements to give it, which is the
+   failure mode this repo exists to recover from.
+2. When doctrine does care, the angle is likely to be **different in kind** — a
+   capsule filling an outbox and the host noticing, rather than a synchronous
+   verb returning a verdict. A request/result shape frozen today would be the
+   wrong abstraction rather than an incomplete one.
+
+That difference has one consequence worth writing down before anyone drafts it,
+because it is where an invariant would get given up by accident. **An
+event-based model is guest-initiated**, and the host initiates both directions
+precisely so the guest has no channel out
+([item 18](./ledger/018-git-channel-direction.md)). An outbox the host *polls*
+over the door it already has keeps that property; a doorbell the guest *rings*
+does not, whatever it is implemented with. Start there.
+
+**And when it lands it is not doctrine's contract.** doctrine being the first
+consumer of an execution verb is not a reason for the mechanism to be its — the
+same rule as Role 2's, one altitude up again. It belongs in a generic execution
+contract beside
+[contract-assignment.md](./contract-assignment.md), which already carries the
+one field any such shape needs from this side: a `generation`, so a result that
+arrives after a slot has been re-assigned is refusable rather than
+misattributed.

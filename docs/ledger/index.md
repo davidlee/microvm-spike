@@ -47,3 +47,4 @@ time it is touched.
 | [22](./022-secrets-at-start.md) | secrets at start, and a payload that may be absent | built, unrun on this host |
 | [23](./023-second-target.md) | a second target, and what the parameterisation actually cost | done on branch `second-target` |
 | [24](./024-set-u-not-login-shell.md) | a `set -u` script must not *be* the login shell | fixed in-tree, unshipped on this host |
+| [25](./025-assignment-is-a-perimeter-verb.md) | assignment is a perimeter-mutating verb | open — scoped in [contract-assignment.md](../contract-assignment.md) |

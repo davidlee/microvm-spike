@@ -6,7 +6,9 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after secrets at start — which closes Plan C item 7 —
+Last updated 2026-08-13, after the fleet's contracts were drafted against a
+review of [Plan D](./plan-d-fleet.md) — design only, nothing built — and before
+that on the same day after secrets at start — which closes Plan C item 7 —
 the `capsule` CLI, and the load figure before it, and before that 2026-08-12,
 when the units ran at N=1 and `probe-netns-egress` re-ran 27/27 behind them —
 and then after the one bug that stood between N=1 and N=2: a host program's
@@ -26,6 +28,38 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **The fleet's contracts are drafted, and nothing is built against them yet.**
+  [contract-assignment.md](./contract-assignment.md) and
+  [contract-flavour.md](./contract-flavour.md) are new, and
+  [contract-target.md](./contract-target.md) has an ownership column over its
+  existing fields. The point of doing this before
+  [Plan D](./plan-d-fleet.md) D1 is one assumption: `target.nix` fuses a
+  project's semantics with the host's perimeter policy, which is invisible while
+  a target is a build-time literal and becomes an authority hole the moment
+  assigning a project is a run-time verb
+  ([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)). A persistent
+  record written first is where that would have survived. Three other things
+  came out of the same review and are amendments to Plan D rather than new work:
+  a flavour's tools need not come from the repo being confined; a profile is
+  pinned per assignment generation while a policy is live; and `defaultBranch`
+  is deleted rather than given the run-time override it lacks.
+
+  **Two of those are now decided rather than open.** `defaultBranch` becomes an
+  optional `workBranch` defaulting to `work` — a different field, not the same
+  one with a default, since the old name means *the target's canonical branch*
+  and the new one means *where this capsule puts commits*. It has only two
+  consumers (the guest's seed, and `capsule-provision`'s symref check and push
+  refspec); `capsule-collect` fetches `+refs/heads/*` and never read it, which
+  both this file's plan and the contract had wrong. And a flavour is **composed,
+  not selected**: a project declares a tool *floor*, an assignment adds *extras*
+  from a host-declared vocabulary, and the image is what those compose to — so
+  the identity is the composition, an unbuilt one is a build, and whether
+  `assign` waits or refuses is a per-host declaration. Neither is built; the
+  `workBranch` rename is guest-image-affecting and wants to ride an existing
+  rebuild rather than earn one. Deliberately **not** drafted: an execution
+  contract — doctrine has no requirements to give it yet and the likely shape is
+  an outbox rather than a synchronous verb
+  ([contract-doctrine.md](./contract-doctrine.md), Role 3).
 - **Contention at N=2 is measured, and it is not io.** A second concurrent pair
   of cold builds — 113 s and 118 s, replicating 112 / 121 — stalled **0.033% of
   its wall clock on cpu and 0.002% on io**, with zero reclaim on either unit
