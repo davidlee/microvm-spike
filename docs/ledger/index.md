@@ -48,3 +48,4 @@ time it is touched.
 | [23](./023-second-target.md) | a second target, and what the parameterisation actually cost | done on branch `second-target` |
 | [24](./024-set-u-not-login-shell.md) | a `set -u` script must not *be* the login shell | fixed in-tree, unshipped on this host |
 | [25](./025-assignment-is-a-perimeter-verb.md) | assignment is a perimeter-mutating verb | open — scoped in [contract-assignment.md](../contract-assignment.md) |
+| [26](./026-project-nix-runs-on-the-host.md) | a project's flake is code that runs on the host | open — scoped in [contract-flavour.md](../contract-flavour.md) |

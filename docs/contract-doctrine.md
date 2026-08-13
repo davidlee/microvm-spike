@@ -98,7 +98,7 @@ of it is a mechanism, and none of it may become one.
 | field | doctrine's value | what breaks if doctrine changes it |
 | --- | --- | --- |
 | `toolsPackage` | `packages.dev-tools` — a `buildEnv` over its `devToolPkgs`, agent-free | the guest loses its tool set. This is the one limb of the floor doctrine has to keep satisfying |
-| `defaultBranch` | `edge` | the guest's initial HEAD and the branch a provision lands on; a mismatch is a push that moves a ref and leaves the worktree alone. **Being deleted** in favour of an optional `workBranch` defaulting to `work` ([contract-target.md](./contract-target.md)) — doctrine is expected to be a target that *does* set it, since the branch name is how a piece of work gets identified, and that is the field working rather than a reason to keep the old one |
+| `defaultBranch` | `edge` | the guest's initial HEAD and the branch a provision lands on; a mismatch is a push that moves a ref and leaves the worktree alone. **Being deleted outright** — the guest's branch becomes the constant `work` and nothing replaces the field ([contract-target.md](./contract-target.md)). If doctrine wants a branch name that identifies a *slice*, that is per-assignment and not per-project — two slices of doctrine at once is the case that settles it — and the place to apply it is on the way out of the quarantine, where the name means something |
 | `baseline` | `just web-build test` | `capsule-baseline` has nothing to take a cold-build figure with |
 | `commands` | `just test / just web-build` | the motd stops naming its entrypoints. Cosmetic |
 | `caches` | `CARGO_HOME`, `BUN_INSTALL_CACHE_DIR` | those caches move into guest RAM, since the guest's root is tmpfs |

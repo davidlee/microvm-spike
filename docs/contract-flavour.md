@@ -81,9 +81,16 @@ mechanism, two owners, and neither can quietly become the other.
 That split is what the earlier draft got wrong by asking whether a *flavour*
 belonged to the profile or to the assignment. Both, in different halves — and
 the noun demotes accordingly: a flavour stops being a thing someone picks from a
-list and becomes **the result of a composition, identified by its content**.
+list and becomes **the result of a composition, identified by its store path**.
 Nix already identifies derivations that way, so this is a naming decision rather
 than a mechanism.
+
+**The store path, not a digest over the fragment names.** Names re-resolve: the
+vocabulary's flake inputs relock and `agents` quietly means something else. So
+an assignment records the resolved path and holds it with a gcroot, exactly as
+it records a commit rather than the branch that named it — one rule, applied
+three times ([contract-assignment.md](./contract-assignment.md)). A digest over
+the inputs would detect that drift without being able to undo it.
 
 Each fragment is a package set, a guest capability, or both, and each has
 exactly one owner:
@@ -181,6 +188,34 @@ Policy is the assignment's, from the slot's declared set
 compiler in it is not a perimeter question: a guest that can build can already
 run what it built, and the perimeter is host-side.
 
+### But "not a control" is not "safe to let anyone introduce"
+
+The asymmetry above is about what the *guest* may reach, and it is sound there.
+It says nothing about where a tool set is **produced**: a project's flake is
+evaluated and built **on the host, as the host user**, before any capsule
+exists and upstream of every control this repo builds. The confinement is the
+VM; nix evaluation is not inside it
+([item 26](./ledger/026-project-nix-runs-on-the-host.md)).
+
+Academic on a dev box, where the human already runs `nix develop` in that repo.
+Not academic once the assigner and the host owner are different parties. So the
+host-declared vocabulary carries a second obligation beyond keeping the guest's
+closure predictable:
+
+- **every fragment source is registered by the host at a pinned revision** — in
+  practice a flake input of *this* repo, named in a file the host owns and
+  locked in a lock the host controls, updated only by a deliberate
+  `nix flake update`;
+- **an assigner composes from the vocabulary and can never extend it**, so
+  introducing a new tool source is a host operator's act with a rebuild behind
+  it — the same rare-and-declared shape as everything else here.
+
+This is not a defence against a hostile project, and claiming otherwise would be
+worse than saying nothing. A host that builds a repo's flake trusts that repo's
+build. The narrow claim, which is the one worth making: **the set of repos whose
+nix this host will evaluate is the host's to declare, and an assignment does not
+widen it.**
+
 ## Cardinality, and what it costs
 
 **One image per distinct composition, ~3.0 GiB of erofs**
@@ -214,9 +249,14 @@ it is input from a different principal. Changing a slot's composition on a
 non-clean volume is refused; the rule and its dev-host waiver are
 [contract-assignment.md](./contract-assignment.md)'s, because it is an
 assignment-time check even though the thing changing is a build artifact. **The
-comparison is on the composition's identity**, which is why the assignment
-carries a digest of it beside the profile's — "same flavour" is not a name
-someone typed, it is whether the same fragments went in.
+comparison is on the resolved image path** — "same flavour" is not a name
+someone typed, it is whether the same artifact came out.
+
+Worth keeping separate from the profile and policy cases even though the
+behaviour is the same today: those are provenance boundaries and this one is
+mostly a compatibility boundary. Adding `neovim` is not an ownership transition.
+The conservative refusal is right while nothing distinguishes them; the claim
+that they are the same kind of event is not.
 
 ## Open
 

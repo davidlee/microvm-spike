@@ -62,8 +62,9 @@ The `owner` column is an **analysis of what is already here**, not a planned
 change: it says which authority each field answers to, and it is the reason a
 single file holding all of them is a coupling rather than a convenience.
 `profile` is project semantics, `flavour` is the tool closure, `class` is the
-machine reservation, `policy` is a host control, and `capsule` marks a field
-that is not target-shaped at all. Where each is headed is
+machine reservation, `policy` is a host control, `source` is where this host
+keeps the repo, and `capsule` marks a field that is not target-shaped at all.
+Where each is headed is
 [contract-assignment.md](./contract-assignment.md) and
 [contract-flavour.md](./contract-flavour.md); nothing about today's shape
 changes until they are built.
@@ -71,7 +72,7 @@ changes until they are built.
 | field | owner | read by | required | absent path |
 | --- | --- | --- | --- | --- |
 | `name` | profile | guest (checkout dir, motd), host (`services.capsule-perimeter.repo` default) | yes | — |
-| `path` | profile | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host |
+| `path` | **source** | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host — and having two host-side overrides where no other field has any is the tell that it was never project state |
 | `volumePath` | capsule | both: the volume's mount point, and what `caches`/`guestConfig`/records resolve against | yes | — |
 | `guestPath` | capsule | both: the guest's checkout | derived | — |
 | `toolsPackage` | flavour | guest: `packages.<system>.<name>` from the target's own flake | in practice yes | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Available only to a target whose whole tool set is a list of nixpkgs attr names**: `extraTools` is a supplement, never a substitute, so anything built by a function — a `python3.withPackages (…)` has no attr name — has to export a package (NOTES item 23) |
@@ -79,14 +80,14 @@ changes until they are built.
 | `allowlist` | **policy** | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
 | `caches` | profile | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
-| `defaultBranch` | profile | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — , and **the only field with no run-time override at all**: it is interpolated into `capsule-provision`, so the module path's copy keeps the old target's branch until the host is rebuilt, and a provision against it refuses (NOTES item 23). `capsule-collect` does **not** read it — it fetches `+refs/heads/*`, so it is already branch-agnostic. **Decided: deleted, replaced by an optional `workBranch` defaulting to `work`** — see below |
+| `defaultBranch` | profile | both: the guest's `init.defaultBranch` and initial HEAD, the branch `capsule-provision` lands on and verifies | yes | — , and **the only field with no run-time override at all**: it is interpolated into `capsule-provision`, so the module path's copy keeps the old target's branch until the host is rebuilt, and a provision against it refuses (NOTES item 23). `capsule-collect` does **not** read it — it fetches `+refs/heads/*`, so it is already branch-agnostic. **Decided: deleted outright, nothing replaces it — the guest's branch becomes the constant `work`** — see below |
 | `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
 | `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
 | `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
-**Two rows are the ones the column exists for.** `allowlist` and
+**Three rows are the ones the column exists for.** `allowlist` and
 `collectMaxPackBytes` are host controls — what a capsule may talk to, and how
 much may come back — sitting in the same file as `commands` and a motd string.
 That is harmless while a target is a build-time literal and one host has one
@@ -94,13 +95,30 @@ allowlist, and it stops being harmless the moment assigning a project is a
 run-time verb, because the project would then be naming its own perimeter
 ([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)).
 
-**And `defaultBranch` is being deleted — decided, unbuilt.** What replaces it is
-a different field with a working default, not the same field with one:
-`workBranch`, defaulting to `work`, meaning *where this capsule puts its
-commits*. `defaultBranch` means *the target's canonical branch*, and the rename
-is what carries the decision: a capsule needs a base commit and somewhere local
-to land commits, and it never needed to know that doctrine's canonical branch is
-`edge`.
+**And `path` is a third, quieter one.** `/home/david/dev/doctrine` says where
+*this host* keeps a checkout; it says nothing about the project, and the
+difference shows up the moment there is a second host, a second checkout, or a
+controller working from its own clone. It becomes a host-held `profile → source`
+binding rather than a profile field
+([contract-assignment.md](./contract-assignment.md)) — and, more sharply, one an
+assigner may never spell: `capsule-provision` reads that repo **as the human**
+([item 11](./ledger/011-host-side-runs-as-you.md)), so a freely-named path is a
+local-repository read primitive with a delivery mechanism attached.
+
+**And `defaultBranch` is being deleted outright — decided, unbuilt.** Nothing
+replaces it. The guest's branch becomes the constant `work`, a capsule
+constant beside the volume's mount point, and no contract has a field for it.
+
+The first draft of this decision kept an optional `workBranch` on the profile,
+on the reasoning that a project might care what its work is called. That is
+wrong by one altitude, and the test that shows it is two slices of one project
+at once: if a branch name identifies *the work*, it is not a property of the
+project, and every capsule on that profile would want a different one. It is not
+assignment state either — `capsule-collect` already lands everything as
+`refs/capsule/<slot>/*`, so whatever names a piece of work outside this repo can
+name it there, at the point where it means something. A capsule needs a base
+commit and somewhere local to land commits; it needs neither the target's
+canonical branch nor a name for what it is doing.
 
 The mechanics allow it outright. There are exactly two consumers — the guest's
 seed (`git init --initial-branch`, `init.defaultBranch`) and `capsule-provision`
@@ -108,20 +126,17 @@ seed (`git init --initial-branch`, `init.defaultBranch`) and `capsule-provision`
 `+refs/heads/*:refs/capsule/<name>/*` and never reads the field at all, so it is
 already branch-agnostic. Both remaining consumers need *a* name and neither
 needs *that* name; the symref check is about the seed and the pusher agreeing,
-which is preserved by both reading the same profile field.
+which one shared constant satisfies exactly as well as one shared field.
 
 The two things called "branch" separate cleanly on the way past.
 `capsule-provision <ref>` is a ref **in the target repo on this host** — that is
 unaffected, still required and still deliberately undefaulted, and it survives
-on the assignment as `base.ref` provenance beside the commit it resolved to.
-`workBranch` is the branch **inside the guest**. Only the second one is going.
+on the assignment as `base.ref` provenance beside the commit it resolved to. The
+guest's branch is the other one, and it is the one going.
 
-A project that cares what its work is called — likely, if the name is how the
-work gets identified — sets `workBranch` explicitly. That is the field doing its
-job: optional, defaulted, and *stated by whoever cares* rather than inherited
-from a repo's conventions. And it closes Plan D's L13 by subtraction: the one
-host-side value with no run-time override becomes a pinned profile field, which
-is run-time by construction.
+L13 closes by subtraction, in the strongest form available: the field with no
+run-time override does not get one, and does not become a defaulted field
+either. It stops existing.
 
 `extraTools = []` is the absent path a second target exercised (NOTES item 23),
 and `toolsPackage = null` is the one that turned out to be **narrower than it

@@ -304,19 +304,18 @@ bought something else.
   rebuild anyway. §6.2 is where it stops being harmless: target as run-time
   state cannot ship while a program spells the branch.
 
-  **Decided: deletion, not the missing override.** `defaultBranch` goes, and
-  what replaces it is an optional `workBranch` on the profile, defaulting to
-  `work` — a different field, not the same one with a default. Two consumers
-  allow it: the guest's seed and `capsule-provision`'s symref check and push
-  refspec. `capsule-collect` never reads it (`+refs/heads/*`), so half the
-  problem was never there. A project that cares what its work is called states
-  it; doctrine probably will, because the name is how work gets identified. L13
-  then closes by subtraction rather than by a fifth override — a pinned profile
-  field is run-time by construction. Written up in
-  [contract-target.md](./contract-target.md), including the separation the
-  rename depends on: `capsule-provision <ref>` is a ref in the *target repo* and
-  is untouched, `workBranch` is the branch *inside the guest*, and only the
-  second was ever target-shaped.
+  **Decided: deletion, and nothing replaces it.** The guest's branch becomes the
+  constant `work`. Two consumers allow it — the guest's seed, and
+  `capsule-provision`'s symref check and push refspec; `capsule-collect` never
+  read it (`+refs/heads/*`), so half the problem was never there. An interim
+  draft kept an optional profile field for a project that cares what its work is
+  called, and **two slices of one project at once refutes that**: if a branch
+  name identifies the work it is not project state, and collect already lands
+  everything as `refs/capsule/<slot>/*` where whatever names the work outside
+  this repo can name it. So L13 closes in the strongest available form — not a
+  fifth override, not a defaulted field, no field. Written up in
+  [contract-target.md](./contract-target.md), including the separation it turns
+  on: `capsule-provision <ref>` is a ref in the *target repo* and is untouched.
 
 ## 5. Read from source: where a capsule's identity actually lives
 
@@ -398,16 +397,25 @@ is a nix artefact.
 | **slot** | index → namespace, uplink /30, socket, units | `capsules.nix` | class 3, once |
 | **flavour** | a tool set — the only irreducible per-target closure content | **composed**, not declared: the profile's floor plus the assignment's extras | class 2 to *add a fragment*; a symlink to *re-point* |
 | **class** | machine config: mem, vcpu | the runner's JSON | ~1 KB per combination, if §5's eval holds |
+| **source** | where this host keeps the profile's repo | a host declaration, keyed by profile | class 3 — and never an assigner's to set |
 | **assignment** | profile, policy, class, extras, base commit, purpose | `/var/lib/capsule/<slot>/` | run time, free unless the composition is unbuilt |
 | **volume** | checkout, `$HOME`, caches, `target/`, **and its own size** | `/var/lib/microvms/<slot>` | verbs (D3); size fixed at creation |
 
-Six nouns, not five, and the sixth is the one the first draft left inside
-"target": **policy** — allowlist and ingestion bounds — which has a different
-owner from a project's semantics and is what
-[item 25](./ledger/025-assignment-is-a-perimeter-verb.md) is about. Volume size
-has also come out of `class`: §5 read it as a `truncate` applied only at first
-boot, so a class carrying it could let an assignment claim a size its disk was
-never created with. `class` is `mem` and `vcpu`; storage is the volume's.
+Seven nouns, not five, and the two extra ones both came out of "target".
+**Policy** — allowlist and ingestion bounds — has a different owner from a
+project's
+semantics and is what
+[item 25](./ledger/025-assignment-is-a-perimeter-verb.md) is about. **Source** —
+where this host keeps the repo — is not project state either: `/home/…/doctrine`
+describes a host, and `path` already half-admits it by carrying two host-side
+overrides where no other field has one. It is also the field an assigner must
+never spell, since `capsule-provision` reads that repo as the human. Volume
+size has come out of `class` on the same principle: §5 read it as a `truncate`
+applied only at first boot, so a class carrying it could let an assignment
+claim a size its disk was never created with. `class` is `mem` and `vcpu`;
+storage is the volume's — and what a *project* needs, as against what a host
+grants it, is a reservation rather than a deletion
+([contract-assignment.md](./contract-assignment.md)).
 
 The field-by-field version of all of this, and the ownership rule it rests on,
 is [contract-assignment.md](./contract-assignment.md); where a flavour's tools
@@ -570,13 +578,23 @@ only place a repo name appears.
   is [contract-assignment.md](./contract-assignment.md)'s rather than this
   file's. Written by `capsule`, read by status, pushed to the guest as identity.
   It is what makes an abstract slot legible, and every other direction here
-  either writes to it or reads from it. Three properties that are cheap now and
-  expensive to retrofit, so they are part of D1 and not a later tidy: **desired
-  state and observations are separate objects** — otherwise nothing can answer
-  *is this slot doing what it was told*; the base is stored as the **resolved
-  commit** with the requested ref kept only as provenance; and each slot carries
-  a **generation** integer, which is what makes a late answer refusable once
-  anything detached exists (D6).
+  either writes to it or reads from it. Four properties that are cheap now and
+  expensive to retrofit, so they are part of D1 and not a later tidy:
+
+  - **desired state and observations are separate objects** — otherwise nothing
+    can answer *is this slot doing what it was told*;
+  - **every reference is a name plus a resolved identity**, and the resolved one
+    is what is used: `base.ref`/`base.oid`, the profile name beside the profile
+    *bytes*, the fragment names beside the resolved *store path*. A digest is
+    verification; **pinning also requires retention**, so the record keeps the
+    profile snapshot and a gcroot keeps the image. Otherwise "reapply the pinned
+    generation" is really "re-resolve these names and hope";
+  - each slot carries a **generation** integer, which is what makes a late
+    answer refusable once anything detached exists (D6);
+  - the serialization carries a **`schema` discriminator**, even though the
+    design is deliberately unversioned — persistent state outlives the binary
+    that wrote it, and a number on the bytes promises nothing about the
+    contract.
 - **D2 — the pool.** Declare `a`…`j` once, and make assignment run-time state.
   Turns S1, S4 and S10 from rebuilds into commands. The cost is not idle
   namespaces — nothing starts at boot, so an unassigned slot is a declaration

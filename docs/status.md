@@ -44,18 +44,30 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   pinned per assignment generation while a policy is live; and `defaultBranch`
   is deleted rather than given the run-time override it lacks.
 
-  **Two of those are now decided rather than open.** `defaultBranch` becomes an
-  optional `workBranch` defaulting to `work` — a different field, not the same
-  one with a default, since the old name means *the target's canonical branch*
-  and the new one means *where this capsule puts commits*. It has only two
-  consumers (the guest's seed, and `capsule-provision`'s symref check and push
-  refspec); `capsule-collect` fetches `+refs/heads/*` and never read it, which
-  both this file's plan and the contract had wrong. And a flavour is **composed,
-  not selected**: a project declares a tool *floor*, an assignment adds *extras*
-  from a host-declared vocabulary, and the image is what those compose to — so
-  the identity is the composition, an unbuilt one is a build, and whether
-  `assign` waits or refuses is a per-host declaration. Neither is built; the
-  `workBranch` rename is guest-image-affecting and wants to ride an existing
+  **Two of those are now decided rather than open**, after a second review
+  round. `defaultBranch` is **deleted outright** — the guest's branch becomes
+  the constant `work` and no contract has a field for it. An interim draft kept
+  an optional `workBranch` on the profile and two slices of one project refuted
+  it: a name that identifies the work is not project state, and collect already
+  lands everything as `refs/capsule/<slot>/*`. It has only two consumers (the
+  guest's seed, and `capsule-provision`'s symref check and push refspec);
+  `capsule-collect` fetches `+refs/heads/*` and never read it, which both this
+  file's plan and the contract had wrong. And a flavour is **composed, not
+  selected**: a project declares a tool *floor*, an assignment adds *extras*
+  from a host-declared vocabulary, the image is what those compose to and is
+  identified by its store path — so an unbuilt composition is a build, and
+  whether `assign` waits or refuses is a per-host declaration.
+
+  **Three things the second round added.** *Pinning needs retention, not just a
+  digest*: the record keeps the profile's bytes and a gcroot keeps the image,
+  because every reference here is a name that re-resolves — one rule applied
+  three times, alongside `base.ref`/`base.oid`. *`path` is not project state*
+  either; it becomes a host-held `profile → source` binding, and one an assigner
+  may never spell, since `capsule-provision` reads that repo as the human. And
+  *a project's flake is code that runs on the host*, upstream of the VM, so
+  fragment sources are host-registered at a pinned revision
+  ([item 26](./ledger/026-project-nix-runs-on-the-host.md)). Nothing is built;
+  the branch deletion is guest-image-affecting and wants to ride an existing
   rebuild rather than earn one. Deliberately **not** drafted: an execution
   contract — doctrine has no requirements to give it yet and the likely shape is
   an outbox rather than a synchronous verb

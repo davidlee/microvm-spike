@@ -20,7 +20,7 @@ half of the same design. The guest's capability set is
 
 ## The nouns, and who owns each
 
-Plan D §6 named five; the sixth is the one it left inside "target", and
+Plan D §6 named five; two more came out of "target", and
 [item 25](./ledger/025-assignment-is-a-perimeter-verb.md) is why that mattered.
 **The split is by authority, not by where the value happens to live today.** Two
 values in the same file with different owners is the shape of every coupling
@@ -32,11 +32,37 @@ this repo has already had to undo once.
 | **flavour** | the guest's capability and tool closure | **not declared — composed** from the profile's floor and the assignment's extras ([contract-flavour.md](./contract-flavour.md)) | stop, build, start — a symlink re-point, not a rebuild of the fleet | both owners, within a fragment vocabulary the host declares |
 | **class** | machine config: `mem`, `vcpu` | the runner's JSON | stop / start | host operator declares; an assigner selects within the slot's set |
 | **policy** | egress allowlist, ingestion bounds, whether this slot may collect | host declaration, *selected* by the assignment | live — see the refresh rule | host operator declares the set; an assigner selects within it, or is refused |
-| **profile** | project semantics: baseline, caches, static guest config, work branch, tool floor, display identity | host-held, keyed by name | pinned per assignment generation | an assigner names it |
+| **profile** | project semantics: baseline, caches, static guest config, tool floor, display identity | host-held, keyed by name | pinned per assignment generation | an assigner names it |
+| **source** | where *this host* has the profile's repo | host declaration, keyed by profile | host rebuild | host operator only — never an assigner |
 | **assignment** | binds a slot to profile + policy + class + extras + base commit + purpose | `/var/lib/capsule/<slot>/` | run time, free unless the composition is unbuilt | an assigner |
 | **volume** | everything mutable: checkout, `$HOME`, caches, build tree, host keys | the volume | verbs (Plan D D3); size fixed at creation | host operator |
 
-Four consequences worth stating rather than deriving:
+Six consequences worth stating rather than deriving:
+
+- **`source` is a seventh noun because a path is not a project.**
+  `/home/david/dev/doctrine` describes where this host happens to keep a
+  checkout, not anything about the project — and the difference becomes visible
+  as soon as there is more than one host, more than one checkout, or a
+  controller working from its own clone. A profile is location-independent; the
+  host holds a `profile → source` binding beside it. `path` already half-admits
+  this by having two host-side overrides (`CAPSULE_REPO`, the module's `repo`
+  option) that nothing else in `target.nix` has.
+
+  **And it must not be assigner-controlled**, which is the sharper half.
+  `capsule-provision` reads that repo *as the human* — it is the one program
+  that touches the real source
+  ([item 11](./ledger/011-host-side-runs-as-you.md)) — so an assigner free to
+  name a path has a local-repository read primitive with a delivery mechanism
+  attached. Host-declared, selected by profile
+  name, never spelled by whoever assigns.
+- **There is no work-branch field anywhere.** The guest's branch is `work`,
+  fixed, a capsule constant beside the volume's mount point. If a branch name
+  identifies *the work* then it is not project state — two slices against one
+  project settle that immediately — and it is not assignment state either,
+  because `capsule-collect` already namespaces what comes back as
+  `refs/capsule/<slot>/*` and whatever names the result outside this repo can
+  name it there. Deleting the field entirely is the version of this decision
+  that survives the second slice.
 
 - **`flavour` is the one noun with no single owner, by design.** A project
   declares a *floor* — what it cannot be built or tested without — and an
@@ -50,6 +76,16 @@ Four consequences worth stating rather than deriving:
   first boot and never again (Plan D §5), so a class that included it would let
   an assignment claim a size its disk was not created with. Storage is a
   property of the volume; a class is a runner argument.
+
+  **This does not make resources something projects know nothing about.** Two
+  concepts, and only the second is designed here: a project's *requirements or
+  recommendations* — can this sensibly build in `small`? — and the host's
+  *grant*. Today's `sizes` is both at once, which is why removing it from the
+  target reads as losing information. Leave room for `profile.requirements`, or
+  a compatibility predicate over a class, and do not design it before a client
+  asks a question that needs it. It is the same floor-and-grant shape the tool
+  set just got: the project states what it cannot do without, the host decides
+  what it gets.
 - **`policy` is not a property of a project.** An allowlist is a control, and a
   control chosen by whoever names the project is a control the naming authority
   holds ([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)). The
@@ -72,20 +108,54 @@ never read by the guest.
 | field | what | why it is a field |
 | --- | --- | --- |
 | `generation` | monotonic integer, per slot, bumped by every mutation | what makes a late answer refusable. Without it a worker that returns after a re-assign operates on a slot that is no longer the one it was given |
+| `schema` | serialization discriminator, `1` to start | persistent state outlives the binary that wrote it. **Not a compatibility promise** — the design in this file is deliberately unversioned, and a number on the bytes is a different thing from a number on the contract |
 | `profile` | name of a project profile | the semantics half of what used to be "target" |
-| `profile_digest` | digest of the profile document as pinned at this generation | what "pinned" means concretely, and what a drift check compares |
+| `profile_snapshot` | **the profile document itself**, retained here, addressed by its digest | see the retention rule below. A digest alone cannot answer "reapply what was pinned" once the named document has changed |
 | `policy` | name of a policy, from the slot's declared set | the control half. Separate field because separate owner (item 25) |
 | `extras` | fragments composed on top of the profile's floor, from the slot's declared vocabulary | the assigner's half of what the guest can do. The profile declares a *floor* and never a flavour; the image is `compose(floor, extras)` ([contract-flavour.md](./contract-flavour.md)) |
-| `composition_digest` | identity of the resulting image | what "same flavour" means when nobody named one. A change here is a volume question and not just a restart — see the reuse rule below |
+| `image` | **the store path** the composition resolved to, with a gcroot holding it | the resolved identity of `floor + extras`. Fragment names re-resolve when the vocabulary's inputs relock; a store path does not |
 | `class` | `mem`, `vcpu` | runner config |
 | `base.ref` | what the human or the client asked for | provenance and display only. Nothing resolves against it twice |
 | `base.oid` | the commit that ref resolved to at assignment time | **the authoritative one.** A ref moves; an assignment must not silently move with it, and every later comparison — dirty, ahead, is-this-a-valid-clone-source — is arithmetic on a commit |
 | `purpose` | free text | **opaque here, always.** Whatever a client puts in it is the client's; this repo displays it and never parses it. The same rule as `baseline` being a command line and not a build system |
 
-`base.ref` and `base.oid` are the shape `capsule-provision` already implies —
+### One shape, three times: a name plus a resolved identity
+
+`base.ref` / `base.oid` is the shape `capsule-provision` already implies —
 `<ref>` is any commit-ish and deliberately undefaulted
-([contract-target.md](./contract-target.md)) — made durable. What is new is that
-the resolution is recorded rather than discarded.
+([contract-target.md](./contract-target.md)) — made durable. The same pairing
+appears twice more, and noticing that it is one rule rather than three
+conveniences is what keeps the record honest:
+
+| what was asked for | what is recorded and used |
+| --- | --- |
+| `base.ref` — a branch or tag in the source repo | `base.oid`, a commit |
+| `profile` — a name in a directory | `profile_snapshot`, the bytes |
+| `extras` + the profile's floor — fragment names | `image`, a store path |
+
+**A digest is verification; pinning also requires retention.** Every left-hand
+column is a *name that re-resolves*: a branch moves, `profiles/foo.json` gets
+edited, and a fragment name means something new after `nix flake update`. So
+"reapply the pinned generation" must mean *use exactly these bytes and exactly
+this image*, never *look those names up again and hope the digest matches*. A
+digest detects the drift it cannot undo.
+
+Both retentions are cheap and one of them is already built:
+
+- **the profile snapshot** is a small document written into the slot's directory
+  at assign time. No store, no indirection — the assignment carries its own copy
+  and the digest is over that copy.
+- **the image** is held by a gcroot, which is how microvm.nix already works: a
+  slot's binding to a nix artefact is the `current` and `booted` symlinks in its
+  state directory, read from source in [Plan D](./plan-d-fleet.md) §5. The
+  assignment records the path; the gcroot keeps it.
+
+**Retention is for the current assignment, not for history.** Superseded
+generations keep their `profile_snapshot` as provenance — it is bytes and it is
+small — but nothing holds their images, because re-assignment already resets the
+volume and a restorable previous generation is a thing this design does not
+offer. Saying so keeps the gcroot count equal to the slot count instead of
+growing with every re-assign.
 
 ## The observed status
 
@@ -137,21 +207,34 @@ touched since the baseline, or an interactive session opened.
 **Reuse across an ownership change is a trust question, not a
 cache-compatibility one.** A volume carries the previous assignment's caches,
 build tree, `$HOME`, injected credentials and ssh host keys. Under a new
-project, composition or policy,
+project or policy,
 those are not stale garbage — they are *input supplied by a different
 principal*, and a build that reads them is a build the new owner did not
 specify. So:
 
-- changing `profile` or `policy`, or arriving at a different
-  `composition_digest`, on a non-clean volume is **refused**, with `--reset` as
-  the answer. The check is on the digest and not on a name, so adding one extra
-  fragment counts and nobody has to remember that it should;
+- changing `profile` or `policy`, or arriving at a different `image`, on a
+  non-clean volume is **refused**, with `--reset` as the answer. The check is on
+  the resolved identity and not on a name, so adding one extra fragment counts
+  and nobody has to remember that it should;
 - a dev host may waive that by declaration, which is Plan D §0's two-modes rule
   again;
 - a clone's identity is scrubbed by default and kept only under an explicit flag
   (Plan D D4), and a slot is a valid clone *source* while it is `baselined` and
   not yet `dirty` — which is also the cheapest source, since a volume's
   allocation is its high-water mark and never its current usage (Plan D L8).
+
+**One refusal, two different reasons, and they should not be conflated even
+though the behaviour is currently the same.** A change of `profile` or `policy`
+is a **provenance** boundary: different owner, different perimeter, and the
+previous occupant's bytes are another principal's input. A change of `image` is
+mostly a **compatibility** one: a cache built by one toolchain is meaningless to
+another. Adding `neovim` to the extras crosses the second and not the first, and
+treating it as an ownership transition is safely conservative rather than
+correct. D1 should refuse on both — the conservative answer is right while there
+is nothing to distinguish them with — and should not write down that they are
+the same event, because the compatibility half can eventually get a cheaper
+answer (a floor change matters, a pure superset of extras may not) and the
+provenance half never can.
 
 The mechanism belongs here. The *policy* about what may be reused is the
 client's.
