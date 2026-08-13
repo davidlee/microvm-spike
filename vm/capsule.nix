@@ -32,6 +32,11 @@
     })
     target.guestConfig;
 
+  # What a binary the guest did not build links against. One list, two
+  # consumers: the login environment's `LD_LIBRARY_PATH` below, and nix-ld's,
+  # which is the same question asked by a loader instead of by a linker.
+  runtimeLibs = [pkgs.stdenv.cc.cc.lib pkgs.zlib];
+
   adminKeys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgvwY62NVQgQkVkp5YbOKv26avHLypGNPdrOqKFtwjl david@Sleipnir"
   ];
@@ -136,9 +141,30 @@ in {
       # Keep compiler and link temporaries off the RAM-backed rootfs.
       TMPDIR = "${work}/tmp";
       # Anything built in the guest links against these at run time.
-      LD_LIBRARY_PATH = lib.makeLibraryPath [pkgs.stdenv.cc.cc.lib];
+      LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
     }
     // lib.mapAttrs (_: dir: "${work}/${dir}") target.caches;
+
+  # A guest that cannot run a binary it downloaded cannot run most toolchains.
+  # NixOS ships no `/lib64/ld-linux-x86-64.so.2`, so a pypi wheel's `ruff`, an
+  # npm package's prebuilt node-gyp artefact or a Go module's vendored helper
+  # dies with `Could not start dynamically linked executable` — which is exactly
+  # what the second target's first baseline hit, one second in, after resolving
+  # 31 packages through the proxy perfectly well (NOTES item 23).
+  #
+  # Not a `target.nix` field, and that is the finding rather than a shortcut:
+  # every non-nix-native toolchain needs this and none of them parameterises it,
+  # so it belongs beside `TMPDIR` and the caches in what the capsule *supplies*
+  # (docs/contract-target.md). doctrine never hit it only because cargo links
+  # against nix's own stdenv.
+  #
+  # It widens nothing outward. The perimeter is host-side, and a guest carrying a
+  # compiler could already build and run whatever it liked; this only stops the
+  # kernel refusing an interpreter that is missing for packaging reasons.
+  programs.nix-ld = {
+    enable = true;
+    libraries = runtimeLibs;
+  };
 
   programs.git = {
     enable = true;

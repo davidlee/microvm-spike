@@ -48,6 +48,18 @@ replicated the durations — so step 6 has nothing outstanding
   login shell rather than its script — one process, environment still inherited
   ([notes](./notes.md) item 24). **Unshipped**: the module path runs the installed
   copy, so it needs `~/flakes` relocked and a rebuild.
+- **doctrine's guest has nix-ld now, and its baseline has the sizing fix.**
+  Cherry-picked off `second-target`, where they were found — [notes](./notes.md)
+  item 23 came with them, so the citations in both files resolve here. Neither is
+  target-shaped, which is the whole reason they belong on this branch too: every
+  non-nix-native toolchain needs a `/lib64` loader and none of them supplies a
+  different one, and one `du -sm` over several paths charges a hardlinked inode to
+  whichever argument came first regardless of whose paths they are. cargo happens
+  to show neither, so doctrine is where they are least likely to be exercised and
+  most likely to rot. What did *not* come across is that branch's `status.md`:
+  present tense is per-branch, and this branch's present is doctrine.
+  **The guest changed**, so it wants a new image and `sudo microvm -u <name>`
+  (`just refresh <name>`) before an existing capsule runs it.
 - **A start now leaves a capsule you can work in, and it cost no mechanism.**
   Plan C item 7's last piece: `capsule <name> start` waits for the guest to answer
   and then pushes every payload `setup.nix` declares, so a `/work/.env` is no
@@ -455,6 +467,12 @@ Then the rest of Plan C's
   after correctly starting the run ([notes](./notes.md) item 24). The workaround is
   to disbelieve the exit status and read the record — `capsule <name> ssh cat
   /work/baseline/history.tsv`, whose last line is the truth.
+- **The corrected `capsule-baseline` sizing has never produced a record.** It was
+  written against a diagnosis and verified by hand over ssh, and now it is on a
+  branch whose target cannot exercise it: doctrine shares no inodes between
+  `target/` and `.cargo`, so its split reconciles either way. The next panopticon
+  baseline is the real check, and doctrine's next one only says the fix did no
+  harm ([notes](./notes.md) item 23).
 - **The guest's clock is UTC and this host is AEST.** A guest file mtime read
   against a host clock is ten hours out, which is enough to make tonight's run look
   like last night's and cost real time. Baseline stamps are UTC by design (they are

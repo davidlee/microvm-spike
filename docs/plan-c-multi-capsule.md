@@ -759,5 +759,15 @@ case, not before the dev-machine case.
    name rather than baked into a store path (NOTES item 20). That left the CLI the
    systemctl verbs and the table, both of which it now has — it resolves a name and
    execs, rather than owning the name.
-8. Only then: a second target, if it is still wanted.
+8. ~~Only then: a second target, if it is still wanted.~~ **Done, and green.**
+   panopticon on branch `second-target`: `target.nix`, one allowlist file, one
+   flake literal, and one export added *in the target*. Outside those, the port
+   changed exactly one thing — `programs.nix-ld` in the guest, which no target
+   parameterises — so the claim item 16 could only make is now a diff
+   ([notes](./notes.md) item 23). Cold `just check` in **3 s** against doctrine's
+   109, which is the finding that outlives the port: the largest term in
+   time-to-interactive is target-shaped
+   ([probes](./probes.md#the-cold-build-on-a-second-target)). What it did *not* do
+   is run on the module path, or run beside doctrine — the second is this
+   document's much larger job, since a second tool set is a second guest image.
 
