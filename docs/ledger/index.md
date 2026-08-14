@@ -55,3 +55,4 @@ time it is touched.
 | [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12; the pool itself is D2 |
 | [31](./031-the-fragment-vocabulary.md) | the fragment vocabulary: composition built, selection deferred | built, run, measured — supersedes item 3; selection is [Plan D](../plan-d-fleet.md) D7 |
 | [32](./032-the-sideband-channel.md) | the sideband channel: state that is not a commit | built; extraction still by hand, the provisioning half deferred |
+| [33](./033-provision-is-a-sequence.md) | a provision is not finished when the push lands | designed, not built — step (3) of item 32's inbound half |

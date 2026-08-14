@@ -1,0 +1,148 @@
+# NOTES item 33 — a provision is not finished when the push lands
+
+*State: designed, not built. Step (3) of [item 32](./032-the-sideband-channel.md)'s
+inbound half.*
+One item of the [ledger](./index.md) — the number is the citation, and it
+never moves.
+
+## What was asked
+
+[Item 32](./032-the-sideband-channel.md) dropped `.doctrine/state/boot.md` from
+`statePaths` on a rule worth more than the file: **state a consumer regenerates
+per checkout does not travel.** A derived file delivered into a foreign tree is
+stale authority, because the next tool to run there reads it as that tree's own.
+
+That rule has a positive half, and it is what makes the drop cost nothing:
+**such state comes back by being regenerated where it is needed, and that
+belongs to provisioning, not to a collect.** Nothing implements it. A tree that
+wants the snapshot regenerates it by hand — which leaves the control in a pair
+of hands, the same shape item 32 already refuses one field over for the
+allowlist's scope.
+
+So the question is where that regeneration runs. It is not obvious, because a
+program that already does exactly this exists.
+
+## `capsule-baseline` is the capability, minus the apparatus
+
+`host/baseline.nix` runs **a host-declared command line, in the guest's
+checkout, under the guest's login shell**, and has no opinion about what is in
+the command. That is the whole of what a refresh needs. It also carries three
+separately-learned corrections, each of which cost something:
+
+- **the login shell**, because `ssh host cmd` is neither login nor interactive
+  and so has none of `environment.variables` — no proxy, no `CARGO_HOME`, no
+  `TMPDIR` ([item 6](./006-proxy-env-login-shell-scope.md));
+- **the runner as a *child* of that login shell**, because a `set -u` script
+  that *is* the login shell dies in `/etc/bash_logout` and has its exit status
+  replaced by 1 ([item 24](./024-set-u-not-login-shell.md));
+- **pushed at each call, never baked into the guest's closure**, for item 32's
+  three reasons — host-side policy about what a capsule does, a copy left by an
+  older build being drift nothing reports, and a capsule with a real workload in
+  it being unrebuildable without a restart.
+
+Which class a refresh falls in is decided by the first of those. `observe` and
+`state-snapshot` are deliberately *not* login shells — "nothing here reads the
+guest's `environment.variables`, so item 24's trap cannot arise". A `doctrine
+boot` does read them. So a refresh is baseline's class rather than observe's,
+and baseline's class is where the corrections are.
+
+**Reuse the seam.** A second hand-written `ssh … bash -l -c` gets one of the
+three wrong, and item 24 is the evidence that the wrong one is silent for three
+green runs.
+
+## But it is not a `baseline` invocation
+
+Three counts, and the third is the one that decides it.
+
+- **Lifecycle.** `baseline` is once per capsule warmup. A refresh is once per
+  *provision*: the snapshot derives from `.doctrine/` authored content, which
+  every provision replaces. Firing a cold `just web-build test` to obtain a
+  seconds-long regeneration is the wrong end of a three-order-of-magnitude
+  ratio.
+- **The record.** `history.tsv` exists to hold one figure — the cold build, the
+  largest term in time-to-interactive and the one `probe/freshness.sh` cannot
+  take ([item 19](./019-baseline-build-and-figures.md)). A second command inside
+  that run contaminates the only measurement the apparatus is for.
+- **Failure semantics are opposite.** `capsule-baseline` is deliberately not
+  `set -e` — "a failing build is a result to record, not an error to abort on",
+  because that is the question it asks. A refresh that fails must be loud: a
+  checkout whose derived state did not regenerate is precisely the
+  stale-authority trap that dropping `boot.md` was meant to close, and it fails
+  by *absence*, which reads as fine right up until something answers from it.
+
+## The shape
+
+Extract baseline's guest-exec seam; keep two host programs over it.
+
+- `target.nix` grows one field beside `baseline` — a command line, `null`-able
+  the same way, which drops the program rather than shipping one that cannot
+  work.
+- `capsule-provision` runs it after a successful push, once
+  `receive.denyCurrentBranch = updateInstead` has done the checkout.
+- It is separately invocable, because a human who did a hand `git checkout` in
+  the guest wants it too — that is the case the hand regeneration answers today.
+
+The guinea-pig split (CLAUDE.md) is clean, and this is the shape item 32
+predicted: the **capability** is *a target may declare a command that runs in a
+fresh checkout once it exists*; the **value** is doctrine's `doctrine boot`. No
+generic code learns what a boot snapshot is, and a target that regenerates
+nothing omits the field.
+
+## Why provisioning owns it
+
+The reason is not tidiness. **The inbound direction is an ordered sequence of
+three steps, and two of them do not exist:**
+
+1. push the code — built;
+2. materialise the state half — `capsule-provision --state <ref>`, item 32's
+   reserved piece, through the same validated extraction `capsule-adopt` will
+   own;
+3. regenerate what neither of the first two may carry.
+
+The case that needs all three is the one item 32 named: a fresh audit capsule
+that must read the implementation capsule's phase sheets. It gets them by (2),
+and it must *not* get a copy of that capsule's `boot.md` — it needs its own, by
+(3), derived from the code (1) put there. Sequencing that is provision's job.
+`capsule-baseline` sits after the whole sequence, not inside it.
+
+## One thing to check before building
+
+The refresh must write only paths the checkout ignores. If it leaves a tracked
+modification it leaves a **dirty worktree**, and a dirty worktree is what
+`updateInstead` refuses the *next* provision on — so a hook that runs at every
+provision would break every provision after the first. It should be clean;
+doctrine's own storage rule puts `boot.md` in the runtime tier. Worth one
+command rather than an assumption, because the failure surfaces one provision
+after its cause. Same class as `recordDir` having to live outside `workdir`
+([item 19](./019-baseline-build-and-figures.md)), and for the same reason.
+
+## Considered and rejected
+
+- **A `guestConfig` entry.** That field renders *static content* into the
+  closure and symlinks it onto the volume. Derived state is not static content:
+  its value is a function of the checkout, which is the thing that arrives
+  later.
+- **The guest seed.** Wrong time and wrong side. At first boot there is no
+  checkout to derive anything from — that absence is what makes the base commit
+  an argument rather than a closure value — and a command baked into the guest
+  is the drift item 32 refuses, on a volume that outlives the build that wrote
+  it.
+- **A guest-side hook: `post-merge`, or a path unit watching the checkout.**
+  Guest-initiated, which is the direction [item
+  18](./018-git-channel-direction.md) deleted. It would also be a program the
+  confined agent can edit, and a control the confined thing can edit is not a
+  control (`target.nix`'s opening argument, one layer in).
+- **Folding it into `baseline`.** Above.
+- **Leaving it to the agent's own startup.** A rule enforced by whoever
+  remembers it, over a failure mode that is an absence rather than an error.
+
+## What this does not buy
+
+Step (2) stays blocked on `capsule-adopt`: pushing a state commit *in* and
+materialising it guest-side wants the same mode-and-prefix validation the
+outbound extraction wants, and that program is deliberately unwritten until one
+hand adoption has said what it must check
+([item 32](./032-the-sideband-channel.md)).
+
+This item is step (3) and lands alone. It is useful from the moment it exists,
+on every ordinary provision, whether or not a state half ever arrives.

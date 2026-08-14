@@ -117,6 +117,84 @@ files (`git ls-files -o --exclude-standard`) and a `.capsule/dirty.diff` blob of
 doctrine concept — and both are exactly the class that a `refs/heads/*` collect
 silently drops.
 
+## The invariant the allowlist has to meet, and does not yet
+
+The state half exists so an audit can read *the run*. That makes it an exhibit,
+and an exhibit has a scope:
+
+> **A collect brings back the out-of-band state of the work the capsule was
+> assigned, and none that is not.**
+
+Both failure directions are live today, and the second is the one that will bite.
+
+**Too broad, by declaration.** `statePaths` names `.doctrine/state/slice` and
+`.doctrine/dispatch` — every unit of work the checkout has ever held, not the one
+being driven. The first run says so in its own figures: 1886 files and 18.6 MB
+for a capsule driving one unit, with "dispatch bookkeeping for six slices" in the
+tree. Surplus state in an exhibit is not merely noise; it is a second, older
+answer to a question the exhibit is supposed to settle, and nothing marks which
+answer belongs to this run.
+
+`.doctrine/state/boot.md` was a sharper case of the same thing, and is the one
+part of this already fixed: it is **dropped from `statePaths`**, because the
+general rule is worth more than the file. **State a consumer regenerates per
+checkout does not travel.** Delivering a foreign copy into a live tree is
+delivering stale authority — the next tool to run there reads it as that tree's
+own — and a path whose value is derived from the checkout it sits in is evidence
+only in the capsule that made it.
+
+The positive half is the reason dropping it costs nothing: **such state comes
+back by being regenerated where it is needed, and that belongs to provisioning,
+not to a collect.** The hook does not exist. There is a guest seed that creates
+cache directories and links `guestConfig` files, and there is `baseline`, a
+command run on demand — but nothing a target may declare as *the command that
+runs in a fresh checkout once it exists*. That is the generic capability the rule
+needs (value: `doctrine boot`), and until it lands, a tree that wants the
+snapshot regenerates it by hand. Note the shape it shares with the state half of
+provisioning, below: both are the inbound direction of this item, and neither is
+built.
+
+**Scoped in the wrong place.** The narrowing that made the first adoption correct
+happened at *hand extraction* — an operator chose pathspecs — not at collect. So
+the invariant currently holds in a pair of hands, which is the same observation
+this item already makes about validation, one layer earlier: if `capsule-adopt`
+is where the mode-and-prefix check becomes unskippable, the scope must not be
+the one thing left for the operator to get right.
+
+### Why the project cannot simply be asked
+
+The obvious fix — let the project hand over a path list when it is assigned — is
+exactly the fusion [item 25](./025-assignment-is-a-perimeter-verb.md) refuses,
+applied to the sharpest control there is.
+[contract-target.md](../contract-target.md) already predicts it: `statePaths`
+"stops being harmless the moment assigning a project is a run-time verb, because
+the project would then be naming its own perimeter". An allowlist of files read
+out of a worktree with `.gitignore` deliberately bypassed is not a field a
+project may write.
+
+The shape that scopes the exhibit without moving that authority is item 25's own
+split, one level down inside the field:
+
+- the **policy** declares the allowlist as a *template* — paths that may contain
+  one hole;
+- the **assignment** fills the hole with an opaque **unit token**, validated
+  host-side against `[A-Za-z0-9._-]+`: never a path, never a glob, no separator
+  and no `..`, so it can name an instance and cannot widen a perimeter;
+- a template with a hole and an assignment with no unit **refuses**
+  ([item 28](./028-a-slot-has-no-default.md)'s rule), rather than degrading to
+  the unscoped list — the broad collect is the failure being fixed, so it is the
+  worst possible default.
+
+The capability is *a policy path allowlist may be parameterised by one opaque
+identifier the assignment carries*. The value is doctrine's
+`.doctrine/state/slice/{unit}`. The guest program substitutes a token its own
+host policy declared a place for, and never learns what a slice is — the review
+challenge is a different template and a different token, not different code.
+
+The residual this dissolves: narrowing at collect means `capsule-adopt` inherits
+the scope for free, because the sideband tree does not contain what must not
+land. One choke point, and no doctrine-shaped rule in the extractor.
+
 ## Namespace: siblings, not nesting
 
 The quarantine's code refs move from `refs/capsule/<name>/*` to
