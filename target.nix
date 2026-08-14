@@ -84,18 +84,24 @@ rec {
   # every path here is guest-authored data that a human will later extract.
   #
   # doctrine's storage rule is what makes it need one at all: its runtime tier —
-  # phase sheets, dispatch state, the boot snapshot, research artefacts — is
-  # gitignored *on purpose*, and is also what an audit of a finished capsule
-  # reads. Untracked-but-not-ignored files come along regardless and are not
-  # declared here: "the agent has not committed this yet" is generic, not a
-  # target's concept.
+  # phase sheets, dispatch state, research artefacts — is gitignored *on purpose*,
+  # and is also what an audit of a finished capsule reads. Untracked-but-not-
+  # ignored files come along regardless and are not declared here: "the agent has
+  # not committed this yet" is generic, not a target's concept.
+  #
+  # What is NOT here is the rule worth keeping: **state a consumer regenerates
+  # per checkout does not travel** (NOTES item 32). doctrine's boot snapshot
+  # (`.doctrine/state/boot.md`) was declared here and is not any more — it is
+  # derived from the checkout it sits in, so a copy landing in another tree is
+  # stale authority the next tool there reads as its own. It comes back by being
+  # regenerated where it is needed, which belongs to provisioning and not to a
+  # collect; the generic hook for that does not exist yet (item 32).
   #
   # A target with no such state omits the field. `[]` degrades to a code-only
   # collect plus whatever is uncommitted, which is what every collect did before.
   statePaths = [
     ".doctrine/state/slice" # per-slice runtime: phase sheets, progress
     ".doctrine/state/dispatch" # dispatch runtime for a driven slice
-    ".doctrine/state/boot.md" # the governance snapshot the agent booted with
     ".doctrine/dispatch" # per-slice dispatch bookkeeping
     ".doctrine/slice" # research/ (ignored) and uncommitted authored edits
   ];
