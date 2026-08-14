@@ -4,8 +4,10 @@
 green, so shellcheck-at-build has seen both new renders and `hostModuleUnits` has
 forced the module's copy. The guest half's **logic is run and asserted at build
 time** (`briefCases`, fourteen cases), and the suite was watched failing on two
-deliberate mutations before it was kept. What has not happened is a run against
-two live capsules.*
+deliberate mutations before it was kept. And it has now **run against two live
+capsules** — 1884 files, 18.6 MB, slot `a`'s `implementation` state into slot
+`b`'s checkout as step (2) of one provision, 1.14 s for the whole three-step
+motion ([probes](../probes.md#what-the-sideband-arc-costs-end-to-end)).*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -184,11 +186,19 @@ testable by taking as an argument the one thing that ties it to this host.
 
 ## What this does not buy
 
-**It has not run against two capsules.** The cases are a build sandbox's git
-repository, which is a strong statement about the logic and no statement at all
-about ssh, a relay socket, `updateInstead`, or 18.6 MB of real tree. The first
-run is `capsule a collect`, `capsule a fetch`, `capsule b provision <oid> --state
-a`, and it is the same shape of unrun that items 33 and 34 still carry.
+~~**It has not run against two capsules.**~~ It has, and what the run found is a
+sentence of this program's own that does not fit the target it was built for.
+`b`'s worktree is **clean** afterwards and the program says so —
+`differs from its HEAD in 0 paths` — because every path doctrine declares in
+`statePaths` is gitignored, so the state tree and HEAD cannot differ unless a
+project declares a path holding tracked content. The gloss beside the count
+(*that difference is the other agent's uncommitted work, and it is the point*) is
+therefore true of a target doctrine is not: slot `a` was dirty in exactly the way
+the sentence imagines — one modified tracked file — and none of it reached `b`,
+because a tracked-file edit travels only as the exhibit's `.capsule/dirty.diff`
+and this drops that on purpose. Both halves are right and the pair reads as a
+claim. **What an audit capsule gets from a brief is the runtime tier, not the
+other agent's working copy**, and nothing in the arc says that out loud yet.
 
 **The scope is still wrong, and this does not touch it either.** Item 32's live
 invariant — *a collect brings back the out-of-band state of the work the capsule
@@ -198,6 +208,11 @@ a new hole; it is the existing one acquiring a second reader, which is an argume
 for narrowing at collect rather than an argument against this. The design is item
 32's policy-template-plus-unit-token and nothing builds it.
 
-**Nothing measures it.** What a brief costs in wall clock, and what the push costs
-when the destination already has most of the objects, are
-[probes.md](../probes.md)'s and unmeasured.
+~~**Nothing measures it.**~~ Measured, n=1: the whole three-step provision — push,
+brief, refresh — is **1.14 s**, and a second collect of a state half the same size
+is **0.48 s** because the quarantine already holds the blobs
+([probes](../probes.md#what-the-sideband-arc-costs-end-to-end)). Nothing in the
+arc is a bottleneck; it costs less than the ssh handshakes inside it. What stays
+unmeasured is the case those figures are least like — a destination that shares
+*few* objects with the source, which is what a brief across two different base
+commits would be.

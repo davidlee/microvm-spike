@@ -11,18 +11,20 @@ halves, and the second one now has a channel, a regeneration step, an extractor
 and a way back in** ([items 32](./ledger/032-the-sideband-channel.md),
 [33](./ledger/033-provision-is-a-sequence.md),
 [34](./ledger/034-adopting-a-guest-authored-tree.md),
-[35](./ledger/035-briefing-a-capsule-with-state.md); below). Item 32 ran once
-against live slot `a`, and **item 34 has now run against what that collect
-produced** — `capsule-adopt --list` and a real layout, on the 1886-entry /
-18.6 MiB exhibit, both green
-([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
-33 and 35 are **built and evaluated, and unrun against
-a capsule** — `just check`, `just build` and `just units` are green now, so
-shellcheck-at-build has seen every render and `hostModuleUnits` has forced the
-module's three new programs, which was the specific gap 33 and 34 were carrying.
-34's logic is asserted against hand-built git objects by hand, and 35's guest half
-is asserted **in the build** (`briefCases`, fourteen cases, watched failing on two
-mutations). A capsule is what none of them has seen. Before that,
+[35](./ledger/035-briefing-a-capsule-with-state.md); below). **All four have now
+run against live capsules**, after a `~/flakes` switch put the programs that
+built them on this host: the extractor on the 1886-entry / 18.6 MiB exhibit item
+32 collected, the regeneration inside a provision and standalone, and the brief
+moving 1884 files from slot `a` into slot `b` as step (2) of one — the first time
+two capsules have been on one story
+([probes](./probes.md#what-the-sideband-arc-costs-end-to-end)). The whole arc is
+under five seconds of wall clock, and a second collect is 0.48 s. `just check`,
+`just build` and `just units` are green, so shellcheck-at-build has seen every
+render and `hostModuleUnits` has forced the module's three new programs; 34's
+logic is asserted against hand-built git objects by hand, and 35's guest half is
+asserted **in the build** (`briefCases`, fourteen cases, watched failing on two
+mutations). What no run has reached is any of the arc's *refusals* except the two
+that happened to fire. Before that,
 2026-08-13, after **the fragment vocabulary — built, in the image,
 and carrying slot `a`'s first real assignment** (below: `a` is provisioned onto
 doctrine's SL-254 slice at `caf7f2a21`, generation 4, warm baseline green in
@@ -864,25 +866,29 @@ It is in flight rather than finished, and one of the two is cheap.
    `hostModuleUnits` has forced the module's copies of `capsule-refresh`,
    `capsule-adopt` and `capsule-brief` — which was the specific class that cost a
    host rebuild when `observe` was added to one of `host/cli.nix`'s two call
-   sites. What is left is **the host run**, and the order is now four steps rather
-   than three. **Two of the four are done** — `capsule a adopt --list` against the
-   real 1886-entry exhibit and then a real adoption, both green
-   ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
-   Steps three and four — a provision to exercise `capsule-refresh`, then the
-   brief (`capsule a collect`, `capsule a fetch`, `capsule b provision <oid>
-   --state a`, the first time two capsules have been on one story) — are
-   **blocked on a `~/flakes` switch**, and the block is not merely `capsule-brief`
-   being absent from this host: item 35 changed `host/git-channel.nix`, so the
-   installed `capsule-provision` is a copy without `--state` at all. Running the
-   arc against it would exercise the pre-35 program while reading as a green run,
-   which is the trap a stale `capsule-collect` already cost this arc once. The
-   adoption above sidestepped it by running the in-tree copy at the module path's
-   quarantine (`CAPSULE_STATE=/var/lib/capsule`); a provision cannot, because it
-   goes through the relay.
+   sites. ~~What is left is **the host run**~~ — **all four steps have run, and
+   items 33, 34 and 35 have each now met a capsule**
+   ([probes](./probes.md#what-the-sideband-arc-costs-end-to-end)). `capsule a
+   adopt --list` and a real adoption first, then `just provision b
+   audit/SL-254` for `capsule-refresh` inside a provision (and `just refresh b`
+   standalone, idempotent), then `capsule a collect` → `capsule a fetch` →
+   `capsule b provision <oid> --state a`, which is the first time two capsules
+   have been on one story. The whole arc costs **under five seconds of wall clock
+   in total**, and a second collect is 0.48 s because the quarantine already
+   holds the blobs.
 
-   The host has also been rebooted since, so both slots are `inactive` and `a` is
-   no longer driving SL-254 — the constraint that shaped this whole arc is off,
-   and `a` may be stopped, started and provisioned freely now.
+   **It needed a `~/flakes` switch first, and the reason is worth keeping.** The
+   block was not merely `capsule-brief` being absent from this host: item 35
+   changed `host/git-channel.nix`, so the installed `capsule-provision` was a copy
+   with no `--state` flag at all. Running the arc against it would have exercised
+   the pre-35 program while reading as a green run — the trap a stale
+   `capsule-collect` already cost this arc once. The adoption sidestepped it by
+   running the in-tree copy at the module path's quarantine
+   (`CAPSULE_STATE=/var/lib/capsule`), which only works because `capsule-adopt`
+   has no transport; a provision cannot, because it goes through the relay.
+
+   `a` is no longer driving SL-254, so the constraint that shaped this whole arc
+   is off and both slots may be started, stopped and provisioned freely.
 2. **Scope the exhibit at collect** — item 32's live invariant, *a collect brings
    back the out-of-band state of the work the capsule was assigned, and none that
    is not*, which fails by declaration today. The design is written: the policy
@@ -981,15 +987,24 @@ It is in flight rather than finished, and one of the two is cheap.
   What replaces it is narrower — **the mode class is still hand-asserted only**,
   because no target carries a gitlink, so the one check nothing else anywhere
   holds has never been exercised by a tree a capsule wrote.
-- ~~**Items 33 and 34 are unevaluated nix.**~~ Evaluated: `just check`, `just
-  build` and `just units` green, with `hostModuleUnits` forcing all three new
-  programs on the module's `environment.systemPackages`. What replaces it is
-  narrower — **none of items 33, 34 or 35 has run against a capsule.**
-- **`capsule-brief` has never moved a real tree.** `briefCases` asserts its guest
-  half at build time against a git repository a sandbox makes, which is a strong
-  statement about the logic and no statement at all about ssh, a relay socket,
-  `updateInstead`, or 18.6 MB. The host half — resolve, validate, push — has no
-  cases at all, because it ssh's.
+- ~~**Items 33 and 34 are unevaluated nix.**~~ ~~**None of items 33, 34 or 35 has
+  run against a capsule.**~~ All three have, on the module path, after the switch
+  ([probes](./probes.md#what-the-sideband-arc-costs-end-to-end)). What replaces
+  them is one thing and it is narrower: **the arc has only ever run forwards.**
+  Every refusal it met was one of the two that happened to fire (a
+  non-fast-forward push, and the ambiguity of an over-collected tree); the
+  `code-oid` mismatch, a dirty destination worktree and an over-budget state half
+  have still never been reached by a real capsule.
+- ~~**`capsule-brief` has never moved a real tree.**~~ It has: 1884 files, 18.6 MB,
+  capsule `a`'s `implementation` state into `b`'s checkout as step (2) of a
+  provision, over the relay socket. **What that run found is a gloss that does not
+  fit its own target**: `b`'s worktree is clean afterwards and the program says
+  `differs from its HEAD in 0 paths`, because every path doctrine declares is
+  gitignored — so a brief carries the runtime tier and *not* the other agent's
+  uncommitted tracked edits, which live only in the exhibit's `.capsule/dirty.diff`
+  and are dropped at layout by design. Slot `a` was dirty in exactly that way
+  (`M skills-lock.json`) and none of it reached `b`. The count is truthful and the
+  sentence beside it describes a case doctrine does not produce.
 - **Whether an injected credential survives use.** The token rotates on refresh
   and the capsule holds a copy, not the shared file — so host and capsule drift,
   and how long a capsule's copy stays good is unknown. `capsule-inject --force`
@@ -1067,6 +1082,14 @@ It is in flight rather than finished, and one of the two is cheap.
   (they are the host's, and named to need no quoting); it is `ls` in the guest
   that misleads.
 - `vm --help` creates `.vm/--help/`. Every argument is a VM name. Papercut.
+- ~~**`just ssh` runs your command substitutions on this host.**~~ Fixed in-tree,
+  unshipped-but-not-needing-a-rebuild (a justfile is not in the closure). It cost
+  a wrong reading during the sideband arc's own host run: `just ssh b 'git -C
+  /work/doctrine rev-parse --short HEAD'` answered with a host-side sha, which
+  read as a capsule that had not been provisioned. `{{cmd}}` is text the recipe's
+  shell parses, so `$(…)` runs here; `quote(cmd)` sends one word and lets the
+  remote shell expand it. `capsule <name> ssh` was always right, because a program
+  takes argv — the fix makes the two agree ([CLAUDE.md](../CLAUDE.md)).
 
 ## Do not re-derive these
 

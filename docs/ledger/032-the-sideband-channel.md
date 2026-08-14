@@ -137,6 +137,15 @@ tree. Surplus state in an exhibit is not merely noise; it is a second, older
 answer to a question the exhibit is supposed to settle, and nothing marks which
 answer belongs to this run.
 
+**Adopting that exhibit prices it.** Laid out, **41 of the 1886 entries name the
+slice the capsule was actually driving**, and three unrelated slices are each
+larger than it; `.doctrine/slice` alone is 2127 of the 2171 filesystem entries
+and effectively all 23 MiB. `.doctrine/state/slice` happens to hold only the
+driven unit, which is the shape wanted — by accident of what that checkout held
+rather than by declaration, so it is not evidence the invariant holds. A
+unit-scoped collect is ~40 entries against 1886
+([probes](../probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+
 `.doctrine/state/boot.md` was a sharper case of the same thing, and is the one
 part of this already fixed: it is **dropped from `statePaths`**, because the
 general rule is worth more than the file. **State a consumer regenerates per

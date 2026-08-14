@@ -54,7 +54,7 @@ time it is touched.
 | [29](./029-the-record-is-front-end-written.md) | the record is front-end written, and a pin is measured rather than resolved twice | built and run on this host |
 | [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12; the pool itself is D2 |
 | [31](./031-the-fragment-vocabulary.md) | the fragment vocabulary: composition built, selection deferred | built, run, measured — supersedes item 3; selection is [Plan D](../plan-d-fleet.md) D7 |
-| [32](./032-the-sideband-channel.md) | the sideband channel: state that is not a commit | built; extraction is item 34, the state half of provisioning still deferred, the scope still open |
-| [33](./033-provision-is-a-sequence.md) | a provision is not finished when the push lands | built and evaluated since item 34's round; unrun — step (3) of item 32's inbound half |
-| [34](./034-adopting-a-guest-authored-tree.md) | adopting a guest-authored tree: what actually needed checking | built, evaluated, logic asserted against real git objects; unrun against a capsule |
-| [35](./035-briefing-a-capsule-with-state.md) | briefing a capsule with another one's state | built, evaluated, guest half asserted at build time (`briefCases`); unrun against two capsules — closes item 32's inbound step (2) |
+| [32](./032-the-sideband-channel.md) | the sideband channel: state that is not a commit | built and run; extraction is item 34 and the inbound half is item 35, both now run — **the scope is still open, and now measured: 41 of 1886 entries** |
+| [33](./033-provision-is-a-sequence.md) | a provision is not finished when the push lands | built, evaluated and **run** — inside a provision and standalone; step (3) of item 32's inbound half |
+| [34](./034-adopting-a-guest-authored-tree.md) | adopting a guest-authored tree: what actually needed checking | built, evaluated, logic asserted against real git objects, **run** on the real 1886-entry exhibit |
+| [35](./035-briefing-a-capsule-with-state.md) | briefing a capsule with another one's state | built, evaluated, guest half asserted at build time (`briefCases`), **run** across two live capsules — closes item 32's inbound step (2) |

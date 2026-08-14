@@ -711,6 +711,57 @@ the one choke point both `capsule-adopt` and `capsule-brief` read through.
 `.doctrine/state/slice` is already narrow, but by accident of what that checkout
 held rather than by declaration.
 
+## What the sideband arc costs, end to end
+
+The first run of items 33, 34 and 35 against live capsules, on the module path
+with the host switched to the checkout that built them. Slot `a` holds the
+finished SL-254 work; slot `b` is the audit capsule, empty. Every figure below is
+n=1 and none of them is a bottleneck — the arc is cheaper than the ssh handshakes
+in it, which is the useful shape rather than any single number.
+
+| step | command | wall | what it moved |
+| --- | --- | --- | --- |
+| provision, plain | `just provision b audit/SL-254` | **2.38 s** | push + `doctrine boot` — the first run of `capsule-refresh` inside a provision |
+| refresh, standalone | `just refresh b` | **0.22 s** | `Unchanged` — idempotent on a checkout already booted |
+| collect, second ever | `just collect a` | **0.48 s** | `44f4d3005..933d99234`, 1885 files / 18.6 MB of state |
+| fetch | `just fetch a` | **0.14 s** | both refs, quarantine → `~/dev/doctrine` |
+| provision + brief + refresh | `just provision b <oid> --state a --force` | **1.14 s** | push, 1884 files laid into `b`, then `doctrine boot` |
+
+**A second collect is nearly free, and that is the object store rather than the
+program.** 0.48 s for a state half of the same size as the first, because the
+1885 blobs are already in the quarantine and only the new commit and tree cross
+the wire. The quarantine holds **3 packs / 42.33 MiB** for two state commits and
+one code branch. The code half did not move between the two collects, so this
+prices *re-collecting state that has barely changed*, which is the case a
+long-running capsule generates most of.
+
+**The three-step provision is one motion.** `--state` pushed the code, laid
+capsule `a`'s collected `implementation` state into `b`'s checkout, and
+regenerated `b`'s derived state, in 1.14 s — with 2127 entries under
+`.doctrine/slice` and 2833 symlinks present in `b` afterwards, and no `.capsule/`,
+which is item 35's drop-at-layout doing its job.
+
+**And a brief carried nothing of the other agent's *tracked* work, by
+construction.** `b`'s `git status --porcelain` is **empty** after the brief, and
+`capsule-brief` said so itself: `differs from its HEAD in 0 paths`. Slot `a` is
+dirty — one modified tracked file, `skills-lock.json` — and that edit exists in
+the exhibit only as `.capsule/dirty.diff`, which a brief drops. So for doctrine
+the message's gloss (*that difference is the other agent's uncommitted work*)
+describes a case this target does not produce: every declared `statePath` is
+gitignored, so the state tree and HEAD cannot differ unless a project declares a
+path holding tracked content. Not a defect — `dirty.diff` is dropped for the
+reason item 35 gives, and the count is truthful — but **an audit capsule reading
+a brief is reading the runtime tier, not the other agent's working copy**, and
+nothing in the arc says so out loud.
+
+Two refusals fired on the way, both correctly and for the reason they name. The
+first `--state` provision was rejected non-fast-forward — `b` was at
+`audit/SL-254`'s tip and the code-oid is behind it — and named both causes (a
+dirty guest worktree, or discarding guest commits) before suggesting `--force`.
+`--force` is right here only because `b` is a scratch audit slot; the ordering
+that refusal enforces is the whole reason collect precedes fetch precedes
+provision.
+
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the

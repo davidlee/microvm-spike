@@ -415,22 +415,29 @@ proxy-log name:
 allowed:
   @cat "${CAPSULE_ALLOWLIST:-$(just _target allowlist)}"
 
-# A trailing command is word-split rather than carried as argv: just hands a
-# recipe its arguments by interpolation, not on a command line, and ssh joins its
-# remote words with spaces anyway. Quote-sensitive commands want a heredoc into an
-# interactive session; this is a human's front end. Which door and which transport
-# is `capsule <name> ssh`'s question, not a recipe's (host/cli.nix).
+# A trailing command reaches the guest as one word, via `quote`, and the reason
+# is stronger than tidiness. just hands a recipe its arguments by *interpolation*
+# rather than on a command line, so a bare `{{cmd}}` is text the recipe's own
+# shell then parses: `$(…)` and backticks run **on this host**, and their output
+# is what the guest is asked. `just ssh b 'echo $(hostname)'` answered `Sleipnir`
+# — a diagnostic that reads as the capsule's and is the host's, which is the one
+# failure a door exists to prevent. `capsule <name> ssh` never had it, because a
+# program takes argv. Quoting once here makes the two agree; the remote shell
+# does the expanding, which is where it was always meant to happen. The empty
+# case has to stay distinguishable, since no command means an interactive shell.
+# Which door and which transport is `capsule <name> ssh`'s question, not a
+# recipe's (host/cli.nix).
 #
 # a shell in the guest as the agent — TUIs work here, not on the console. With a
 # command it runs that instead, which is the only way to ask a capsule something
 # without becoming a human reading a prompt: every capsule is the same image, so
 # every one of them says `agent@capsule` and the prompt identifies nothing.
 ssh name="" *cmd:
-  @capsule {{name}} ssh {{cmd}}
+  @c={{quote(cmd)}}; if [ -z "$c" ]; then capsule {{name}} ssh; else capsule {{name}} ssh "$c"; fi
 
 # root in the guest — admin from outside the jail; the agent has no path to it
 admin name="" *cmd:
-  @capsule {{name}} admin {{cmd}}
+  @c={{quote(cmd)}}; if [ -z "$c" ]; then capsule {{name}} admin; else capsule {{name}} admin "$c"; fi
 
 # a fresh capsule has fresh host keys at the same address, because they live on
 # its volume — so the interactive paths above refuse. The programs don't: they

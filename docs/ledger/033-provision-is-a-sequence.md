@@ -1,13 +1,17 @@
 # NOTES item 33 — a provision is not finished when the push lands
 
-*State: built; **evaluated** since [item 34](./034-adopting-a-guest-authored-tree.md)'s
-round built the devshell green, which is shellcheck-at-build on this program too.
-Still unrun against a capsule. Step (3) of
-[item 32](./032-the-sideband-channel.md)'s inbound half. Written in a jail with
-no `nix`, so it has had neither a `nix build` nor a run against a capsule — the
-guest script and both host programs were rendered and shellchecked by hand, and
-that is [item 1](./001-what-has-been-run.md)'s distinction, not a substitute for
-it.*
+*State: built, **evaluated**, and **run against a capsule** — both ways:
+`capsule-refresh` inside a provision (`just provision b audit/SL-254`, 2.38 s
+whole, `doctrine boot` writing `.doctrine/state/boot.md`) and standalone (`just
+refresh b`, 0.22 s, reporting `Unchanged`, so it is idempotent on a checkout that
+is already booted). Step (3) of
+[item 32](./032-the-sideband-channel.md)'s inbound half, and it has now also run
+as step (3) of a full three-step provision with `--state`
+([item 35](./035-briefing-a-capsule-with-state.md),
+[probes](../probes.md#what-the-sideband-arc-costs-end-to-end)). It was written in
+a jail with no `nix`, so the render and the shellcheck were the human's before
+they were the build's — that is [item 1](./001-what-has-been-run.md)'s
+distinction, and both have since been the build's.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 

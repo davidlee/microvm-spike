@@ -1,12 +1,16 @@
 # NOTES item 34 — adopting a guest-authored tree: what actually needed checking
 
-*State: built and **evaluated** — the devshell built green on the host, so
-`writeShellApplication`'s shellcheck ran on the real render rather than on a
-hand-made copy of it. The **logic** is run and asserted against hand-built git
-objects. Written in a jail with no `nix` and no `alejandra`, like
-[item 33](./033-provision-is-a-sequence.md), so the eval was the human's; `just
-build` (`hostModuleUnits`, `guardCases`, the module's copies), `alejandra` and a
-run against a real capsule's exhibit are still owed.*
+*State: built, **evaluated**, and **run against the real exhibit** — `--list`
+first, which writes nothing, then a real layout into an empty directory, on slot
+`a`'s collected `implementation` state: 1886 entries out, 2171 filesystem entries
+and 23 MiB in, **253 symlinks and no broken link**
+([probes](../probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+The **logic** is separately run and asserted against hand-built git objects, which
+is where the refusals live — and the mode class stays hand-asserted only, because
+no target carries a gitlink. Written in a jail with no `nix` and no `alejandra`,
+like [item 33](./033-provision-is-a-sequence.md), so the eval was the human's
+before `just build` (`hostModuleUnits`, `guardCases`, the module's copies) and
+`alejandra` were owed and paid.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
