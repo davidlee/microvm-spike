@@ -184,7 +184,8 @@ state directory. The commands above are what they run.
 instance's name as a flake attribute, so it is the one part of a capsule's life
 that cannot happen without the flake — which is why `just up` still exists.
 Everything after it is `capsule <name> start | stop | ssh | admin | provision |
-inject | baseline | collect | setup`, installed on the host by the module, so a
+inject | baseline | collect | refresh | adopt | brief | setup`, installed on the
+host by the module, so a
 human logged in with no repo has the whole lifecycle. The recipes delegate to it
 rather than keeping a second copy.
 
@@ -371,6 +372,25 @@ just branches              # what is in there
 just fetch                 # second step: quarantine -> the repo you work in
 ```
 
+A result has a second half, and it is not a commit: the target's gitignored
+runtime state plus whatever the agent never committed. When `target.nix` declares
+`statePaths`, the same collect brings that back too — one atomic fetch, so nobody
+sees a result commit without the state that goes with it — and there are two ways
+out of quarantine for it:
+
+```
+just adopt a /tmp/exhibit --list   # validate and report, writing nothing
+just adopt a /tmp/exhibit          # lay it out here, for a human to read
+just brief b a                     # or into capsule b, for a second agent
+```
+
+`adopt` and `brief` both refuse a tree that would not stay inside where it is
+going, and `brief` additionally refuses unless both capsules are at the commit
+that state was the state of
+([items 32](docs/ledger/032-the-sideband-channel.md),
+[34](docs/ledger/034-adopting-a-guest-authored-tree.md),
+[35](docs/ledger/035-briefing-a-capsule-with-state.md)).
+
 ## Commands
 
 | command             | what                                                       |
@@ -383,9 +403,16 @@ just fetch                 # second step: quarantine -> the repo you work in
 | `capsule-collect`   | fetch the guest's refs into a quarantine repo named for it.  |
 | `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` — credentials into `/work/home`, secrets to `/work/.env`. `capsule <name> start` runs it. |
 | `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
+| `capsule-refresh`   | run `target.nix`'s `refresh` in the guest's checkout — the step a provision takes itself, on its own. |
+| `capsule-adopt DIR` \| `--list` | validate the collected state half and lay it out in `DIR`, which must be empty or absent. |
+| `capsule-brief SRC[:STAGE]` | put capsule `SRC`'s collected state into this capsule's checkout. Both must be at the same commit. |
 
-Those four take `--capsule <name>`, or `CAPSULE_NAME`, to say which capsule they
-mean — and refuse without one, since a slot's name gives nothing away. On the
+The last three exist only while `target.nix` declares a `refresh` or any
+`statePaths`; a target that omits them gets no program rather than one that
+cannot work.
+
+Each of them takes `--capsule <name>`, or `CAPSULE_NAME`, to say which capsule it
+means — and refuse without one, since a slot's name gives nothing away. On the
 devshell path there is only one guest, and an undeclared name is refused rather
 than quietly served. `capsule <name> <verb>` is the
 front end that supplies the flag and picks the copy of each that can reach the

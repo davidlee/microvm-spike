@@ -73,6 +73,11 @@
   selectCapsule,
   # Where the exhibit lives and what its refs are called (host/quarantine.nix).
   quarantine,
+  # Whether a guest-authored tree may be written at all (host/exhibit.nix). Lived
+  # here until `capsule-brief` needed the same three functions for the inbound
+  # direction, which is where a check with two callers becomes a construction
+  # rather than a copy (NOTES item 35).
+  exhibit,
 }:
 pkgs.writeShellApplication {
   name = "capsule-adopt";
@@ -80,6 +85,7 @@ pkgs.writeShellApplication {
   text = ''
     ${selectCapsule}
     ${quarantine.fragment}
+    ${exhibit.fragment}
 
     usage() {
       echo "usage: capsule-adopt [--capsule <name>] [--stage <name>] <dir>"
@@ -162,103 +168,12 @@ pkgs.writeShellApplication {
 
     # -------------------------------------------------------------- the check
     #
-    # Does a symlink stay inside the exhibit? Resolved lexically, against the
-    # tree rather than the filesystem: the target does not exist yet, and
-    # `realpath` would answer a question about this host instead. 0 contained,
-    # 1 above the root, 2 absolute.
-    #
-    # Depth, not a path, because the answer is the whole use: whether the walk
-    # ever goes above where it started. `$dir` is the link's own directory, which
-    # is what makes per-link containment enough for a *chain* of links — each one
-    # resolves against its own position, so following a contained link lands
-    # somewhere contained, and composing two cannot arrive anywhere a single one
-    # could not.
-    withinExhibit() {
-      local dir="$1" target="$2" part depth=0
-      local -a parts
-      case "$target" in /*) return 2 ;; esac
-      IFS=/ read -ra parts <<<"''${dir:+$dir/}$target"
-      for part in ''${parts[@]+"''${parts[@]}"}; do
-        case "$part" in
-          "" | .) ;;
-          ..)
-            depth=$((depth - 1))
-            [ "$depth" -ge 0 ] || return 1
-            ;;
-          *) depth=$((depth + 1)) ;;
-        esac
-      done
-      return 0
-    }
-
-    # Every refusal, not the first: an operator deciding whether an exhibit is
-    # readable at all wants the whole picture, and a program that stops at entry
-    # 1 of 1886 turns one look into N looks.
-    bad=()
-    total=0
-    blobs=0
-    links=0
-    bytes=0
-    while IFS= read -r -d "" entry; do
-      total=$((total + 1))
-      meta="''${entry%%$'\t'*}"
-      path="''${entry#*$'\t'}"
-      # `ls-tree -l` pads the size field, so this splits on whitespace rather
-      # than at a fixed offset. A gitlink's size is `-`.
-      read -r mode _ oid size <<<"$meta"
-      case "$size" in
-        "" | *[!0-9]*) ;;
-        *) bytes=$((bytes + size)) ;;
-      esac
-
-      case "$path" in
-        /*) bad+=("$path — an absolute path") ;;
-      esac
-      IFS=/ read -ra comps <<<"$path"
-      for c in ''${comps[@]+"''${comps[@]}"}; do
-        case "$c" in
-          . | .. | .git)
-            bad+=("$path — a '$c' component: it would write outside the exhibit, or into the repository holding it")
-            break
-            ;;
-        esac
-      done
-
-      case "$mode" in
-        100644 | 100755) blobs=$((blobs + 1)) ;;
-        120000)
-          links=$((links + 1))
-          # One `cat-file` per link — 253 of them on the first real tree, which
-          # is a fraction of a second and not worth a `--batch` pipeline and the
-          # second parse that comes with it.
-          target=$(git --git-dir="$q" cat-file blob "$oid")
-          dir=""
-          case "$path" in */*) dir="''${path%/*}" ;; esac
-          rc=0
-          withinExhibit "$dir" "$target" || rc=$?
-          case "$rc" in
-            0) ;;
-            2) bad+=("$path -> $target — an absolute target: it points at this host's filesystem, not into the exhibit") ;;
-            *) bad+=("$path -> $target — resolves above the exhibit root") ;;
-          esac
-          ;;
-        160000)
-          bad+=("$path — a gitlink: a commit this quarantine may not have, and an empty directory if it were extracted")
-          ;;
-        *)
-          bad+=("$path — mode $mode, which is neither a file nor a symlink")
-          ;;
-      esac
-    done < <(git --git-dir="$q" ls-tree -r -l -z "$commit")
-
-    if [ ''${#bad[@]} -gt 0 ]; then
-      echo "capsule-adopt: refusing ''${#bad[@]} of $total entries — this tree is" >&2
-      echo "  guest-authored, and these would not stay inside the directory named:" >&2
-      printf '  %s\n' "''${bad[@]}" >&2
-      echo "  Nothing was written. 'git --git-dir=$q ls-tree -r -l $commit' is the" >&2
-      echo "  whole tree, if this is a capsule worth looking at by hand." >&2
-      exit 1
-    fi
+    # Three classes, one of which nothing else anywhere holds — and the summary
+    # below is printed *after* the refusal rather than before, because the whole
+    # arrangement is that the check is upstream of the write and not beside it
+    # (host/exhibit.nix).
+    readExhibit "$q" "$commit"
+    refuseExhibit "$q" "$commit"
 
     echo "capsule-adopt: $total entries ($blobs files, $links symlinks), $bytes bytes"
     echo "  top level:"

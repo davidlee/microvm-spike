@@ -82,7 +82,7 @@ changes until they are built.
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
-| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)) | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
+| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
 | `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
@@ -233,12 +233,13 @@ the capsule as an argument rather than being built per capsule
 
 | command | arguments | touches the target repo? |
 | --- | --- | --- |
-| `capsule-provision` | `[--capsule <name>] <ref> [--force]` — any commit-ish in `path` | yes: reads it, as you. The only program that does. It also runs `refresh` in the guest once the push has landed, when the target declares one — a provision is not finished when the push lands ([item 33](./ledger/033-provision-is-a-sequence.md)) |
+| `capsule-provision` | `[--capsule <name>] <ref> [--force] [--state <capsule>[:<stage>]]` — any commit-ish in `path` | yes: reads it, as you. The only program that does. A provision is a three-step sequence: push, then `--state` if given ([item 35](./ledger/035-briefing-a-capsule-with-state.md)), then `refresh` in the guest when the target declares one ([item 33](./ledger/033-provision-is-a-sequence.md)) — it is not finished when the push lands |
 | `capsule-collect` | `[--capsule <name>] [--stage <name>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)) |
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
 | `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
 | `capsule-refresh` | `[--capsule <name>]` | no: runs `refresh` in the guest's checkout. The same step `capsule-provision` takes itself — separate for a hand checkout in the guest, and for retrying the half that failed. It does **commit in the guest** when the refresh writes tracked files, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) |
 | `capsule-adopt` | `[--capsule <name>] [--stage <name>] <dir>` or `--list` | no, and it does not touch the *capsule* either — the first program here with no transport. Reads the quarantine, validates a guest-authored tree (symlink targets, gitlinks, paths), lays it out with git's own writer into a directory that must be empty or absent ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)) |
+| `capsule-brief` | `[--capsule <name>] <source>[:<stage>]` | no: reads *another* capsule's quarantine and pushes that state commit into this one's checkout, so a second agent can read the first's working state. Validated host-side by the same check `capsule-adopt` runs, and refused guest-side unless both capsules are at the state's `code-oid` ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) |
 
 `<ref>` is required, and there is nothing left it could be defaulted to: it is
 a ref in the *target repo*, and `work` is the guest's branch, which is the whole
@@ -252,7 +253,7 @@ Environment, in the order a program consults it:
 | `CAPSULE_NAME` | which capsule, when `--capsule` is not given. There is no default — `capsules.default` was deleted ([item 28](./ledger/028-a-slot-has-no-default.md)) and a program refuses without a name |
 | `CAPSULE_REPO` | overrides `target.nix`'s `path` for `capsule-provision` |
 | `CAPSULE_ROOT` | this checkout, for resolving `allowlist` and the default state directory |
-| `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise. Written by `capsule-collect`, read by `capsule-adopt`; one definition, `host/quarantine.nix` |
+| `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise. Written by `capsule-collect`, read by `capsule-adopt` and `capsule-brief`; one definition, `host/quarantine.nix` |
 | `CAPSULE_ALLOWLIST` | the allowlist file, overriding the target's |
 
 The guest initiates nothing. It has no remote and no route to one, so what used

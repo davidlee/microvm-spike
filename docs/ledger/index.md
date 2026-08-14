@@ -57,3 +57,4 @@ time it is touched.
 | [32](./032-the-sideband-channel.md) | the sideband channel: state that is not a commit | built; extraction is item 34, the state half of provisioning still deferred, the scope still open |
 | [33](./033-provision-is-a-sequence.md) | a provision is not finished when the push lands | built and evaluated since item 34's round; unrun — step (3) of item 32's inbound half |
 | [34](./034-adopting-a-guest-authored-tree.md) | adopting a guest-authored tree: what actually needed checking | built, evaluated, logic asserted against real git objects; unrun against a capsule |
+| [35](./035-briefing-a-capsule-with-state.md) | briefing a capsule with another one's state | built, evaluated, guest half asserted at build time (`briefCases`); unrun against two capsules — closes item 32's inbound step (2) |

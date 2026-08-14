@@ -243,14 +243,17 @@ extractor. What *is* now true is the other half of item 32's sentence: the
 mode-and-prefix check is no longer the thing an operator has to remember, so
 scope is the only thing left in a pair of hands.
 
-**Step (2) is still blocked, but less.** `capsule-provision --state <ref>` —
-pushing a state commit *in* and materialising it guest-side — wants this same
-validated extraction, guest-side. The program now exists and its checks are
-written down and exercised; what is not decided is whether the guest runs this
-text pushed on stdin (`host/guest-exec.nix`'s non-login class, like `observe` and
-`state-snapshot`) or whether the host validates before pushing and the guest only
-lays out. The second is the better shape — validation belongs where the policy
-is — and neither is built.
+~~**Step (2) is still blocked, but less.**~~ **Built, and the second shape is the
+one that shipped** ([item 35](./035-briefing-a-capsule-with-state.md)): the host
+validates before it pushes and the guest only lays out, because the guest is the
+confined side and a control that runs there is a control the confined thing is in
+a position to not run.
+
+The consequence for *this* file is that the check above is no longer in it.
+`host/exhibit.nix` is the same three functions, spliced into `capsule-adopt` and
+`capsule-brief` alike — **anything built at two call sites needs one
+construction, not two careful ones**, and this is the instance where the second
+copy would have been the security control. Nothing about the check changed.
 
 **A gitlink is refused rather than reported.** If a target ever legitimately
 carries a submodule in its out-of-band state, this refuses its whole exhibit. No

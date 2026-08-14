@@ -1,8 +1,9 @@
 # NOTES item 32 — the sideband channel: state that is not a commit
 
 *State: built, and run once against a live capsule; extraction is
-[item 34](./034-adopting-a-guest-authored-tree.md) and no longer by hand. The
-allowlist's scope, and the state half of provisioning, are still open.*
+[item 34](./034-adopting-a-guest-authored-tree.md) and no longer by hand, and the
+inbound half is [item 35](./035-briefing-a-capsule-with-state.md) and no longer
+absent. The allowlist's scope is the one thing here still open.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -153,10 +154,11 @@ runs in a fresh checkout once it exists*. That is the generic capability the rul
 needs (value: `doctrine boot`), and until it lands, a tree that wants the
 snapshot regenerates it by hand. Note the shape it shares with the state half of
 provisioning, below: both are the inbound direction of this item, and neither is
-built. — **The hook is built**: `target.nix`'s `refresh`, run by
+built. — **Both are built now**: `target.nix`'s `refresh`, run by
 `capsule-provision` after the push and separately as `capsule-refresh`
-([item 33](./033-provision-is-a-sequence.md)). The state half of provisioning is
-still not.
+([item 33](./033-provision-is-a-sequence.md)), and the state half as
+`capsule-brief` ([item 35](./035-briefing-a-capsule-with-state.md)). A provision
+is the three-step sequence this paragraph predicted, in the order it predicted.
 
 **Scoped in the wrong place.** The narrowing that made the first adoption correct
 happened at *hand extraction* — an operator chose pathspecs — not at collect. So
@@ -266,11 +268,22 @@ and prefixes and then archiving with pathspecs — is the obvious next piece and
 deliberately not in this commit: one hand adoption first, so the program is
 written against what the job actually turned out to be.
 
-**Provisioning has no state half.** `capsule-provision --state <ref>` pushing a
-state commit *in*, and the guest seed materialising it through the same
-validated extraction, is what closes the loop for a fresh audit capsule that must
-see the implementation capsule's phase sheets. The ref name and the `-p` parent
-are here to reserve it; nothing builds on the chain yet.
+~~**Provisioning has no state half.**~~ **Built — `capsule-brief`, and
+`capsule-provision --state <capsule>[:<stage>]`**
+([item 35](./035-briefing-a-capsule-with-state.md)). Two things this paragraph
+guessed turned out otherwise. It is **not the guest seed** that materialises it,
+because the capsule that needs briefing is a provisioned one and a seed runs at
+boot; and the extraction is **not the same one**, because item 34's checks run
+*host*-side before the push, the guest only laying the tree out — validation
+belongs where the policy is, and the guest is the confined side. What the
+paragraph got right is that it wanted the ref name and the parent: the inbound
+commit lands at the source stage's ref, so a same-stage collect chains onto what
+a capsule was given. Chaining *across* stage names is still reserved.
+
+The half that was not predicted at all is what makes it safe: `code-oid` becomes
+a **control** rather than a note. A state tree carries worktree content, so the
+guest refuses unless its own HEAD is the commit that state was the state of —
+laid over anything else it composes a worktree that never existed anywhere.
 
 **A collect now writes to the guest.** It ssh's a script that creates one ref
 under `refs/capsule/state/` and a temp file under the guest's `TMPDIR`. It never

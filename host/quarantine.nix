@@ -20,7 +20,7 @@
 # checkout's `.vm/host`, and neither is a nix value. Every consumer here has
 # `$capsule` in scope before it uses any of this, because the transport fragment
 # is the first thing in all of them.
-{
+rec {
   # Sets `root` and `state`. `CAPSULE_ROOT` is the checkout, `CAPSULE_STATE` the
   # directory this host keeps per-capsule state in — a wrapped program on `$PATH`
   # has the second and must not derive it from `$PWD`, which is the trap the
@@ -35,7 +35,15 @@
   # The capsule names its own quarantine (NOTES item 20): whatever a capsule is
   # called is what its refs and its quarantine are called, so there is no second
   # identity to pass around and nothing to keep in step.
-  repo = ''"$state/collect/$capsule.git"'';
+  #
+  # `…Of` takes the shell expression holding a name, because **one program reads
+  # two capsules' quarantines**: `capsule-brief` puts capsule `a`'s collected
+  # state into capsule `b` (NOTES item 35), so the source is an argument and the
+  # destination is `$capsule`. The bare forms are that function at `$capsule`,
+  # which is what every other consumer means — one definition, not a second
+  # careful one.
+  repoOf = name: ''"$state/collect/${name}.git"'';
+  repo = repoOf "$capsule";
 
   # Under which ref a collected half lands. Host-authored, always: the guest
   # chooses what is *in* its refs and never where they land (NOTES item 18), and
@@ -48,23 +56,33 @@
   # Named for the halves rather than for the path segments, because `state` is
   # also the shell variable `fragment` sets and one of those two readings has to
   # give way.
-  codeRefs = ''refs/capsule/$capsule/heads'';
-  stateRefs = ''refs/capsule/$capsule/state'';
+  codeRefsOf = name: ''refs/capsule/${name}/heads'';
+  stateRefsOf = name: ''refs/capsule/${name}/state'';
+  codeRefs = codeRefsOf "$capsule";
+  stateRefs = stateRefsOf "$capsule";
 
-  # A stage name goes on the end of a ref, so it is bounded to what a ref may
-  # hold — and bounded the same way item 32 bounds an assignment's unit token,
-  # for the same reason: an opaque identifier may name an instance and may never
-  # widen a perimeter. `git update-ref` would refuse a malformed name anyway;
-  # refusing here says *which* argument was wrong, at the end that has it in
-  # argv, and before a round trip rather than after one.
-  checkStage = ''
-    case "$stage" in
+  # An opaque identifier an operator typed, on its way to the end of a ref or of
+  # a path. Bounded to `[A-Za-z0-9._-]+` — the same bound item 32 puts on an
+  # assignment's unit token, for the same reason: such a name may identify an
+  # instance and may never widen a perimeter. `git update-ref` would refuse a
+  # malformed ref anyway, and nothing would refuse a malformed directory; both
+  # are caught here, at the end that has the argument in argv and before a round
+  # trip rather than after one.
+  #
+  # `value` is the shell expression holding it and `shown` is what the operator
+  # actually typed, because the two differ once one flag carries two tokens
+  # (`--state a:implementation`) and a refusal that quotes the wrong one sends
+  # the reader looking in the wrong place.
+  checkToken = value: shown: ''
+    case ${value} in
       "" | *[!A-Za-z0-9._-]*)
-        echo "''${0##*/}: '--stage $stage' — a stage names one link of a capsule's" >&2
-        echo "  chain and goes on the end of a ref, so it is [A-Za-z0-9._-]+:" >&2
-        echo "  no slash, no '..', nothing that could name a different ref." >&2
+        echo "''${0##*/}: ${shown} — that names one link of a capsule's chain, or" >&2
+        echo "  the capsule itself, and it goes on the end of a ref and of a path." >&2
+        echo "  So it is [A-Za-z0-9._-]+: no slash, no '..', nothing that could" >&2
+        echo "  name a different ref or a different directory." >&2
         exit 1
         ;;
     esac
   '';
+  checkStage = checkToken ''"$stage"'' "'--stage $stage'";
 }

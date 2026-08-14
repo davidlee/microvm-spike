@@ -69,9 +69,10 @@ fmt-check:
   alejandra -c {{nix_paths}}
 
 # the host-side scripts — shellcheck runs at build, so this is the real lint.
-# capsule-baseline, capsule-refresh and capsule-adopt exist only while the target
-# declares a `baseline` / a `refresh` / any `statePaths`; a target that omits one
-# drops that line, and the build says so rather than skipping it.
+# capsule-baseline, capsule-refresh, capsule-adopt and capsule-brief exist only
+# while the target declares a `baseline` / a `refresh` / any `statePaths`; a
+# target that omits one drops that line, and the build says so rather than
+# skipping it.
 # `guardCases` is here rather than in its own recipe on purpose: a case that
 # fails fails the build, which is the only way a check gets run every time.
 build:
@@ -81,17 +82,22 @@ build:
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
     '.#capsule-baseline' '.#capsule-refresh' '.#capsule-adopt' \
-    '.#hostModuleUnits' '.#guardCases'
+    '.#capsule-brief' \
+    '.#hostModuleUnits' '.#guardCases' '.#briefCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has
 units:
   @cat "$(nix build --no-link --print-out-paths '.#hostModuleUnits')"
 
-# what the guard decides, against a stubbed kernel: the verdicts a live host can
-# only produce by unnaming a namespace under a running guest
+# what a host-side program's logic decides, against a substitute for the one
+# thing tying it to this host: the guard against a stubbed kernel, the brief
+# runner against a throwaway checkout. Both are verdicts a live host can only
+# produce destructively — by unnaming a namespace under a running guest, or by
+# dirtying one capsule's worktree to watch another refuse it.
 cases:
   @cat "$(nix build --no-link --print-out-paths '.#guardCases')"
+  @cat "$(nix build --no-link --print-out-paths '.#briefCases')"
 
 # the guest closure and its runner — the slow one
 build-vm:
@@ -219,6 +225,12 @@ collect name="":
 # half is `fetch`. `just adopt a /tmp/exhibit`, or a bare `--list` to look.
 adopt name="" *args:
   @capsule {{name}} adopt {{args}}
+
+# another capsule's collected state into this one's checkout, so a second agent
+# can read the first one's working state. Both must be at the same commit.
+# `just brief b a` or `just brief b a:implementation`.
+brief name="" spec="":
+  @capsule {{name}} brief {{spec}}
 
 # a fresh capsule to green: provision, inject, baseline
 setup name="" ref="":

@@ -110,7 +110,8 @@
       ["provision" "collect" "inject"]
       ++ lib.optional (hostPrograms.baseline != null) "baseline"
       ++ lib.optional (hostPrograms.refresh != null) "refresh"
-      ++ lib.optional (hostPrograms.adopt != null) "adopt";
+      ++ lib.optional (hostPrograms.adopt != null) "adopt"
+      ++ lib.optional (hostPrograms.brief != null) "brief";
   };
 
   # The one program that runs at guest *root*, and the reason a stop on this
@@ -527,7 +528,11 @@ in {
         # Wrapped like the other two that keep state: it reads the quarantine
         # `capsule-collect` wrote, so it needs the same `CAPSULE_STATE` and must
         # not derive one from `$PWD`.
-        ++ lib.optional (hostPrograms.adopt != null) (wrap "capsule-adopt" hostPrograms.adopt);
+        ++ lib.optional (hostPrograms.adopt != null) (wrap "capsule-adopt" hostPrograms.adopt)
+        # Wrapped for the quarantine's sake like the other three, and it is the
+        # only one that reads a quarantine belonging to a capsule other than the
+        # one it acts on — which is the whole verb (NOTES item 35).
+        ++ lib.optional (hostPrograms.brief != null) (wrap "capsule-brief" hostPrograms.brief);
 
       # Rotated rather than truncated: it is the record of every egress attempt
       # (NOTES open item 15). copytruncate, so tinyproxy needs no signal. One

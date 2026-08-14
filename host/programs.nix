@@ -55,6 +55,23 @@
   # reads it.
   quarantine = import ./quarantine.nix;
 
+  # Whether a guest-authored tree may be written to a disk. Two programs write
+  # one now — `capsule-adopt` onto this host, `capsule-brief` into another
+  # capsule — so the check is a construction rather than a copy (NOTES item 35).
+  exhibit = import ./exhibit.nix;
+
+  # Transport, plus git's own view of it. git wants a command line rather than
+  # argv, so the array is requoted here — `%q` because git runs `GIT_SSH_COMMAND`
+  # through a shell, and the netns form has a ProxyCommand with spaces in it that
+  # only quoting survives. Built once because three programs push or fetch over
+  # this door, and a mechanical conversion in three copies is three chances to
+  # get the quoting wrong in one of them.
+  gitSsh = ''
+    ${transport}
+    GIT_SSH_COMMAND=$(printf '%q ' "''${ssh_cmd[@]}")
+    export GIT_SSH_COMMAND
+  '';
+
   # Who the host talks to when it talks to a capsule. Named once: the git
   # channel needs it inside a URL, the other two as an ssh destination.
   guestHost = "agent@${net.guest}";
@@ -110,8 +127,27 @@
         workdir = target.guestPath;
       };
 
+  # The inbound state half: one capsule's collected state pushed into another's
+  # checkout, so a second agent can read the first one's working state (NOTES
+  # item 35). `null` on the same condition as the snapshot and the extractor — a
+  # target with no `statePaths` has no state refs, so there is nothing to brief a
+  # capsule with and a flag for it would be a flag that always refuses.
+  #
+  # The third corner of one decision: what a collect takes out
+  # (`stateSnapshot`), what lays it on this host (`adopt`), and what puts it into
+  # another capsule are three directions over one tree and one check.
+  briefHook =
+    if stateSnapshot == null
+    then null
+    else
+      import ./brief.nix {
+        inherit pkgs lib guestExec guestHost guestRepo gitSsh quarantine exhibit;
+        workdir = target.guestPath;
+      };
+
   gitChannel = import ./git-channel.nix {
-    inherit pkgs target workBranch guestRepo guestHost transport quarantine;
+    inherit pkgs target workBranch guestRepo guestHost gitSsh quarantine;
+    brief = briefHook;
     snapshot = stateSnapshot;
     # The command line, not the module: the git channel runs a refresh and has no
     # business knowing what one is built out of.
@@ -150,8 +186,25 @@ in {
     then null
     else
       import ./adopt.nix {
-        inherit pkgs selectCapsule quarantine;
+        inherit pkgs selectCapsule quarantine exhibit;
       };
+
+  # The other end of the same tree, and the reason `capsule-adopt`'s check became
+  # a construction: this one validates host-side and pushes, and the guest only
+  # lays out, because validation belongs where the policy is (NOTES item 35).
+  brief =
+    if briefHook == null
+    then null
+    else briefHook.program;
+
+  # The guest half of a brief, at a checkout of the caller's choosing — the seam
+  # `briefCases` in `flake.nix` runs the real text through. Exported here rather
+  # than reached for through `brief`, because a program is a store path and a
+  # case suite needs the thing *before* it becomes one.
+  briefRunner =
+    if briefHook == null
+    then null
+    else briefHook.runnerFor;
 
   # The same refresh `capsule-provision` runs, on its own: a human who has just
   # done a hand `git checkout` in the guest wants it and no push, and a provision

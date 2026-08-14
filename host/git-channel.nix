@@ -48,29 +48,27 @@
   workBranch,
   # The guest's checkout as a git URL. Jail-shaped, so injected.
   guestRepo,
-  # Which capsule, and how to reach it: a shell fragment that sets `$capsule` and
-  # `ssh_cmd` and consumes `--capsule` out of `"$@"` (host/guest-ssh.nix).
-  # Jail-shaped, so injected — and required, because without it neither program
-  # knows which capsule it is for.
-  transport,
+  # Which capsule, how to reach it, and git's own view of that: a shell fragment
+  # that sets `$capsule` and `ssh_cmd`, consumes `--capsule` out of `"$@"`
+  # (host/guest-ssh.nix) and exports `GIT_SSH_COMMAND`. Jail-shaped, so injected
+  # — and required, because without it neither program knows which capsule it is
+  # for. Built in `host/programs.nix` because `capsule-brief` pushes over the
+  # same door and a second spelling of one conversion is a second thing to keep
+  # right.
+  gitSsh,
   # Where the quarantine is and what its refs are called (host/quarantine.nix).
   # Its own file since `capsule-adopt` reads what this writes: a convention with
   # two programs over it is a construction, not a note saying don't spell it
   # twice.
   quarantine,
+  # The *inbound* state half, as `{fragment, …}` (host/brief.nix, NOTES item 35):
+  # one capsule's collected state pushed into another's checkout, which is step
+  # (2) of a provision and the reason an audit capsule can read what an
+  # implementation capsule was working on. `null` for a target that declares no
+  # `statePaths`, which drops the flag rather than shipping one that refuses.
+  brief ? null,
 }: let
   inherit (pkgs) lib;
-
-  # First thing in both programs, so `$capsule` is known and `--capsule` is gone
-  # from `"$@"` before either parses its own arguments. git wants a command line
-  # rather than argv, so the array is requoted here — `%q` because git runs
-  # `GIT_SSH_COMMAND` through a shell, and the netns form has a ProxyCommand with
-  # spaces in it that only quoting survives.
-  ssh = ''
-    ${transport}
-    GIT_SSH_COMMAND=$(printf '%q ' "''${ssh_cmd[@]}")
-    export GIT_SSH_COMMAND
-  '';
 
   # `ulimit -f` counts 512-byte blocks. RLIMIT_FSIZE, so this bounds the size of
   # any *one* file the fetch writes — the packfile — and nothing else. It is a
@@ -84,30 +82,56 @@
     name = "capsule-provision";
     runtimeInputs = [pkgs.git pkgs.openssh];
     text = ''
-      ${ssh}
+      ${gitSsh}
+      ${lib.optionalString (brief != null) brief.fragment}
+      usage() {
+        echo "usage: capsule-provision [--capsule <name>] <ref> [--force]${lib.optionalString (brief != null) " [--state <capsule>[:<stage>]]"}" >&2
+      }
       src="''${CAPSULE_REPO:-${target.path}}"
       ref=""
       force=""
+      ${lib.optionalString (brief != null) ''stateSpec=""''}
       # A loop rather than positional tests, so `--force` may go either side of
       # the ref and an unrecognised flag is refused rather than taken for a ref.
-      for arg in "$@"; do
-        case "$arg" in
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
           --force) force="+" ;;
+          ${lib.optionalString (brief != null) ''
+        --state)
+          shift
+          [ "$#" -gt 0 ] || {
+            echo "--state needs <capsule>[:<stage>]" >&2
+            exit 1
+          }
+          stateSpec="$1"
+          ;;
+        --state=*) stateSpec="''${1#--state=}" ;;
+      ''}
           -*)
-            echo "usage: capsule-provision [--capsule <name>] <ref> [--force]" >&2
+            usage
             exit 1
             ;;
-          *) ref="$arg" ;;
+          *) ref="$1" ;;
         esac
+        shift
       done
 
+      ${lib.optionalString (brief != null) ''
+        # Before anything is pushed. `briefState` would check the same two tokens
+        # itself, but it runs after the code has landed, and an argument error
+        # that leaves a half-provisioned capsule behind is an argument error the
+        # program made worse (host/brief.nix).
+        if [ -n "$stateSpec" ]; then
+          briefCheckSpec "$stateSpec" --state || exit 1
+        fi
+      ''}
       # Required, and there is nothing left to default it to: `<ref>` is a ref in
       # the *target repo* and `${workBranch}` is the guest's, which is the whole
       # separation that let the target's branch field be deleted. The base commit
       # is the one thing a capsule is pinned to, so it is stated at every
       # provision rather than inherited from whatever a branch points at today.
       if [ -z "$ref" ]; then
-        echo "usage: capsule-provision [--capsule <name>] <ref> [--force]" >&2
+        usage
         echo "  <ref> is any commit-ish in $src — a branch, a tag or a sha." >&2
         exit 1
       fi
@@ -166,6 +190,27 @@
         exit 1
       fi
       echo "capsule-provision: guest is at $commit on ${workBranch}"
+      ${lib.optionalString (brief != null) ''
+        # Step (2) of three, and the order is the whole of item 33's reading of a
+        # provision: push the code, materialise the state half, then regenerate
+        # what neither may carry. The state has to be in before the refresh
+        # because a refresh derives from the checkout, and a checkout missing
+        # half of what it is supposed to hold derives from half of it — silently,
+        # and looking exactly like state that was derived from all of it.
+        #
+        # Its failure is the provision's, for the same reason the refresh's is:
+        # the code landed, so this is a capsule that will answer questions from a
+        # checkout nobody finished furnishing.
+        if [ -n "$stateSpec" ]; then
+          if ! briefState "$stateSpec"; then
+            echo "capsule-provision: the code landed and the state did not." >&2
+            echo "  The checkout is at $commit with none of $stateSpec's state in" >&2
+            echo "  it. Fix the cause, then 'capsule-brief --capsule $capsule" >&2
+            echo "  $stateSpec'." >&2
+            exit 1
+          fi
+        fi
+      ''}
       ${lib.optionalString (refresh != null) ''
         # A provision is not finished when the push lands (NOTES item 33). What
         # the target derives *from* its checkout cannot travel in a commit and
@@ -193,7 +238,7 @@
     name = "capsule-collect";
     runtimeInputs = [pkgs.git pkgs.openssh pkgs.coreutils];
     text = ''
-      ${ssh}
+      ${gitSsh}
       ${quarantine.fragment}
       # The capsule names its own quarantine, and that used to be a separate
       # positional argument — so `capsule-collect faux` meant a directory while

@@ -29,17 +29,21 @@ evaluates). `just` (default) runs the build, units, and fmt.
 **There are three kinds of check here, and they are not interchangeable.**
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
-not mention them. `guardCases` *runs* a host-side program's logic with its tools
-stubbed (`just cases`), and is the answer whenever the interesting branches are
-ones a live host can only reach destructively — the guard's are reached by
-unnaming a namespace under a running guest. All three are in `just build`, so a
-failing case is a failing build.
+not mention them. `guardCases` and `briefCases` *run* a host-side program's own
+text with a substitute for the one thing tying it to this host (`just cases`),
+and are the answer whenever the interesting branches are ones a live host can
+only reach destructively — the guard's by unnaming a namespace under a running
+guest, the brief runner's by dirtying one capsule's worktree to watch another
+refuse it. All three kinds are in `just build`, so a failing case is a failing
+build.
 
 The seam that makes the third kind possible is worth reusing rather than
 reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
 test cannot stub `ip` by prepending its own. **A program that needs testing takes
-its tools as an argument** (`host/guard.nix`'s `tools`), exactly as it takes
-`transport` — one text, two instantiations, no second copy of an invariant. Two
+as an argument the one thing that ties it to this host** — `host/guard.nix`'s
+`tools`, `host/brief.nix`'s guest `runner` taking the checkout it runs in —
+exactly as both take `transport`: one text, two instantiations, no second copy of
+an invariant. Two
 rules for writing a case: assert the *reason* as well as the exit status, since a
 refusal for the wrong reason is a different program passing; and check the suite
 can fail by mutating the behaviour it claims to pin — the skip in

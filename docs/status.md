@@ -6,15 +6,19 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-14, after **the sideband arc — a capsule's result has two
-halves, and the second one now has a channel, a regeneration step and an
-extractor** ([items 32](./ledger/032-the-sideband-channel.md),
+Last updated 2026-08-15, after **the sideband arc — a capsule's result has two
+halves, and the second one now has a channel, a regeneration step, an extractor
+and a way back in** ([items 32](./ledger/032-the-sideband-channel.md),
 [33](./ledger/033-provision-is-a-sequence.md),
-[34](./ledger/034-adopting-a-guest-authored-tree.md); below). Item 32 ran once
-against live slot `a`; 33 and 34 are **built and evaluated, and unrun** — the
-devshell builds green, so shellcheck-at-build has seen both new programs, and
-34's logic is additionally asserted against hand-built git objects. `just build`
-and a capsule are what they have not seen. Before that,
+[34](./ledger/034-adopting-a-guest-authored-tree.md),
+[35](./ledger/035-briefing-a-capsule-with-state.md); below). Item 32 ran once
+against live slot `a`; 33, 34 and 35 are **built and evaluated, and unrun against
+a capsule** — `just check`, `just build` and `just units` are green now, so
+shellcheck-at-build has seen every render and `hostModuleUnits` has forced the
+module's three new programs, which was the specific gap 33 and 34 were carrying.
+34's logic is asserted against hand-built git objects by hand, and 35's guest half
+is asserted **in the build** (`briefCases`, fourteen cases, watched failing on two
+mutations). A capsule is what none of them has seen. Before that,
 2026-08-13, after **the fragment vocabulary — built, in the image,
 and carrying slot `a`'s first real assignment** (below: `a` is provisioned onto
 doctrine's SL-254 slice at `caf7f2a21`, generation 4, warm baseline green in
@@ -76,6 +80,25 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   `capsule-refresh`. A provision is a three-step sequence — push, materialise the
   state half, regenerate what neither may carry — and this is step (3), landing
   alone and useful on every ordinary provision.
+
+  **The way back in** ([item 35](./ledger/035-briefing-a-capsule-with-state.md),
+  built; **guest half asserted at build time**, unrun against two capsules):
+  `capsule-brief <source>[:<stage>]`, and `capsule-provision --state` as step (2)
+  of a provision — one capsule's collected state into another's checkout, which is
+  the case item 32 built the whole thing for and the one motion it did not have.
+  Two decisions in it. **The host validates and the guest only lays out**, which
+  was item 34's open question: the guest is the confined side, so a control that
+  runs there is one the confined thing is in a position to not run — and that is
+  what turned item 34's check into `host/exhibit.nix`, one construction spliced
+  into both programs rather than the copy a security control must never be. And
+  **`code-oid` stops being a note**: nothing had ever read it, and this reads it as
+  a refusal, because `git add -f -- <dir>` stages *worktree* content, so a state
+  tree is only ever the state of one commit and laying it over another composes a
+  worktree that never existed anywhere. No override. Two smaller things fall out:
+  `.capsule/` is dropped at layout, since `dirty.diff` on disk is untracked content
+  the *next* collect carries again as though this agent wrote it; and a brief may
+  replace the code's version of a file and never a person's, so it refuses a
+  checkout with uncommitted tracked changes.
 
   **The extractor** ([item 34](./ledger/034-adopting-a-guest-authored-tree.md),
   built; **shell asserted against hand-built git objects**, nix unevaluated):
@@ -817,17 +840,21 @@ run-time state, which is what turns the record's three inert fields (`policy`,
 in the same change: on the first start of *any* capsule the guard pulls in every
 declared namespace, so one of ten that will not come up denies the whole host.
 
-### And before either of those, the sideband arc has three things owed
+### And before either of those, the sideband arc has two things owed
 
-It is in flight rather than finished, and two of the three are cheap.
+It is in flight rather than finished, and one of the two is cheap.
 
-1. **`just build` and a host run for items 33 and 34.** The devshell already
-   builds, so shellcheck-at-build has seen both programs; what it has not seen is
-   `hostModuleUnits` forcing the *module's* copies, and there are two new ones —
-   which is the specific job that check was extended for. `alejandra` has not run
-   either. Then, on the host, in this order: `capsule a adopt --list` against the real 1886-entry
-   exhibit (it writes nothing, so it is free), then a real adoption, then a
-   provision to exercise `capsule-refresh`.
+1. ~~**`just build` and a host run for items 33 and 34.**~~ **Half done.** `just
+   check`, `just build` and `just units` are green, so `alejandra` has run and
+   `hostModuleUnits` has forced the module's copies of `capsule-refresh`,
+   `capsule-adopt` and `capsule-brief` — which was the specific class that cost a
+   host rebuild when `observe` was added to one of `host/cli.nix`'s two call
+   sites. What is left is **the host run**, and the order is now four steps rather
+   than three: `capsule a adopt --list` against the real 1886-entry exhibit (it
+   writes nothing, so it is free), then a real adoption, then a provision to
+   exercise `capsule-refresh`, then the brief — `capsule a collect`, `capsule a
+   fetch`, `capsule b provision <oid> --state a`, which is the first time two
+   capsules have been on one story.
 2. **Scope the exhibit at collect** — item 32's live invariant, *a collect brings
    back the out-of-band state of the work the capsule was assigned, and none that
    is not*, which fails by declaration today. The design is written: the policy
@@ -837,13 +864,6 @@ It is in flight rather than finished, and two of the three are cheap.
    deliberately inherits whatever this produces rather than growing a
    doctrine-shaped rule in the extractor, so this is the only part of the
    invariant still in a pair of hands.
-3. **Step (2) of the inbound sequence** — `capsule-provision --state <ref>`,
-   pushing a state commit *in* so a fresh audit capsule can read an implementation
-   capsule's phase sheets. Less blocked than it was: item 34's checks are written
-   down and exercised. What is undecided is where they run — the guest laying out
-   a pushed tree through the same validation, or the host validating before it
-   pushes and the guest only laying out. The second is the better shape, since
-   validation belongs where the policy is.
 
 ## Open, and nothing should claim these closed
 
@@ -919,16 +939,24 @@ It is in flight rather than finished, and two of the three are cheap.
   `.doctrine/dispatch`, every unit of work a checkout has ever held rather than
   the one being driven. Surplus state in an exhibit is a second, older answer to
   the question the exhibit is supposed to settle. The narrowing belongs at
-  collect; the design is in item 32 and nothing is built.
+  collect; the design is in item 32 and nothing is built. **It has a second
+  reader now**: `capsule-brief` propagates whatever a collect over-collected into
+  a second capsule's checkout, which is not a new hole and is one more argument
+  for narrowing at the one choke point ([item 35](./ledger/035-briefing-a-capsule-with-state.md)).
 - **`capsule-adopt` has never seen the real exhibit.** Its assertions are against
   hand-built trees in a throwaway repository — a doctrine-shaped tree, a hostile
   one, and the class fsck lets through. Slot `a`'s 1886 entries and 18.6 MB are
   what it was written *from* and have never been fed to it. `--list` writes
   nothing, so that run costs nothing.
-- **Items 33 and 34 are unevaluated nix.** No `nix build`, no `alejandra`, no
-  `hostModuleUnits`. Two new programs are on the module's `environment.systemPackages`
-  and nothing has forced them — which is exactly the class that cost a host
-  rebuild when `observe` was added to one of `host/cli.nix`'s two call sites.
+- ~~**Items 33 and 34 are unevaluated nix.**~~ Evaluated: `just check`, `just
+  build` and `just units` green, with `hostModuleUnits` forcing all three new
+  programs on the module's `environment.systemPackages`. What replaces it is
+  narrower — **none of items 33, 34 or 35 has run against a capsule.**
+- **`capsule-brief` has never moved a real tree.** `briefCases` asserts its guest
+  half at build time against a git repository a sandbox makes, which is a strong
+  statement about the logic and no statement at all about ssh, a relay socket,
+  `updateInstead`, or 18.6 MB. The host half — resolve, validate, push — has no
+  cases at all, because it ssh's.
 - **Whether an injected credential survives use.** The token rotates on refresh
   and the capsule holds a copy, not the shared file — so host and capsule drift,
   and how long a capsule's copy stays good is unknown. `capsule-inject --force`
