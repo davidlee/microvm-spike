@@ -24,11 +24,20 @@
 # `host/services.nix`, and a relaxation of a security default that exists in two
 # copies is one copy nobody edits.
 #
-# It also owns *which* capsule a program is talking to, because that question and
-# this one have the same answer: under netns a capsule's identity is the socket
-# the transport goes through, so naming it and reaching it are one decision and
-# belong in one fragment. `direct` and `viaSocket` below are what the two paths
-# inject into `host/programs.nix`.
+# It also owns *which* capsule a program is talking to, because under netns a
+# capsule's identity is the socket the transport goes through, so naming it and
+# reaching it belong in one file. They are **not one fragment**, though, and
+# `capsule-adopt` is why: it must know which capsule it is for and must not
+# reach one, since a transport refuses when the guest is down and a finished
+# capsule's exhibit is adopted in exactly that state (NOTES item 34).
+#
+# So `direct` and `viaSocket` return the **pair** — `{selectCapsule, transport}`
+# — and `host/programs.nix` takes it as one `access` argument. One value rather
+# than two, because there are three call sites building this (both paths and
+# `probe-freshness`), and a second argument is a second thing each of them can
+# forget: the eval caught exactly that, once, which is the same shape as the
+# `observe` rebuild in CLAUDE.md. Anything built at N call sites needs one
+# construction, not N careful ones.
 {lib}: rec {
   # As argv, because `capsule-inject` runs ssh itself and the netns form carries
   # a ProxyCommand with spaces in it — a string would have to be re-split by a
@@ -131,34 +140,37 @@
   direct = {
     names,
     socket,
-  }:
-    selectCapsule
-    + ''
-      declared=(${lib.concatMapStringsSep " " lib.escapeShellArg names})
-      known=no
-      for d in "''${declared[@]}"; do
-        [ "$capsule" = "$d" ] && known=yes
-      done
-      if [ "$known" = no ]; then
-        echo "no capsule '$capsule' here: the slots this host declares are" >&2
-        echo "  ''${declared[*]}, and the devshell path runs one guest between them." >&2
-        echo "  More than one at a time is the module path, where the way in is a" >&2
-        echo "  relay socket per capsule (README, 'The module path')." >&2
-        exit 1
-      fi
-      sock=${socket}
-      if [ -S "$sock" ]; then
-        echo "capsule '$capsule' is on the module path here ($sock exists), and this" >&2
-        echo "  is the devshell's copy of the program: it would ssh straight to a" >&2
-        echo "  guest that is not routable from this namespace. Run the module's:" >&2
-        # Bash's own suffix strip rather than basename: a refusal must not need a
-        # tool in `runtimeInputs`, or the message becomes "command not found".
-        echo "    /run/current-system/sw/bin/''${0##*/} --capsule $capsule ..." >&2
-        echo "  or 'just' it, which picks the right copy for you." >&2
-        exit 1
-      fi
-      ssh_cmd=(${lib.escapeShellArgs args})
-    '';
+  }: {
+    inherit selectCapsule;
+    transport =
+      selectCapsule
+      + ''
+        declared=(${lib.concatMapStringsSep " " lib.escapeShellArg names})
+        known=no
+        for d in "''${declared[@]}"; do
+          [ "$capsule" = "$d" ] && known=yes
+        done
+        if [ "$known" = no ]; then
+          echo "no capsule '$capsule' here: the slots this host declares are" >&2
+          echo "  ''${declared[*]}, and the devshell path runs one guest between them." >&2
+          echo "  More than one at a time is the module path, where the way in is a" >&2
+          echo "  relay socket per capsule (README, 'The module path')." >&2
+          exit 1
+        fi
+        sock=${socket}
+        if [ -S "$sock" ]; then
+          echo "capsule '$capsule' is on the module path here ($sock exists), and this" >&2
+          echo "  is the devshell's copy of the program: it would ssh straight to a" >&2
+          echo "  guest that is not routable from this namespace. Run the module's:" >&2
+          # Bash's own suffix strip rather than basename: a refusal must not need a
+          # tool in `runtimeInputs`, or the message becomes "command not found".
+          echo "    /run/current-system/sw/bin/''${0##*/} --capsule $capsule ..." >&2
+          echo "  or 'just' it, which picks the right copy for you." >&2
+          exit 1
+        fi
+        ssh_cmd=(${lib.escapeShellArgs args})
+      '';
+  };
 
   # And the same again for a capsule in a namespace, where the guest is not
   # routable from the root namespace at all: the way in is the relay socket, and
@@ -176,15 +188,18 @@
   viaSocket = {
     socat,
     socket,
-  }:
-    selectCapsule
-    + ''
-      sock=${socket}
-      if [ ! -S "$sock" ]; then
-        echo "no way in to capsule '$capsule': $sock is not a socket." >&2
-        echo "  systemctl status capsule-ssh-relay-$capsule" >&2
-        exit 1
-      fi
-      ssh_cmd=(${lib.escapeShellArgs args} -o "ProxyCommand=${socat} - UNIX-CONNECT:$sock")
-    '';
+  }: {
+    inherit selectCapsule;
+    transport =
+      selectCapsule
+      + ''
+        sock=${socket}
+        if [ ! -S "$sock" ]; then
+          echo "no way in to capsule '$capsule': $sock is not a socket." >&2
+          echo "  systemctl status capsule-ssh-relay-$capsule" >&2
+          exit 1
+        fi
+        ssh_cmd=(${lib.escapeShellArgs args} -o "ProxyCommand=${socat} - UNIX-CONNECT:$sock")
+      '';
+  };
 }

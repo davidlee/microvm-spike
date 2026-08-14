@@ -89,7 +89,7 @@
 
   hostPrograms = import ./programs.nix {
     inherit pkgs lib net target workBranch;
-    transport = guestSsh.viaSocket {
+    access = guestSsh.viaSocket {
       socat = "${pkgs.socat}/bin/socat";
       socket = capsules.socketOf ''"$capsule"'';
     };
@@ -109,7 +109,8 @@
     programVerbs =
       ["provision" "collect" "inject"]
       ++ lib.optional (hostPrograms.baseline != null) "baseline"
-      ++ lib.optional (hostPrograms.refresh != null) "refresh";
+      ++ lib.optional (hostPrograms.refresh != null) "refresh"
+      ++ lib.optional (hostPrograms.adopt != null) "adopt";
   };
 
   # The one program that runs at guest *root*, and the reason a stop on this
@@ -501,10 +502,10 @@ in {
         "z ${cfg.stopKey} 0400 microvm kvm -"
       ];
 
-      # Only the two that keep state need wrapping; `capsule-inject`,
+      # Only the three that touch host state need wrapping; `capsule-inject`,
       # `capsule-baseline` and `capsule-refresh` write nothing host-side, so they
-      # go on PATH as they are. All of them reach the guest through a relay
-      # socket, which is the only way in on this path — `--capsule <name>` or
+      # go on PATH as they are. All of them but `capsule-adopt` reach the guest
+      # through a relay socket, which is the only way in on this path — `--capsule <name>` or
       # `CAPSULE_NAME` picks whose,
       # and there is no fallback: a slot's name says nothing about what is in it,
       # so a program with a default acts on a slot nobody chose. `capsule` itself
@@ -522,7 +523,11 @@ in {
           hostPrograms.inject
         ]
         ++ lib.optional (hostPrograms.baseline != null) hostPrograms.baseline
-        ++ lib.optional (hostPrograms.refresh != null) hostPrograms.refresh;
+        ++ lib.optional (hostPrograms.refresh != null) hostPrograms.refresh
+        # Wrapped like the other two that keep state: it reads the quarantine
+        # `capsule-collect` wrote, so it needs the same `CAPSULE_STATE` and must
+        # not derive one from `$PWD`.
+        ++ lib.optional (hostPrograms.adopt != null) (wrap "capsule-adopt" hostPrograms.adopt);
 
       # Rotated rather than truncated: it is the record of every egress attempt
       # (NOTES open item 15). copytruncate, so tinyproxy needs no signal. One

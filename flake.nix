@@ -327,7 +327,7 @@
       # The same socket expression the units inject, for the opposite purpose:
       # there it is the way in, here its existence is what says this copy is the
       # wrong one (host/guest-ssh.nix).
-      transport = guestSsh.direct {
+      access = guestSsh.direct {
         names = builtins.attrNames capsules.instances;
         socket = socketOf ''"$capsule"'';
       };
@@ -355,6 +355,10 @@
       lib.optionalAttrs (hostPrograms.refresh != null)
       {capsule-refresh = hostPrograms.refresh;};
 
+    adoptPackages =
+      lib.optionalAttrs (hostPrograms.adopt != null)
+      {capsule-adopt = hostPrograms.adopt;};
+
     # The front end: resolve a name, pick the copy of a program that can reach
     # that capsule, exec (host/cli.nix). Built once and installed by both paths,
     # because unlike the four programs it carries no transport — so there is
@@ -374,7 +378,8 @@
       programVerbs =
         ["provision" "collect" "inject"]
         ++ lib.optional (hostPrograms.baseline != null) "baseline"
-        ++ lib.optional (hostPrograms.refresh != null) "refresh";
+        ++ lib.optional (hostPrograms.refresh != null) "refresh"
+        ++ lib.optional (hostPrograms.adopt != null) "adopt";
     };
 
     # The guard's verdicts, asserted at build time against a stubbed kernel.
@@ -846,7 +851,7 @@
     # `runtimeInputs`, where a unit has no PATH to trust.
     nsPrograms = import ./host/programs.nix {
       inherit pkgs lib net target workBranch;
-      transport = guestSsh.viaSocket {
+      access = guestSsh.viaSocket {
         socat = "socat";
         socket = socketOf ''"$capsule"'';
       };
@@ -1024,6 +1029,7 @@
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // baselinePackages
       // refreshPackages
+      // adoptPackages
       // {
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
         # The two checks that need no root and no host: what the module says, and
@@ -1065,7 +1071,8 @@
           pkgs.bashInteractive
         ]
         ++ lib.attrValues baselinePackages
-        ++ lib.attrValues refreshPackages;
+        ++ lib.attrValues refreshPackages
+        ++ lib.attrValues adoptPackages;
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"
         echo "                       guest side: vm capsule   (or: vm hello)"

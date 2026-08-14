@@ -1,7 +1,8 @@
 # NOTES item 32 — the sideband channel: state that is not a commit
 
-*State: built, and run once against a live capsule; extraction is deliberately
-still by hand.*
+*State: built, and run once against a live capsule; extraction is
+[item 34](./034-adopting-a-guest-authored-tree.md) and no longer by hand. The
+allowlist's scope, and the state half of provisioning, are still open.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -152,7 +153,10 @@ runs in a fresh checkout once it exists*. That is the generic capability the rul
 needs (value: `doctrine boot`), and until it lands, a tree that wants the
 snapshot regenerates it by hand. Note the shape it shares with the state half of
 provisioning, below: both are the inbound direction of this item, and neither is
-built.
+built. — **The hook is built**: `target.nix`'s `refresh`, run by
+`capsule-provision` after the push and separately as `capsule-refresh`
+([item 33](./033-provision-is-a-sequence.md)). The state half of provisioning is
+still not.
 
 **Scoped in the wrong place.** The narrowing that made the first adoption correct
 happened at *hand extraction* — an operator chose pathspecs — not at collect. So
@@ -236,7 +240,19 @@ are simply stale. Delete them or leave them; nothing reads them by pattern.
 
 ## What this does not buy yet
 
-**Extraction is by hand, and that is where the security control belongs.** The
+~~**Extraction is by hand, and that is where the security control belongs.**~~
+**Built — `capsule-adopt`, and it is not the program this section describes**
+([item 34](./034-adopting-a-guest-authored-tree.md)). Two of the three checks
+named below turned out to be held already, by the `transfer.fsckObjects=true`
+this item added for object integrity: `hasDotdot` and `hasDotgit` are fsck
+errors, so a collected quarantine cannot contain a `..` or `.git` path at all.
+What nothing held was the class the hand adoption *found* — a symlink target,
+which fsck passes and a checkout writes — plus a gitlink, which becomes a silent
+empty directory. The archive-and-untar shape below was measured doing exactly
+what it is accused of and is rejected: the extraction is `read-tree` into a
+temporary index and `checkout-index` out of it. The paragraph stands unedited
+because the prediction being half wrong is the argument for having waited.
+The
 sideband tree is *guest-authored data*. `git archive … | tar -x` into an audit
 worktree writes whatever the tree says — including paths outside the allowlist,
 `..`, symlinks (mode `120000`) pointing anywhere the extracting user can write,

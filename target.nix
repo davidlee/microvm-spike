@@ -98,8 +98,18 @@ rec {
   # collect — that is `refresh` below (NOTES item 33), and the two fields are one
   # decision read from its two ends: what is not here is there.
   #
-  # A target with no such state omits the field. `[]` degrades to a code-only
-  # collect plus whatever is uncommitted, which is what every collect did before.
+  # A target with no such state omits the field, and `[]` is the same thing: the
+  # snapshot is not built at all, so a collect is the code-only program it used
+  # to be. That is narrower than it first reads and the difference is worth
+  # stating, because it is a live tension rather than a settled call — the
+  # untracked-but-not-ignored files and `.capsule/dirty.diff` are *generic* (see
+  # above), so there is an argument that they should travel whether or not this
+  # field is set. What holds today is the simpler degradation: one field, one
+  # switch, and nothing collected out-of-band that a target did not ask for.
+  #
+  # This is also what gates `capsule-adopt`, the extractor at the far end
+  # (host/adopt.nix, NOTES item 34): no `statePaths`, no state ref, so no program
+  # to read one.
   statePaths = [
     ".doctrine/state/slice" # per-slice runtime: phase sheets, progress
     ".doctrine/state/dispatch" # dispatch runtime for a driven slice

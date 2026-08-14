@@ -82,7 +82,7 @@ changes until they are built.
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
-| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32) | no | `[]` — a code-only collect plus whatever is uncommitted, which is every collect before item 32 |
+| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)) | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
 | `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
@@ -238,6 +238,7 @@ the capsule as an argument rather than being built per capsule
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
 | `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
 | `capsule-refresh` | `[--capsule <name>]` | no: runs `refresh` in the guest's checkout. The same step `capsule-provision` takes itself — separate for a hand checkout in the guest, and for retrying the half that failed. It does **commit in the guest** when the refresh writes tracked files, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) |
+| `capsule-adopt` | `[--capsule <name>] [--stage <name>] <dir>` or `--list` | no, and it does not touch the *capsule* either — the first program here with no transport. Reads the quarantine, validates a guest-authored tree (symlink targets, gitlinks, paths), lays it out with git's own writer into a directory that must be empty or absent ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)) |
 
 `<ref>` is required, and there is nothing left it could be defaulted to: it is
 a ref in the *target repo*, and `work` is the guest's branch, which is the whole
@@ -248,10 +249,10 @@ Environment, in the order a program consults it:
 
 | variable | what |
 | --- | --- |
-| `CAPSULE_NAME` | which capsule, when `--capsule` is not given. Default is `capsules.default` |
+| `CAPSULE_NAME` | which capsule, when `--capsule` is not given. There is no default — `capsules.default` was deleted ([item 28](./ledger/028-a-slot-has-no-default.md)) and a program refuses without a name |
 | `CAPSULE_REPO` | overrides `target.nix`'s `path` for `capsule-provision` |
 | `CAPSULE_ROOT` | this checkout, for resolving `allowlist` and the default state directory |
-| `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise |
+| `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise. Written by `capsule-collect`, read by `capsule-adopt`; one definition, `host/quarantine.nix` |
 | `CAPSULE_ALLOWLIST` | the allowlist file, overriding the target's |
 
 The guest initiates nothing. It has no remote and no route to one, so what used

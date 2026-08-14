@@ -6,7 +6,16 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-13, after **the fragment vocabulary — built, in the image,
+Last updated 2026-08-14, after **the sideband arc — a capsule's result has two
+halves, and the second one now has a channel, a regeneration step and an
+extractor** ([items 32](./ledger/032-the-sideband-channel.md),
+[33](./ledger/033-provision-is-a-sequence.md),
+[34](./ledger/034-adopting-a-guest-authored-tree.md); below). Item 32 ran once
+against live slot `a`; 33 and 34 are **built and evaluated, and unrun** — the
+devshell builds green, so shellcheck-at-build has seen both new programs, and
+34's logic is additionally asserted against hand-built git objects. `just build`
+and a capsule are what they have not seen. Before that,
+2026-08-13, after **the fragment vocabulary — built, in the image,
 and carrying slot `a`'s first real assignment** (below: `a` is provisioned onto
 doctrine's SL-254 slice at `caf7f2a21`, generation 4, warm baseline green in
 83 s) — and before that the same day after **D1 + D5
@@ -40,6 +49,59 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A capsule's result has two halves, and the second one is built end to end.**
+  `capsule-collect` brought back `refs/heads/*` and nothing else, which reports a
+  nine-phase run as one sha: doctrine's runtime tier is gitignored *on purpose*
+  and is also what an audit reads, and whatever the agent left uncommitted exists
+  nowhere else at all. Three items, one arc, and each one is the next step of the
+  one before.
+
+  **The channel** ([item 32](./ledger/032-the-sideband-channel.md), **run once
+  against live slot `a`**): a second, non-branch history in the guest's own object
+  store at `refs/capsule/state/<stage>`, built through a *temporary* index so the
+  agent's real index never learns the paths, with `code-oid` in the commit message
+  binding the state to the commit it was the state *of*. `capsule-collect` grows a
+  second refspec and takes both halves in one `--atomic` fetch, so nobody observes
+  a result commit without the state that goes with it. The refspec stays
+  host-authored: the guest chooses what is in its refs and never where they land.
+  First run, with the guest still working: 18.6 MB, 1886 files, both refs in one
+  transaction, nothing stopped.
+
+  **The regeneration** ([item 33](./ledger/033-provision-is-a-sequence.md),
+  built, unevaluated): dropping `.doctrine/state/boot.md` from `statePaths` on the
+  rule *state a consumer regenerates per checkout does not travel* leaves a
+  positive half nothing implemented. `target.nix` grows `refresh`
+  (`doctrine boot`), run by `capsule-provision` after the push and separately as
+  `capsule-refresh`. A provision is a three-step sequence — push, materialise the
+  state half, regenerate what neither may carry — and this is step (3), landing
+  alone and useful on every ordinary provision.
+
+  **The extractor** ([item 34](./ledger/034-adopting-a-guest-authored-tree.md),
+  built; **shell asserted against hand-built git objects**, nix unevaluated):
+  `capsule-adopt <dir>` validates a guest-authored tree and lays it out with
+  `read-tree`/`checkout-index` rather than `archive | tar -x`. The finding is what
+  the checks turned out to be. Item 32 predicted "modes and prefixes"; the path
+  class was **already refused twice** — `transfer.fsckObjects=true` at collect
+  errors on `hasDotdot`/`hasDotgit`, and `read-tree` refuses `invalid path` again
+  — while what nothing anywhere held was a **symlink target** (fsck passes
+  `-> /etc/passwd`; a checkout writes it; the escape is the next thing that greps
+  the exhibit) and a **gitlink** (silently an empty directory, which is evidence
+  replaced by a plausible absence). `..` in a target is still not the test:
+  doctrine's `.doctrine/slice/254/phases -> ../../state/slice/254/phases` is
+  inside the root and load-bearing, so the rule is lexical resolution within the
+  root. Measured: `git archive | tar -x` on the hostile tree plants both symlinks
+  and the empty gitlink directory, exit 0, silent.
+
+  Two smaller things came out of it. `host/quarantine.nix` is one construction for
+  where a quarantine lives and what its refs are called, now that two programs
+  read it — it collapses two of the three copies of that convention and leaves the
+  one `perimeter/` needs for its own reason. And **`capsule-adopt` is the first
+  host program with no transport**: it reads a host-owned repository and writes a
+  host-named directory, and a transport fragment refuses whenever there is no way
+  in to the guest — which is the state a finished capsule's exhibit is adopted in.
+  So `selectCapsule` (*which* capsule) is now injected separately from `transport`
+  (*how to reach* one), and it is identical on both paths where `transport` is not.
 
 - **A guest's tools compose now, and the amenities are what paid for it.**
   `fragments.nix` is the host's fragment vocabulary — `agents` (`claude`, `pi`,
@@ -91,11 +153,11 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   1` / `purpose hacking`, which is the actual join between the two halves and the
   only part a single pass would have missed.
 
-  One column still reads `-` on `a`, and it is honest: `refs` counts
-  `refs/capsule/a/` in that slot's quarantine repo, and `collect` has never run
-  for a slot under its new name — the one directory under
-  `/var/lib/capsule/collect` belongs to the old `capsule` and is dead weight with
-  the rest of it. Every other column answered, `mem cur/peak` at the figure a
+  ~~One column still reads `-` on `a`~~ — `collect` has run for `a` since, as the
+  first exercise of the sideband channel (item 32), so `refs` counts real refs in
+  a real quarantine and the column's first number and the quarantine's first use
+  arrived together. The one directory under `/var/lib/capsule/collect` belonging
+  to the old `capsule` is still dead weight. Every other column answered, `mem cur/peak` at the figure a
   built slot has held since its baseline
   ([probes](./probes.md#the-first-cold-build-at-a-6144-ceiling)).
 
@@ -755,6 +817,34 @@ run-time state, which is what turns the record's three inert fields (`policy`,
 in the same change: on the first start of *any* capsule the guard pulls in every
 declared namespace, so one of ten that will not come up denies the whole host.
 
+### And before either of those, the sideband arc has three things owed
+
+It is in flight rather than finished, and two of the three are cheap.
+
+1. **`just build` and a host run for items 33 and 34.** The devshell already
+   builds, so shellcheck-at-build has seen both programs; what it has not seen is
+   `hostModuleUnits` forcing the *module's* copies, and there are two new ones —
+   which is the specific job that check was extended for. `alejandra` has not run
+   either. Then, on the host, in this order: `capsule a adopt --list` against the real 1886-entry
+   exhibit (it writes nothing, so it is free), then a real adoption, then a
+   provision to exercise `capsule-refresh`.
+2. **Scope the exhibit at collect** — item 32's live invariant, *a collect brings
+   back the out-of-band state of the work the capsule was assigned, and none that
+   is not*, which fails by declaration today. The design is written: the policy
+   declares `statePaths` as a template with one hole, the assignment fills it with
+   an opaque unit token bounded to `[A-Za-z0-9._-]+`, and a template with a hole
+   and no unit **refuses** rather than degrading to the unscoped list. Item 34
+   deliberately inherits whatever this produces rather than growing a
+   doctrine-shaped rule in the extractor, so this is the only part of the
+   invariant still in a pair of hands.
+3. **Step (2) of the inbound sequence** — `capsule-provision --state <ref>`,
+   pushing a state commit *in* so a fresh audit capsule can read an implementation
+   capsule's phase sheets. Less blocked than it was: item 34's checks are written
+   down and exercised. What is undecided is where they run — the guest laying out
+   a pushed tree through the same validation, or the host validating before it
+   pushes and the guest only laying out. The second is the better shape, since
+   validation belongs where the policy is.
+
 ## Open, and nothing should claim these closed
 
 - ~~**The flavour composition has never been in an image.**~~ Built, refreshed
@@ -818,7 +908,27 @@ declared namespace, so one of ten that will not come up denies the whole host.
   resolver, so that half is unproven until `~/flakes` grows the stub address.
 - **The byte/disk bound on collect.** `ulimit -f` bounds one packfile, not the
   transfer — many small objects or a delta bomb go past it. A quota or a
-  dedicated filesystem for the quarantine is the host-shaped answer.
+  dedicated filesystem for the quarantine is the host-shaped answer. The state
+  half has its own ceiling in a different place and for a different reason
+  (`stateMaxBytes`, checked *in the guest* before the commit, because the fetch is
+  atomic and an over-budget state half must skip rather than take the code refs
+  down with it) — and `capsule-adopt` adds none: it reports the byte count and
+  lets a human decide, since the operator reading 18.6 MB is the control.
+- **The exhibit's scope is wrong, and only a pair of hands narrows it.** Item 32's
+  invariant fails by declaration: `statePaths` names `.doctrine/state/slice` and
+  `.doctrine/dispatch`, every unit of work a checkout has ever held rather than
+  the one being driven. Surplus state in an exhibit is a second, older answer to
+  the question the exhibit is supposed to settle. The narrowing belongs at
+  collect; the design is in item 32 and nothing is built.
+- **`capsule-adopt` has never seen the real exhibit.** Its assertions are against
+  hand-built trees in a throwaway repository — a doctrine-shaped tree, a hostile
+  one, and the class fsck lets through. Slot `a`'s 1886 entries and 18.6 MB are
+  what it was written *from* and have never been fed to it. `--list` writes
+  nothing, so that run costs nothing.
+- **Items 33 and 34 are unevaluated nix.** No `nix build`, no `alejandra`, no
+  `hostModuleUnits`. Two new programs are on the module's `environment.systemPackages`
+  and nothing has forced them — which is exactly the class that cost a host
+  rebuild when `observe` was added to one of `host/cli.nix`'s two call sites.
 - **Whether an injected credential survives use.** The token rotates on refresh
   and the capsule holds a copy, not the shared file — so host and capsule drift,
   and how long a capsule's copy stays good is unknown. `capsule-inject --force`

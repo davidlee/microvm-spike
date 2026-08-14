@@ -69,9 +69,9 @@ fmt-check:
   alejandra -c {{nix_paths}}
 
 # the host-side scripts — shellcheck runs at build, so this is the real lint.
-# capsule-baseline and capsule-refresh exist only while the target declares a
-# `baseline` / a `refresh`; a target that omits one drops that line, and the
-# build says so rather than skipping it.
+# capsule-baseline, capsule-refresh and capsule-adopt exist only while the target
+# declares a `baseline` / a `refresh` / any `statePaths`; a target that omits one
+# drops that line, and the build says so rather than skipping it.
 # `guardCases` is here rather than in its own recipe on purpose: a case that
 # fails fails the build, which is the only way a check gets run every time.
 build:
@@ -80,7 +80,7 @@ build:
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
-    '.#capsule-baseline' '.#capsule-refresh' \
+    '.#capsule-baseline' '.#capsule-refresh' '.#capsule-adopt' \
     '.#hostModuleUnits' '.#guardCases'
 
 # which units the host module generates, without rebuilding a host — the only
@@ -150,7 +150,7 @@ down name="":
 # lands under a mounted volume, and back up only if it was up.
 #
 # after a guest change: rebuild its state directory, restart if it was running
-refresh name:
+refresh-build name:
   #!/usr/bin/env bash
   set -euo pipefail
   # Not `is-active`, which is false for a unit in `auto-restart` — the one state
@@ -214,6 +214,11 @@ baseline name="" *flags:
 # what the capsule has produced, into this host's quarantine
 collect name="":
   @capsule {{name}} collect
+
+# the state half out of quarantine and onto a disk, validated first — the code
+# half is `fetch`. `just adopt a /tmp/exhibit`, or a bare `--list` to look.
+adopt name="" *args:
+  @capsule {{name}} adopt {{args}}
 
 # a fresh capsule to green: provision, inject, baseline
 setup name="" ref="":

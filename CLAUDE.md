@@ -360,6 +360,21 @@ which shape nearly every decision here:
   `probe-netns-boot` run. Anything host-side that ssh's to the guest runs as the
   human for this reason; `probe/netns-boot.sh` finds the agent socket itself and
   refuses before it boots anything if there is none.
+- **Extracting a guest-authored git tree: `..` is not the escape test, and
+  `tar -x` is not the extractor.** A tree that comes out of a capsule is
+  attacker-shaped input. Three classes, and where each is already handled is not
+  where you would guess (NOTES item 34): a `..` or `.git` **path component** is
+  refused twice already — `transfer.fsckObjects=true` at `capsule-collect` errors
+  `hasDotdot`/`hasDotgit`, and `git read-tree` refuses `invalid path` — while a
+  **symlink target** and a **gitlink** sail through both. `git archive | tar -x`
+  then plants `-> /etc/passwd` in your worktree and turns the gitlink into an
+  empty directory, exit 0, silent; nothing escapes until the next thing that
+  greps or copies the exhibit. And refusing every `..` target refuses doctrine's
+  own tree, whose `.doctrine/slice/N/phases -> ../../state/slice/N/phases` is
+  inside the root and load-bearing. The rule is **lexical resolution within the
+  extraction root**, against the tree and never with `realpath` — plus git's own
+  writer (`read-tree` into a temporary index, `checkout-index` out of it) rather
+  than a second one made of shell.
 - **`nix run`/devshell binaries are store paths, so an edited program is stale
   until it is rebuilt.** A probe that "ignores your fix" is the old build on
   `PATH` — `just build`, re-enter the devshell, or

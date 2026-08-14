@@ -53,16 +53,13 @@
   # Jail-shaped, so injected — and required, because without it neither program
   # knows which capsule it is for.
   transport,
+  # Where the quarantine is and what its refs are called (host/quarantine.nix).
+  # Its own file since `capsule-adopt` reads what this writes: a convention with
+  # two programs over it is a construction, not a note saying don't spell it
+  # twice.
+  quarantine,
 }: let
   inherit (pkgs) lib;
-
-  # Same two variables `perimeter/default.nix` defines, deliberately spelled the
-  # same way: `CAPSULE_ROOT` and `CAPSULE_STATE` mean one thing per capsule, and
-  # both files document them. Change one, change the other.
-  statePaths = ''
-    root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
-    state="''${CAPSULE_STATE:-$root/.vm/host}"
-  '';
 
   # First thing in both programs, so `$capsule` is known and `--capsule` is gone
   # from `"$@"` before either parses its own arguments. git wants a command line
@@ -197,7 +194,7 @@
     runtimeInputs = [pkgs.git pkgs.openssh pkgs.coreutils];
     text = ''
       ${ssh}
-      ${statePaths}
+      ${quarantine.fragment}
       # The capsule names its own quarantine, and that used to be a separate
       # positional argument — so `capsule-collect faux` meant a directory while
       # `capsule-provision` meant a ref and neither meant a capsule. One
@@ -228,7 +225,8 @@
         esac
         shift
       done
-      quarantine="$state/collect/$capsule.git"
+      ${quarantine.checkStage}
+      quarantine=${quarantine.repo}
 
       # Host-created, host-configured, and never writable by the guest: the
       # host's git must not run in a repository the guest could have put config
@@ -249,7 +247,7 @@
       # always taken; the state half is added only when the target declares any
       # (NOTES item 32), so a target with no `statePaths` gets exactly the
       # program it got before.
-      refspecs=("+refs/heads/*:refs/capsule/$capsule/heads/*")
+      refspecs=("+refs/heads/*:${quarantine.codeRefs}/*")
       ${lib.optionalString (snapshot != null) ''
         # The state half is built *in the guest*, first, so that it and the code
         # refs come back in one fetch. A script pushed on stdin, never a program
@@ -259,7 +257,7 @@
         #
         # Its failure is not the collect's: a state half that cannot be taken
         # leaves that ref where it was, and the commits are still worth having.
-        refspecs+=("+refs/capsule/state/*:refs/capsule/$capsule/state/*")
+        refspecs+=("+refs/capsule/state/*:${quarantine.stateRefs}/*")
         if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" < ${snapshot}); then
           IFS=$'\t' read -r oid stateBytes stateFiles <<<"$line"
           if [ "$oid" = - ]; then
@@ -286,8 +284,16 @@
       # observes a result commit without the capsule state that goes with it.
       #
       # fsck on the way in, because index-pack parses guest-authored bytes
-      # host-side whatever the transport. The ulimit is the byte ceiling: no
-      # config knob bounds a fetch, so bound the file it writes.
+      # host-side whatever the transport. It turns out to buy more than object
+      # integrity, and `capsule-adopt` leans on it: `hasDotdot` and `hasDotgit`
+      # are fsck errors, so a tree with a `..` or `.git` path component is
+      # refused *here* and a collected quarantine cannot hold one (verified
+      # against hand-built trees, NOTES item 34). What fsck passes without a
+      # murmur is a symlink pointing at `/etc/passwd` and a gitlink — which is
+      # exactly what the extractor has to check, and all it has to check.
+      #
+      # The ulimit is the byte ceiling: no config knob bounds a fetch, so bound
+      # the file it writes.
       (
         ulimit -f ${toString maxBlocks}
         git -C "$quarantine" -c transfer.fsckObjects=true \
@@ -307,6 +313,13 @@
         --format='  %(objectname:short)  %(refname:short)  %(committerdate:relative)  %(subject)' \
         "refs/capsule/$capsule/"
       echo "capsule-collect: $quarantine"
+      ${lib.optionalString (snapshot != null) ''
+        # The two halves leave by different doors, and saying so here is where a
+        # human finds out: the code half is a branch to fetch, the state half is
+        # a tree an extractor validates before it touches a disk (NOTES item 34).
+        echo "  code:  capsule $capsule fetch"
+        echo "  state: capsule $capsule adopt <dir>   (--list to look first)"
+      ''}
     '';
   };
 in {

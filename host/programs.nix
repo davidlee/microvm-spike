@@ -2,13 +2,17 @@
 # one script a capsule runs *about itself*, which is here for the same reason:
 # built once, so neither path can be built without it.
 #
-# There are two of them and there must not be two implementations: the devshell
-# builds these to reach the guest straight over the tap, and `host/services.nix`
-# builds the same four to reach it through the capsule's relay socket, because
-# under netns the guest is not routable from the root namespace at all. The only
-# difference between the two is `transport`, which is why that is the argument.
+# There are **three** call sites and there must not be three implementations: the
+# devshell builds these to reach the guest straight over the tap,
+# `host/services.nix` builds the same set to reach it through the capsule's relay
+# socket because under netns the guest is not routable from the root namespace at
+# all, and `probe-freshness` builds its own to exercise the real programs on the
+# real seam. The only difference between them is `access`, which is why that is
+# the argument — and it is *one* argument holding two fields rather than two
+# arguments, because a second argument is a second thing three call sites can
+# each forget, and one of them did (NOTES item 34).
 #
-# `transport` is a shell fragment (`host/guest-ssh.nix`), not a value, and one
+# `access.transport` is a shell fragment (`host/guest-ssh.nix`), not a value, and one
 # store path serves every capsule because of it: spliced at the top of each
 # program, it resolves which capsule this invocation means, strips that argument
 # out of `"$@"`, and sets `ssh_cmd` to the argv that reaches it. Baking a
@@ -29,8 +33,28 @@
   # target's field: only the git channel reads it, but both this file's callers
   # have to hand it the same one the guest was built with.
   workBranch,
-  transport,
+  # Which capsule, and how to reach it — `host/guest-ssh.nix`'s `direct` or
+  # `viaSocket`, as **one value with two fields**:
+  #
+  #   - `transport` resolves the name *and* sets `ssh_cmd`, for everything that
+  #     talks to a guest;
+  #   - `selectCapsule` resolves the name alone, for `capsule-adopt`, which must
+  #     know which capsule it is for and must not reach one — it reads a
+  #     host-owned quarantine, and a transport refuses when the guest is down,
+  #     which is the state a finished capsule's exhibit is adopted in (NOTES item
+  #     34).
+  #
+  # One argument rather than two because there are three call sites and a second
+  # argument is a second thing each of them can omit.
+  access,
 }: let
+  inherit (access) transport selectCapsule;
+
+  # Where a capsule's collected exhibit lives, and what its refs are called. Two
+  # programs over one convention: `capsule-collect` writes it, `capsule-adopt`
+  # reads it.
+  quarantine = import ./quarantine.nix;
+
   # Who the host talks to when it talks to a capsule. Named once: the git
   # channel needs it inside a URL, the other two as an ssh destination.
   guestHost = "agent@${net.guest}";
@@ -87,7 +111,7 @@
       };
 
   gitChannel = import ./git-channel.nix {
-    inherit pkgs target workBranch guestRepo guestHost transport;
+    inherit pkgs target workBranch guestRepo guestHost transport quarantine;
     snapshot = stateSnapshot;
     # The command line, not the module: the git channel runs a refresh and has no
     # business knowing what one is built out of.
@@ -114,6 +138,20 @@ in {
   };
 
   inherit (gitChannel) provision collect;
+
+  # The second step out of quarantine, and the one with a security control in it:
+  # the state half is a guest-authored tree, so what lands on a disk from it is
+  # validated before anything is written (host/adopt.nix, NOTES item 34). `null`
+  # on the same condition as the snapshot that produces the thing it reads — a
+  # target with no `statePaths` never has a state ref, so an extractor for it is
+  # a program that cannot work.
+  adopt =
+    if stateSnapshot == null
+    then null
+    else
+      import ./adopt.nix {
+        inherit pkgs selectCapsule quarantine;
+      };
 
   # The same refresh `capsule-provision` runs, on its own: a human who has just
   # done a hand `git checkout` in the guest wants it and no push, and a provision

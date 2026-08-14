@@ -1,6 +1,8 @@
 # NOTES item 33 — a provision is not finished when the push lands
 
-*State: built, unevaluated. Step (3) of
+*State: built; **evaluated** since [item 34](./034-adopting-a-guest-authored-tree.md)'s
+round built the devshell green, which is shellcheck-at-build on this program too.
+Still unrun against a capsule. Step (3) of
 [item 32](./032-the-sideband-channel.md)'s inbound half. Written in a jail with
 no `nix`, so it has had neither a `nix build` nor a run against a capsule — the
 guest script and both host programs were rendered and shellchecked by hand, and
