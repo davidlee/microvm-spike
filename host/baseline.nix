@@ -28,6 +28,9 @@
 # no opinion about what is in it.
 {
   pkgs,
+  # The push-on-stdin seam: the build-time lint below, and the login-shell rule
+  # this file's invocation is a second instance of (host/guest-exec.nix).
+  guestExec,
   # Where to ssh, e.g. `agent@10.99.0.2`. Jail-shaped, so injected.
   guestHost,
   # Which capsule, and how to reach it: a shell fragment setting `$capsule` and
@@ -184,16 +187,9 @@
     esac
   '';
 
-  # The same lint the host-side programs get. `writeShellApplication` would run
-  # shellcheck for us but would also bake this host's store paths into a script
-  # that runs in the guest, so the check is asked for by hand instead.
-  checkedRunner =
-    pkgs.runCommand "capsule-baseline-run.sh" {
-      nativeBuildInputs = [pkgs.shellcheck];
-    } ''
-      shellcheck -s bash ${runner}
-      cp ${runner} $out
-    '';
+  # The same lint the host-side programs get, and the reason it cannot simply be
+  # `writeShellApplication` is in host/guest-exec.nix, which now owns it.
+  checkedRunner = guestExec.checked runner;
 in
   pkgs.writeShellApplication {
     name = "capsule-baseline";
@@ -236,6 +232,11 @@ in
       # variable, and `run.sh`'s own `set -u` would still be in force when it did
       # — which is fatal, and **replaces the script's exit status with 1**
       # (NOTES item 24). One more process, and `set -u` dies with the child.
+      #
+      # Spelled here rather than taken from `host/guest-exec.nix`'s `loginRun`
+      # because this command line is composed at *run* time — a staged path and a
+      # stamp, neither of which exists at eval. Same rule, stated there; this is a
+      # second instance of it and not a second decision.
       reply=$("''${ssh_cmd[@]}" "$host" "bash -l -c \"bash '$dir/run.sh' start $stamp\"")
       echo "capsule-baseline: $reply"
       # `started STAMP` or `attached STAMP` — the second is an older run, and

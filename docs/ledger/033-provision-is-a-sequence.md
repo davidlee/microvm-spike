@@ -1,7 +1,11 @@
 # NOTES item 33 — a provision is not finished when the push lands
 
-*State: designed, not built. Step (3) of [item 32](./032-the-sideband-channel.md)'s
-inbound half.*
+*State: built, unevaluated. Step (3) of
+[item 32](./032-the-sideband-channel.md)'s inbound half. Written in a jail with
+no `nix`, so it has had neither a `nix build` nor a run against a capsule — the
+guest script and both host programs were rendered and shellchecked by hand, and
+that is [item 1](./001-what-has-been-run.md)'s distinction, not a substitute for
+it.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -105,16 +109,60 @@ and it must *not* get a copy of that capsule's `boot.md` — it needs its own, b
 (3), derived from the code (1) put there. Sequencing that is provision's job.
 `capsule-baseline` sits after the whole sequence, not inside it.
 
-## One thing to check before building
+## The thing to check first, checked wrong, and what it turned into
 
-The refresh must write only paths the checkout ignores. If it leaves a tracked
-modification it leaves a **dirty worktree**, and a dirty worktree is what
-`updateInstead` refuses the *next* provision on — so a hook that runs at every
-provision would break every provision after the first. It should be clean;
-doctrine's own storage rule puts `boot.md` in the runtime tier. Worth one
-command rather than an assumption, because the failure surfaces one provision
-after its cause. Same class as `recordDir` having to live outside `workdir`
-([item 19](./019-baseline-build-and-figures.md)), and for the same reason.
+The worry was: a refresh must write only paths the checkout ignores, because a
+tracked modification is a **dirty worktree**, and a dirty worktree is what
+`updateInstead` refuses the *next* provision on — so a hook running at every
+provision would break every provision after the first, one provision away from
+its cause. Same class as `recordDir` having to live outside `workdir`
+([item 19](./019-baseline-build-and-figures.md)).
+
+It was measured in doctrine's own checkout and it passed: `.doctrine/state/` is
+gitignored at `.gitignore:41`, `boot.md` is untracked, and `git status
+--porcelain --untracked-files=no` counted the same before and after a
+`doctrine boot`. **The measurement was one invocation in one tree, and the
+general claim is false** — `doctrine boot` regenerates more than the snapshot,
+and some of it is tracked. A clean sample is not a property, and this is the
+second time in this ledger that a measurement has been read as more than it was.
+
+So the constraint inverts into a mechanism. A refresh **may** write tracked
+files; what it may not do is leave them uncommitted, because that costs twice —
+the next provision refuses, and every collect from then on carries a
+`.capsule/dirty.diff` full of regenerated boilerplate, degrading the one blob
+[item 32](./032-the-sideband-channel.md) built because it is what an auditor most
+wants to read.
+
+**The precondition is what makes committing safe rather than a trap.** `git add
+.` in a checkout an agent is working in is precisely item 32's booby trap, one
+layer over: it goes off as somebody else's commit. But a provision can only land
+on a **clean** tree — that is what `updateInstead` enforces — so immediately
+after one, `git commit -a` can contain the refresh's output and nothing else.
+No pathspec to get right, and no in-flight work to sweep up because there was
+none. `capsule-refresh` therefore checks that the tree was clean *before* it ran,
+and refuses to commit at all if it was not: there is then no way to tell the two
+apart, and guessing means committing someone else's work under this program's
+name.
+
+Three deliberate narrowings, each of which is a judgement the mechanism declines
+to make for a target: it does not commit a **half-result** (a refresh that exited
+non-zero and dirtied the tree is reported, not committed); it does not add
+**untracked** files, because whether a newly created file belongs in the
+repository is not a thing this program has standing to decide; and it is
+**inert** for a refresh whose whole output is ignored, which is what doctrine's
+was believed to be.
+
+One property came free and is worth naming, because it is what keeps such a
+commit legible in a collected history: the guest's git identity is already
+`capsule <capsule@localhost>` (`vm/capsule.nix`), so a refresh commit is visibly
+neither the agent's nor the human's to anyone reading `refs/capsule/<name>/heads/*`
+afterwards. It says what it is without being told to.
+
+The cost, stated once: a capsule whose refresh commits has a `work` branch ahead
+of what the host pushed, so re-provisioning it wants `--force`. That is the same
+override that re-provisioning over an agent's own commits already wants, and
+`capsule-provision`'s existing refusal already names it — a more likely path
+through a message that was already there, rather than a new failure.
 
 ## Considered and rejected
 
@@ -135,6 +183,24 @@ after its cause. Same class as `recordDir` having to live outside `workdir`
 - **Folding it into `baseline`.** Above.
 - **Leaving it to the agent's own startup.** A rule enforced by whoever
   remembers it, over a failure mode that is an absence rather than an error.
+
+## What the extraction actually turned out to be
+
+Smaller than "extract the seam" sounds, and the reason is worth keeping. The
+invocation form **cannot** be factored into a function, because one of its two
+callers composes its command line at *run* time — `capsule-baseline` splices a
+staged path and a stamp that do not exist at eval. So `host/guest-exec.nix` holds
+two things and not three: the build-time shellcheck both guest runners get, and
+`loginRun` as a named constant for the callers that push a script on stdin.
+`capsule-baseline` still spells its own `bash -l -c "bash …"` and cites the same
+item.
+
+That leaves `loginRun` with one caller today, which is the honest cost of stating
+a rule in one place rather than deriving it twice. The file earns its keep on the
+*other* axis: it is where the two classes of guest script are written down —
+does this read `environment.variables` or not — which is the question that sorts
+`observe` and `state-snapshot` (no) from `baseline` and `refresh` (yes), and the
+question whose wrong answer is item 24.
 
 ## What this does not buy
 

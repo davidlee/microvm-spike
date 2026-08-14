@@ -64,9 +64,37 @@
         inherit (target) statePaths stateMaxBytes;
       };
 
+  # How anything host-authored runs *inside* a live capsule: the build-time lint
+  # both guest runners get, and the login-shell rule a second hand-written
+  # invocation would get wrong (host/guest-exec.nix, NOTES item 24).
+  guestExec = import ./guest-exec.nix {inherit pkgs;};
+
+  # The third step of a provision — regenerate what the push cannot carry, in the
+  # checkout the push just made (host/refresh.nix, NOTES item 33). `null` when
+  # the target derives nothing from its checkout, which is what keeps the
+  # two-step provision available rather than adding a flag nobody sets.
+  #
+  # The other end of `stateSnapshot` above, and the two are one decision: what a
+  # collect must not carry out is what a provision regenerates in.
+  refreshHook =
+    if (target.refresh or null) == null
+    then null
+    else
+      import ./refresh.nix {
+        inherit pkgs lib guestExec guestHost transport;
+        command = target.refresh;
+        workdir = target.guestPath;
+      };
+
   gitChannel = import ./git-channel.nix {
     inherit pkgs target workBranch guestRepo guestHost transport;
     snapshot = stateSnapshot;
+    # The command line, not the module: the git channel runs a refresh and has no
+    # business knowing what one is built out of.
+    refresh =
+      if refreshHook == null
+      then null
+      else refreshHook.invoke;
   };
 in {
   inherit guestHost guestRepo baselineRecord;
@@ -86,6 +114,15 @@ in {
   };
 
   inherit (gitChannel) provision collect;
+
+  # The same refresh `capsule-provision` runs, on its own: a human who has just
+  # done a hand `git checkout` in the guest wants it and no push, and a provision
+  # that failed *at* the refresh needs a way to retry only that half. `null` on
+  # the same condition as the hook itself.
+  refresh =
+    if refreshHook == null
+    then null
+    else refreshHook.program;
 
   # The non-git half of provisioning: credentials, secrets and anything else a
   # fresh capsule needs that no repository carries. The list is ./setup.nix,
@@ -109,7 +146,7 @@ in {
     then null
     else
       import ./baseline.nix {
-        inherit pkgs guestHost transport;
+        inherit pkgs guestExec guestHost transport;
         command = target.baseline;
         workdir = target.guestPath;
         recordDir = baselineRecord;

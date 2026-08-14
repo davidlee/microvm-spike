@@ -69,8 +69,9 @@ fmt-check:
   alejandra -c {{nix_paths}}
 
 # the host-side scripts — shellcheck runs at build, so this is the real lint.
-# capsule-baseline exists only while the target declares a `baseline`; a target
-# that omits it drops that line, and the build says so rather than skipping it.
+# capsule-baseline and capsule-refresh exist only while the target declares a
+# `baseline` / a `refresh`; a target that omits one drops that line, and the
+# build says so rather than skipping it.
 # `guardCases` is here rather than in its own recipe on purpose: a case that
 # fails fails the build, which is the only way a check gets run every time.
 build:
@@ -79,7 +80,8 @@ build:
     '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
-    '.#capsule-baseline' '.#hostModuleUnits' '.#guardCases'
+    '.#capsule-baseline' '.#capsule-refresh' \
+    '.#hostModuleUnits' '.#guardCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has
@@ -199,6 +201,11 @@ provision name="" ref="" *flags:
 # the non-git half: credentials and anything else setup.nix declares
 inject name="" *args:
   @capsule {{name}} inject {{args}}
+
+# regenerate the derived state a push cannot carry — a provision does this
+# itself, so this is for a hand checkout in the guest or a retry after one failed
+refresh name="":
+  @capsule {{name}} refresh
 
 # the target's own build-and-test in the guest, with its record on the volume
 baseline name="" *flags:

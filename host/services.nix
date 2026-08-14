@@ -108,7 +108,8 @@
     inherit (hostPrograms) observe;
     programVerbs =
       ["provision" "collect" "inject"]
-      ++ lib.optional (hostPrograms.baseline != null) "baseline";
+      ++ lib.optional (hostPrograms.baseline != null) "baseline"
+      ++ lib.optional (hostPrograms.refresh != null) "refresh";
   };
 
   # The one program that runs at guest *root*, and the reason a stop on this
@@ -500,10 +501,11 @@ in {
         "z ${cfg.stopKey} 0400 microvm kvm -"
       ];
 
-      # Only the two that keep state need wrapping; `capsule-inject` and
-      # `capsule-baseline` write nothing host-side, so they go on PATH as they
-      # are. All four reach the guest through a relay socket, which is the only
-      # way in on this path — `--capsule <name>` or `CAPSULE_NAME` picks whose,
+      # Only the two that keep state need wrapping; `capsule-inject`,
+      # `capsule-baseline` and `capsule-refresh` write nothing host-side, so they
+      # go on PATH as they are. All of them reach the guest through a relay
+      # socket, which is the only way in on this path — `--capsule <name>` or
+      # `CAPSULE_NAME` picks whose,
       # and there is no fallback: a slot's name says nothing about what is in it,
       # so a program with a default acts on a slot nobody chose. `capsule` itself
       # resolves an unnamed invocation from what is running (host/cli.nix).
@@ -519,7 +521,8 @@ in {
           (wrap "capsule-collect" hostPrograms.collect)
           hostPrograms.inject
         ]
-        ++ lib.optional (hostPrograms.baseline != null) hostPrograms.baseline;
+        ++ lib.optional (hostPrograms.baseline != null) hostPrograms.baseline
+        ++ lib.optional (hostPrograms.refresh != null) hostPrograms.refresh;
 
       # Rotated rather than truncated: it is the record of every egress attempt
       # (NOTES open item 15). copytruncate, so tinyproxy needs no signal. One

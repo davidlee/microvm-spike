@@ -344,11 +344,16 @@
     capsule-collect = hostPrograms.collect;
     capsule-inject = hostPrograms.inject;
 
-    # An attrset because the field is optional — a target that declares no
-    # baseline gets no program at all.
+    # Attrsets because the fields are optional — a target that declares no
+    # baseline, or derives nothing from its checkout, gets no program at all
+    # rather than one that cannot work.
     baselinePackages =
       lib.optionalAttrs (hostPrograms.baseline != null)
       {capsule-baseline = hostPrograms.baseline;};
+
+    refreshPackages =
+      lib.optionalAttrs (hostPrograms.refresh != null)
+      {capsule-refresh = hostPrograms.refresh;};
 
     # The front end: resolve a name, pick the copy of a program that can reach
     # that capsule, exec (host/cli.nix). Built once and installed by both paths,
@@ -368,7 +373,8 @@
       inherit (hostPrograms) observe;
       programVerbs =
         ["provision" "collect" "inject"]
-        ++ lib.optional (hostPrograms.baseline != null) "baseline";
+        ++ lib.optional (hostPrograms.baseline != null) "baseline"
+        ++ lib.optional (hostPrograms.refresh != null) "refresh";
     };
 
     # The guard's verdicts, asserted at build time against a stubbed kernel.
@@ -1017,6 +1023,7 @@
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
       // baselinePackages
+      // refreshPackages
       // {
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
         # The two checks that need no root and no host: what the module says, and
@@ -1057,7 +1064,8 @@
           # the real one back. Not repo-specific — every nix devshell does it.
           pkgs.bashInteractive
         ]
-        ++ lib.attrValues baselinePackages;
+        ++ lib.attrValues baselinePackages
+        ++ lib.attrValues refreshPackages;
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"
         echo "                       guest side: vm capsule   (or: vm hello)"

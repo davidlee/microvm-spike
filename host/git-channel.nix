@@ -36,6 +36,11 @@
   # 32). `null` for a target that declares no `statePaths`, which degrades to the
   # code-only collect this program used to be.
   snapshot,
+  # The third step of a provision, as one shell command line (host/refresh.nix):
+  # regenerate the derived state the push cannot carry, in the checkout the push
+  # just made. `null` for a target that derives nothing from its checkout, which
+  # degrades to the two-step provision this program used to be (NOTES item 33).
+  refresh ? null,
   # The branch a capsule's work lives on inside the guest — a constant, and not
   # the target's to name (docs/contract-target.md). The guest's seed sets the
   # same one; they must agree or a provision moves a ref and checks nothing out,
@@ -164,6 +169,26 @@
         exit 1
       fi
       echo "capsule-provision: guest is at $commit on ${workBranch}"
+      ${lib.optionalString (refresh != null) ''
+        # A provision is not finished when the push lands (NOTES item 33). What
+        # the target derives *from* its checkout cannot travel in a commit and
+        # must not travel in a collect — a copy is stale authority in whatever
+        # tree it lands in — so it is regenerated here, after the push, from the
+        # code the push just delivered.
+        #
+        # Its failure is the provision's, and that is the one place this differs
+        # from the collect's state half: there, a state half that cannot be taken
+        # still leaves code worth having. Here, code without its derived state is
+        # the trap — and it fails by *absence*, which reads as fine until
+        # something answers from it.
+        echo "capsule-provision: regenerating derived state"
+        if ! ${refresh}; then
+          echo "capsule-provision: the code landed and the refresh did not." >&2
+          echo "  The checkout is at $commit; what it derives is stale or absent." >&2
+          echo "  Fix the cause, then 'capsule-refresh --capsule $capsule'." >&2
+          exit 1
+        fi
+      ''}
     '';
   };
 

@@ -95,7 +95,8 @@ rec {
   # derived from the checkout it sits in, so a copy landing in another tree is
   # stale authority the next tool there reads as its own. It comes back by being
   # regenerated where it is needed, which belongs to provisioning and not to a
-  # collect; the generic hook for that does not exist yet (item 32).
+  # collect — that is `refresh` below (NOTES item 33), and the two fields are one
+  # decision read from its two ends: what is not here is there.
   #
   # A target with no such state omits the field. `[]` degrades to a code-only
   # collect plus whatever is uncommitted, which is what every collect did before.
@@ -138,6 +139,36 @@ rec {
   # anything here is built with cargo. `null` for a target with nothing to
   # build, which drops the program rather than shipping one that cannot work.
   baseline = "just web-build test";
+
+  # What a *fresh checkout* needs before anything reads it: the command that
+  # regenerates this target's derived state, run by `capsule-provision` once the
+  # push has landed and by `capsule-refresh` on demand (NOTES item 33).
+  #
+  # The other end of `statePaths` above. Derived state is precisely what must not
+  # travel between capsules — a copy is stale authority in the tree it lands in —
+  # so it does not come back in a collect; it is regenerated here, from the code
+  # the provision just delivered.
+  #
+  # A command line, like `baseline`, and the same generic capability with a
+  # different lifecycle: nothing outside this file knows what `doctrine boot` is
+  # or that a governance snapshot exists. `null` for a target that derives
+  # nothing from its checkout, which drops the program rather than shipping one
+  # with nothing to run.
+  #
+  # It may write tracked files, and `doctrine boot` does — the boot snapshot
+  # itself is runtime tier, but a boot regenerates more than the snapshot. That
+  # is handled rather than forbidden: `capsule-refresh` commits the tracked half
+  # of what it wrote, because the alternative is a dirty worktree that the *next*
+  # provision refuses on and that every subsequent collect records as noise in
+  # its `dirty.diff`. The commit is safe because a provision can only land on a
+  # clean tree, so there is nothing of anyone else's for it to sweep up — see
+  # host/refresh.nix, where the precondition is enforced.
+  #
+  # The cost, stated once: a capsule whose refresh commits has a `work` branch
+  # ahead of what the host pushed, so re-provisioning it wants `--force`. That is
+  # the same override re-provisioning over an agent's commits already wants, and
+  # `capsule-provision`'s refusal already names it.
+  refresh = "doctrine boot";
 
   # The guest is sized for this target's build, not for the host.
   #

@@ -86,6 +86,7 @@ changes until they are built.
 | `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
+| `refresh` | profile | host: the command `capsule-provision` runs in the checkout after the push, and `capsule-refresh` runs on demand. May write tracked files; its tracked output is committed in the guest, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) | no | `null` — as `baseline`: no program, rather than one with nothing to run. A provision is then the two steps it was before |
 | `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
 | `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
@@ -151,9 +152,9 @@ either. It stops existing.
 
 `extraTools = []` is the absent path a second target exercised (NOTES item 23),
 and `toolsPackage = null` is the one that turned out to be **narrower than it
-looks** — see its row. Still unexercised: `baseline = null`, `caches = {}`,
-`guestConfig = {}`. Those are absent paths by construction — read the consumers,
-not this table, before relying on one.
+looks** — see its row. Still unexercised: `baseline = null`, `refresh = null`,
+`caches = {}`, `guestConfig = {}`. Those are absent paths by construction — read
+the consumers, not this table, before relying on one.
 
 ### What is deliberately not a target field
 
@@ -232,10 +233,11 @@ the capsule as an argument rather than being built per capsule
 
 | command | arguments | touches the target repo? |
 | --- | --- | --- |
-| `capsule-provision` | `[--capsule <name>] <ref> [--force]` — any commit-ish in `path` | yes: reads it, as you. The only program that does |
+| `capsule-provision` | `[--capsule <name>] <ref> [--force]` — any commit-ish in `path` | yes: reads it, as you. The only program that does. It also runs `refresh` in the guest once the push has landed, when the target declares one — a provision is not finished when the push lands ([item 33](./ledger/033-provision-is-a-sequence.md)) |
 | `capsule-collect` | `[--capsule <name>] [--stage <name>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)) |
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
 | `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
+| `capsule-refresh` | `[--capsule <name>]` | no: runs `refresh` in the guest's checkout. The same step `capsule-provision` takes itself — separate for a hand checkout in the guest, and for retrying the half that failed. It does **commit in the guest** when the refresh writes tracked files, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) |
 
 `<ref>` is required, and there is nothing left it could be defaulted to: it is
 a ref in the *target repo*, and `work` is the guest's branch, which is the whole
@@ -271,8 +273,10 @@ different one. Nothing else generic moved. In order:
 
 1. `inputs.target.url` in `flake.nix`, and `path` in `target.nix` — the two
    literals above. Check `~/flakes` if you renamed the input.
-2. `name`, `commands`, `baseline`. Not a branch: there is no such field, and
-   the guest's is the constant `work` whatever the target calls its own.
+2. `name`, `commands`, `baseline`, and `refresh` if the target derives anything
+   from its checkout that a commit does not carry. Not a branch: there is no such
+   field, and the guest's is the constant `work` whatever the target calls its
+   own.
 3. Its own `allowlist` file. Half of any such list is that target's dependency
    hosts, so it is a new file rather than an edit to doctrine's.
 4. `toolsPackage`. `null` plus a filled-out `extraTools` is the absent path on
