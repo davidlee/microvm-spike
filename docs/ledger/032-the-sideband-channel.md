@@ -3,8 +3,9 @@
 *State: built, and run once against a live capsule; extraction is
 [item 34](./034-adopting-a-guest-authored-tree.md) and no longer by hand, and the
 inbound half is [item 35](./035-briefing-a-capsule-with-state.md) and no longer
-absent. **The allowlist's scope is built too** — the template, the token and the
-refusal are below, asserted at build time and unrun against a capsule.*
+absent. **The allowlist's scope is built and run** — the template, the token and
+the refusals are below, and the exhibit this item was written from is 36 entries
+now instead of 1886.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -273,15 +274,39 @@ record is one nobody can check the scope of. And `host/programs.nix` now exports
 same hand-maintained list at both of its call sites — which is the duplication
 that already cost a host rebuild once, found while widening it.
 
-**Asserted, not run.** `snapshotCases` (29 cases) runs the snapshot's own text
+**Asserted, then run.** `snapshotCases` (29 cases) runs the snapshot's own text
 against a sandbox checkout holding two units, which is the third kind of check
-(CLAUDE.md) and the only kind available: reaching this branch on a live host
-means driving a real unit of work in a checkout that holds several. It pins the
-scope, the refusal, that a unit with no state is a *skip*, that the generic
-halves — untracked-but-not-ignored, `dirty.diff` — stay unscoped, and the token
-bound including the two cases it used to admit. Watched failing on two
-mutations: a path losing its hole, and the bound reverted to its old form. What
-no capsule has done is collect through it.
+(CLAUDE.md) and the only kind available before a switch: reaching this branch on
+a live host means driving a real unit of work in a checkout that holds several.
+It pins the scope, the refusal, that a unit with no state is a *skip*, that the
+generic halves — untracked-but-not-ignored, `dirty.diff` — stay unscoped, and the
+token bound including the two cases it used to admit. Watched failing on two
+mutations: a path losing its hole, and the bound reverted to its old form.
+
+**And then against the tree this item was written from.** Same slot, same guest,
+same code commit: **36 entries and 511 KiB**, where the collect described at the
+top of this file took 1886 and 18.6 MB
+([probes](../probes.md#the-same-exhibit-scoped--what-the-prediction-was-worth)).
+Three things in that run are worth more than the ratio. The **one surviving
+symlink is the load-bearing one** — `.doctrine/slice/254/phases ->
+../../state/slice/254/phases`, the link that made *resolution within the root*
+the rule, still resolves, because the other declared path is what its target
+lives under; narrowing either alone would have left a broken link and no error,
+which is an argument for scoping a policy's paths as a set rather than one at a
+time. The **chain is intact**: the scoped commit is parented on the broad one, so
+the over-collection stays reachable and the narrowing is an event in the
+capsule's provenance rather than a rewrite of it. And the count came in **under**
+the ~40 predicted here, for a reason that sharpens the invariant: the prediction
+was a grep for the unit's name, and *paths that mention the unit* is a larger set
+than *paths under it*. The five that went are doctrine's title-slug alias for the
+unit, which sits one directory above the hole — a convenience of the project's,
+not evidence of a run.
+
+**Both host-side refusals fired on the live pair**, which is the half a build
+sandbox cannot claim: `capsule b collect` refused because `b`'s record carries no
+unit and named both remedies, and `capsule b collect --unit ..` refused on the
+bound. Neither reached the guest. The remaining unfired branch is `--unit` on a
+target with *no* hole, which needs a second target rather than a second run.
 
 **What is deliberately not scoped**: untracked-but-not-ignored files and
 `.capsule/dirty.diff`. Both are generic — "the agent has not committed this" is

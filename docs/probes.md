@@ -711,6 +711,56 @@ the one choke point both `capsule-adopt` and `capsule-brief` read through.
 `.doctrine/state/slice` is already narrow, but by accident of what that checkout
 held rather than by declaration.
 
+## The same exhibit, scoped — what the prediction was worth
+
+The narrowing built ([item 32](./ledger/032-the-sideband-channel.md)), against
+the same slot, the same guest and the same code commit, on the module path after
+a switch. `capsule a collect` with the record's `unit: 254` filling the hole in
+`statePaths`, then `capsule a adopt` into an empty directory. Both green, no
+refusal. The predicted figure was "~40 entries against 1886".
+
+| figure | unscoped | scoped | ratio |
+| --- | --- | --- | --- |
+| entries in the state tree | 1886 | **36** | 52× |
+| bytes, as git counts them | 18 646 642 | **511 275** | 36× |
+| filesystem entries after layout | 2171 | **46** | 47× |
+| on disk after layout | 23 MiB | **628 KiB** | 37× |
+| symlinks | 253 | **1** | — |
+| broken symlinks | 0 | **0** | — |
+| `capsule-collect` wall clock | 0.48 s (warm) | **0.227 s** | — |
+| `capsule-adopt` wall clock | — | **0.043 s** | — |
+
+Three things beyond the ratio, and each is a claim that could have gone the other
+way.
+
+**The one surviving symlink is the load-bearing one.**
+`.doctrine/slice/254/phases -> ../../state/slice/254/phases` is what made
+*resolution within the extraction root* the rule instead of a `..` ban, and it
+still resolves after scoping — because the *other* declared path is what its
+target lives under, so narrowing both together keeps the pair whole. Narrowing
+either alone would have left a broken link and no error. The 252 that went are
+doctrine's title-slug aliases for other units, which sit one directory above the
+hole and are therefore out of scope by construction rather than by a rule about
+symlinks.
+
+**The chain is intact across the change.** The scoped commit's parent is
+`933d99234`, the broad exhibit, so the over-collected tree is still reachable and
+the narrowing reads as an event in the capsule's provenance rather than as a
+rewrite of it. Nothing was deleted to get this figure.
+
+**36 rather than the predicted ~41.** The five are the title-slug alias for 254
+itself, which the earlier count reached by grepping for the string and the scoped
+collect cannot reach at all, plus the untracked-but-not-ignored files this run
+did not have. The prediction was made by grep over a tree; the difference is the
+distance between *paths that mention the unit* and *paths under the unit*, and it
+is the smaller of the two by design — a slug alias is a convenience of the
+project's, not evidence of a run.
+
+**Both host-side refusals fired for the first time outside a build sandbox**, on
+the live pair: `capsule b collect` refused because `b`'s record carries no unit,
+naming both remedies, and `capsule b collect --unit ..` refused on the token
+bound. Neither reached the guest.
+
 ## What the sideband arc costs, end to end
 
 The first run of items 33, 34 and 35 against live capsules, on the module path

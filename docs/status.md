@@ -8,8 +8,11 @@ happens next.
 
 Last updated 2026-08-15, after **the exhibit's scope — a collect is narrowed to
 the unit of work the capsule was assigned, which closes item 32's last open
-invariant** (below; built and asserted, unrun against a capsule). Before that,
-the same day, after **the sideband arc — a capsule's result has two
+invariant** (below). **Built, asserted, switched and run**: the same slot, guest
+and commit that produced the 1886-entry exhibit now produce a **36-entry** one,
+and both host-side refusals fired on the live pair
+([probes](./probes.md#the-same-exhibit-scoped--what-the-prediction-was-worth)).
+Before that, the same day, after **the sideband arc — a capsule's result has two
 halves, and the second one now has a channel, a regeneration step, an extractor
 and a way back in** ([items 32](./ledger/032-the-sideband-channel.md),
 [33](./ledger/033-provision-is-a-sequence.md),
@@ -100,16 +103,33 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   an older answer to the question the exhibit settles. Only the target could say
   so, which is the guinea-pig rule biting in the direction it is meant to.
 
-  **Asserted at build time, unrun against a capsule.** `snapshotCases` is the
-  third kind of check's third instance — 29 cases running the snapshot's own text
-  against a sandbox checkout holding two units, which is the only way to reach
-  this branch without driving a real unit of work in a checkout that holds
-  several. It pins the scope, both refusals, that a unit with no state is a
-  *skip*, that the generic halves stay unscoped, and the token bound including
-  the two cases it used to admit; watched failing on two mutations — a path losing
-  its hole, and the bound reverted. `just check`, `just build` and `just units`
-  are green. What is owed is a collect through it on a real capsule, and the
-  entry count that comes back.
+  **Asserted at build time, then run.** `snapshotCases` is the third kind of
+  check's third instance — 29 cases running the snapshot's own text against a
+  sandbox checkout holding two units, which is the only way to reach this branch
+  without driving a real unit of work in a checkout that holds several. It pins
+  the scope, both refusals, that a unit with no state is a *skip*, that the
+  generic halves stay unscoped, and the token bound including the two cases it
+  used to admit; watched failing on two mutations — a path losing its hole, and
+  the bound reverted.
+
+  **And then the host, after a switch, against the tree it was written from.**
+  The same slot, guest and commit that produced 1886 entries produce **36**, and
+  511 KiB against 18.6 MiB — a 52× cut in entries, better than the ~40-entry
+  prediction and for a reason worth having: the five missing are doctrine's
+  title-slug alias for the unit, which the prediction reached by grepping for the
+  string and a scoped collect cannot reach at all. *Paths that mention the unit*
+  is a larger set than *paths under it*, and the smaller one is the right one.
+  Three claims that could have gone the other way held: the **one surviving
+  symlink is the load-bearing one** (`.doctrine/slice/254/phases ->
+  ../../state/slice/254/phases` still resolves, because the other declared path is
+  what its target lives under — narrowing either alone would have left a broken
+  link and no error); the **chain is intact**, the scoped commit parented on the
+  broad one, so the over-collection is an event in the provenance rather than a
+  rewrite of it; and **both host-side refusals fired on the live pair** — `b` has
+  no recorded unit, so `capsule b collect` refused and named both remedies, and
+  `--unit ..` refused on the bound. `capsule a adopt` then laid all 36 out, 46
+  filesystem entries, no broken link
+  ([probes](./probes.md#the-same-exhibit-scoped--what-the-prediction-was-worth)).
 
   One thing came along because widening the CLI's argument list ran into it:
   `programVerbs` is built in [host/programs.nix](../host/programs.nix) now rather
@@ -946,17 +966,14 @@ It is in flight rather than finished, and one of the two is cheap.
 
    `a` is no longer driving SL-254, so the constraint that shaped this whole arc
    is off and both slots may be started, stopped and provisioned freely.
-2. ~~**Scope the exhibit at collect**~~ — **built**, exactly as the design had it
-   (above, [item 32](./ledger/032-the-sideband-channel.md)), plus a bound that
-   turned out to admit `..` and a duplicated argument list that turned out to be
-   in the way. `just check`, `just build` and `just units` green; `snapshotCases`
-   29/29, watched failing on two mutations. **What is left is a host run**, and it
-   needs a `~/flakes` switch first for the reason the arc's own run did: the
-   installed `capsule-collect` has no `--unit`, so collecting against it would
-   exercise the unscoped program while reading as green. After the switch:
-   `capsule a unit <token>` (or read the one already recorded), `capsule a
-   collect`, and the entry count beside the measured 1886 goes in
-   [probes.md](./probes.md).
+2. ~~**Scope the exhibit at collect**~~ — **built, switched and run** (above,
+   [item 32](./ledger/032-the-sideband-channel.md)), exactly as the design had it,
+   plus a bound that turned out to admit `..` and a duplicated argument list that
+   turned out to be in the way. `just check`, `just build` and `just units` green;
+   `snapshotCases` 29/29, watched failing on two mutations; and 36 entries against
+   1886 on the live pair
+   ([probes](./probes.md#the-same-exhibit-scoped--what-the-prediction-was-worth)).
+   **So the sideband arc owes nothing.**
 
 ## Open, and nothing should claim these closed
 
@@ -1035,14 +1052,13 @@ It is in flight rather than finished, and one of the two is cheap.
 - ~~**The exhibit's scope is wrong, and only a pair of hands narrows it.**~~
   Built: `statePaths` is a template, the assignment fills the hole, and a hole
   with no unit refuses (above, [item 32](./ledger/032-the-sideband-channel.md)).
-  What replaces it is narrower, and it is two things. **No capsule has collected
-  through it** — the scoping is asserted against a sandbox checkout and the
-  entry count that would price it against the measured 1886 is owed, which also
-  means the host-side refusals (`--unit` missing, `--unit` on a target with no
-  hole) have never fired outside a build. And **the module path is a version
-  behind**, so `capsule <slot> collect` on this host still runs the unscoped
-  program until a `~/flakes` switch — the same staleness that blocked the arc's
-  own run, and the same trap: an unscoped collect would read as a green one.
+  ~~What replaces it is that no capsule has collected through it.~~ One has:
+  36 entries against 1886 on the same slot, guest and commit, after a switch, with
+  both host-side refusals fired on the live pair
+  ([probes](./probes.md#the-same-exhibit-scoped--what-the-prediction-was-worth)).
+  What replaces *that* is narrower and is one thing: the **`--unit` on a target
+  with no hole** refusal is still build-time only, because every target on this
+  host has one — it needs a second target, not a second run.
 - ~~**`capsule-adopt` has never seen the real exhibit.**~~ It has: `--list` and a
   real layout, both green, 253 symlinks and no broken link
   ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
