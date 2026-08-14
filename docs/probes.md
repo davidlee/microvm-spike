@@ -741,6 +741,14 @@ regenerated `b`'s derived state, in 1.14 s — with 2127 entries under
 `.doctrine/slice` and 2833 symlinks present in `b` afterwards, and no `.capsule/`,
 which is item 35's drop-at-layout doing its job.
 
+**A repeat brief into a destination that already holds every object is 0.63 s**,
+so most of that 1.14 s was not the state transfer. There is no *colder* case to
+measure than the first one: a brief refuses unless the destination is at the
+state's `code-oid`, so the destination always holds the code history, and what
+varies is only whether it has seen a `capsule state:` commit before. `b` had not,
+which is why the pair above is the interesting one — cold and warm, 1.14 s and
+0.63 s, for the same 18.6 MB.
+
 **And a brief carried nothing of the other agent's *tracked* work, by
 construction.** `b`'s `git status --porcelain` is **empty** after the brief, and
 `capsule-brief` said so itself: `differs from its HEAD in 0 paths`. Slot `a` is

@@ -211,8 +211,11 @@ for narrowing at collect rather than an argument against this. The design is ite
 ~~**Nothing measures it.**~~ Measured, n=1: the whole three-step provision — push,
 brief, refresh — is **1.14 s**, and a second collect of a state half the same size
 is **0.48 s** because the quarantine already holds the blobs
-([probes](../probes.md#what-the-sideband-arc-costs-end-to-end)). Nothing in the
-arc is a bottleneck; it costs less than the ssh handshakes inside it. What stays
-unmeasured is the case those figures are least like — a destination that shares
-*few* objects with the source, which is what a brief across two different base
-commits would be.
+([probes](../probes.md#what-the-sideband-arc-costs-end-to-end)). A repeat brief
+into a destination that already holds every object is **0.63 s**, so most of that
+1.14 s was never the state transfer. Nothing in the arc is a bottleneck; it costs
+less than the ssh handshakes inside it. And there is **no colder case to
+measure**: the `code-oid` refusal means a destination is always at the state's own
+commit, so it always holds the code history and the only thing that varies is
+whether it has seen a `capsule state:` commit before — which is exactly the pair
+already taken.

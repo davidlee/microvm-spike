@@ -190,6 +190,32 @@ in
           fi
         }
 
+        # What a unit said *about the thing just asked of it* — `unitTail <unit>
+        # <epoch> <lines>`, printing to stderr and saying so when there is nothing.
+        #
+        # An unscoped `journalctl -u <unit> -n 15` is what both call sites used to
+        # run, and it reports the wrong event whenever the request never reached
+        # systemd: `just up a` with no tty for sudo printed `did not stay up`
+        # followed by the *previous boot's* clean shutdown, which reads as a VMM
+        # that crashed on this start. A stop of an already-stopped unit has the
+        # same shape, and its comment calls the tail "the evidence" — of the last
+        # stop, not this one. Since the moment of the request, then, and an
+        # explicit sentence for empty rather than silence: **no lines is itself
+        # the finding**, because a unit that logged nothing is a unit nothing was
+        # done to.
+        unitTail() {
+          local tail
+          tail=$(journalctl -u "$1" --since "@$2" -n "$3" --no-pager -o cat 2>/dev/null || true)
+          if [ -n "$tail" ]; then
+            printf '%s\n' "$tail" >&2
+          else
+            echo "  ($1 logged nothing since this was asked of it — so nothing" >&2
+            echo "   happened to it: it was already in that state, or the request" >&2
+            echo "   never reached systemd. That is not evidence of a failure here," >&2
+            echo "   and the unscoped tail this replaced was evidence of an older one.)" >&2
+          fi
+        }
+
         # The module's copy when this capsule has a door and the host has one,
         # otherwise whatever PATH gives — which inside the repo is the devshell's,
         # the right answer for a capsule on a tap in this namespace.
@@ -564,17 +590,29 @@ in
               sudo systemctl stop "$unit"
               sudo systemctl daemon-reload
             fi
-            # `|| true` because the assertion below is the better error: it reports
-            # what the VMM said rather than that a start returned nonzero.
-            sudo systemctl start "$unit" || true
+            # The status is kept rather than discarded: `|| true` alone made every
+            # failure read as the VMM's, including the ones where systemd was never
+            # reached at all — no tty for sudo is the one that costs a minute, since
+            # the tail underneath then describes some earlier boot. The assertion is
+            # still the better error when the start *did* run, so both are reported
+            # and the epoch is taken first, to scope what follows to this attempt.
+            asked=$(date +%s)
+            rc=0
+            sudo systemctl start "$unit" || rc=$?
             # A start returns once the VMM is exec'd, and a VMM that cannot open its
             # tap is gone again in milliseconds — which is how a crash loop reads as a
             # successful start. So ask again, after long enough for that to have
             # happened.
             sleep 2
             if [ "$(systemctl show "$unit" -P SubState)" != running ]; then
-              echo "capsule $name: did not stay up —" >&2
-              journalctl -u "$unit" -n 15 --no-pager -o cat >&2
+              if [ "$rc" -ne 0 ]; then
+                echo "capsule $name: the start itself failed — systemctl exited $rc," >&2
+                echo "  so this may be a request that never reached the unit rather than" >&2
+                echo "  a VMM that died." >&2
+              else
+                echo "capsule $name: did not stay up —" >&2
+              fi
+              unitTail "$unit" "$asked" 15
               exit 1
             fi
             # A running VMM is not the promise. Credentials and secrets are a push
@@ -599,10 +637,13 @@ in
             # Not a power cut: the unit's `ExecStop` asks the guest to reboot, it
             # unmounts and then its reset exits the VMM (NOTES item 11). The journal
             # tail is the evidence — `reboot requested` and then a return, rather than
-            # 120 s of TimeoutStopSec.
+            # 120 s of TimeoutStopSec. Scoped to this stop, since a unit that was
+            # already down logs nothing and the unscoped tail would hand back the
+            # *previous* stop's evidence for this one.
             unit=$(unitOf "$name")
+            asked=$(date +%s)
             sudo systemctl stop "$unit"
-            journalctl -u "$unit" -n 12 --no-pager -o cat 2>/dev/null || true
+            unitTail "$unit" "$asked" 12
             ;;
 
           status)

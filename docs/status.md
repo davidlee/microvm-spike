@@ -1004,7 +1004,10 @@ It is in flight rather than finished, and one of the two is cheap.
   uncommitted tracked edits, which live only in the exhibit's `.capsule/dirty.diff`
   and are dropped at layout by design. Slot `a` was dirty in exactly that way
   (`M skills-lock.json`) and none of it reached `b`. The count is truthful and the
-  sentence beside it describes a case doctrine does not produce.
+  sentence beside it describes a case doctrine does not produce. Cold and warm are
+  both priced — 1.14 s for the three-step provision, 0.63 s for a repeat brief —
+  and there is no colder case, since the `code-oid` refusal puts the destination
+  at the state's own commit every time.
 - **Whether an injected credential survives use.** The token rotates on refresh
   and the capsule holds a copy, not the shared file — so host and capsule drift,
   and how long a capsule's copy stays good is unknown. `capsule-inject --force`
@@ -1082,6 +1085,19 @@ It is in flight rather than finished, and one of the two is cheap.
   (they are the host's, and named to need no quoting); it is `ls` in the guest
   that misleads.
 - `vm --help` creates `.vm/--help/`. Every argument is a VM name. Papercut.
+- ~~**A journal tail reports the wrong event when the request never reached
+  systemd.**~~ Fixed in-tree, **unshipped** — `capsule` is a store path, so this
+  one needs a host rebuild. `capsule <name> start` printed `did not stay up`
+  followed by the *previous boot's* clean shutdown when `sudo` had no tty, which
+  reads as a VMM that crashed on this start; `stop` had the same shape against an
+  already-stopped unit, and its own comment called that tail "the evidence". Both
+  now take an epoch before the request and scope the tail to it, through one
+  `unitTail` rather than two careful call sites, and **an empty tail is printed as
+  a finding** — a unit that logged nothing is a unit nothing happened to. `start`
+  also keeps `systemctl`'s exit status instead of discarding it, so a start that
+  never ran says so before the tail rather than after it. The `--since "@<epoch>"`
+  scoping is verified both directions against a live unit; the two message
+  branches need a stopped or failing unit and are unexercised.
 - ~~**`just ssh` runs your command substitutions on this host.**~~ Fixed in-tree,
   unshipped-but-not-needing-a-rebuild (a justfile is not in the closure). It cost
   a wrong reading during the sideband arc's own host run: `just ssh b 'git -C
