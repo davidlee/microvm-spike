@@ -110,11 +110,35 @@ rec {
   # This is also what gates `capsule-adopt`, the extractor at the far end
   # (host/adopt.nix, NOTES item 34): no `statePaths`, no state ref, so no program
   # to read one.
+  #
+  # **A template list, and `{unit}` is the one hole a path may hold** (NOTES item
+  # 32). An exhibit has a scope — *the out-of-band state of the work the capsule
+  # was assigned, and none that is not* — and a path list cannot state one,
+  # because the unit of work is run-time state and this file is a build-time
+  # literal. So the policy declares where the unit goes and the assignment says
+  # which unit; a template with a hole and no unit is a refusal, never a
+  # fall-through to the unscoped list. Unscoped is what these two paths were, and
+  # it cost 1886 entries where 41 named the work
+  # (docs/probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect).
+  #
+  # The hole is filled with an opaque token the guest substitutes and never
+  # parses. Nothing outside this file knows that doctrine's unit of work is a
+  # slice, or that a slice is a number — the capability is *a policy path
+  # allowlist may be parameterised by one identifier the assignment carries*, and
+  # a second target is a different template and a different token rather than
+  # different code.
+  #
+  # A target whose out-of-band state is not per-unit writes no hole, and every
+  # program behaves exactly as it did before this existed.
+  #
+  # What is *not* here: `.doctrine/dispatch` and `.doctrine/state/dispatch`, both
+  # of which were declared and are gone. Not narrowed — **historical**: dispatch
+  # is the mechanism capsules replaced, so what those paths hold is bookkeeping
+  # from before this repo existed, and collecting it as a capsule's result would
+  # be shipping an older answer to the question the exhibit settles.
   statePaths = [
-    ".doctrine/state/slice" # per-slice runtime: phase sheets, progress
-    ".doctrine/state/dispatch" # dispatch runtime for a driven slice
-    ".doctrine/dispatch" # per-slice dispatch bookkeeping
-    ".doctrine/slice" # research/ (ignored) and uncommitted authored edits
+    ".doctrine/state/slice/{unit}" # per-slice runtime: phase sheets, progress
+    ".doctrine/slice/{unit}" # research/ (ignored) and uncommitted authored edits
   ];
 
   # Ceiling on one snapshot, in bytes. Not the same backstop as

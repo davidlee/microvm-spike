@@ -6,7 +6,10 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **the sideband arc — a capsule's result has two
+Last updated 2026-08-15, after **the exhibit's scope — a collect is narrowed to
+the unit of work the capsule was assigned, which closes item 32's last open
+invariant** (below; built and asserted, unrun against a capsule). Before that,
+the same day, after **the sideband arc — a capsule's result has two
 halves, and the second one now has a channel, a regeneration step, an extractor
 and a way back in** ([items 32](./ledger/032-the-sideband-channel.md),
 [33](./ledger/033-provision-is-a-sequence.md),
@@ -59,6 +62,60 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **The exhibit has a scope now, and it is declared rather than held in a pair of
+  hands.** Item 32's own invariant — *a collect brings back the out-of-band state
+  of the work the capsule was assigned, and none that is not* — failed by
+  declaration for as long as `statePaths` was a path list, because the unit of
+  work is run-time state and that file is a build-time literal. It is a
+  **template** list now: `{unit}` is the one hole, the **assignment** fills it
+  with an opaque token, and a template with a hole and no unit **refuses** rather
+  than falling back to the unscoped list — [item 28](./ledger/028-a-slot-has-no-default.md)'s
+  rule at the sharpest place there is one, since the unscoped list is the failure
+  being fixed. `capsule-adopt` and `capsule-brief` are untouched and inherit the
+  scope by construction, which is what narrowing at the one choke point was for.
+
+  **Four things the build found**, all in
+  [item 32](./ledger/032-the-sideband-channel.md). The **token bound admitted the
+  thing it was named against**: `checkToken`'s comment has always said "no `..`"
+  and `[A-Za-z0-9._-]+` matches it — harmless while a token landed at the end of a
+  ref, a path escape the moment one lands mid-path, since
+  `.doctrine/state/slice/..` is `.doctrine/state`. Fixed in `checkToken`, so its
+  other three call sites get it free. The **refusal is in two places for two
+  reasons** — the host's before the door opens, the guest's unreachable and kept,
+  because the alternative to an unreachable refusal is a *reachable* substitution
+  of the empty string, which is the unscoped collect wearing the scoped one's
+  name. The **front end is what fills the hole**, because a program may not read
+  host state ([item 20](./ledger/020-which-capsule-a-program-means.md)) and the
+  record is front-end written ([item 29](./ledger/029-the-record-is-front-end-written.md)):
+  `capsule-collect --unit` in argv, `capsule <slot> unit <token>` into a new
+  record field, and an explicit flag wins over the record. And the **verb exists
+  only where the policy has a hole**, on the same rule that drops `capsule-baseline`
+  for a target with no baseline.
+
+  **Two paths were deleted rather than narrowed.** `.doctrine/dispatch` and
+  `.doctrine/state/dispatch` are gone from `statePaths`: dispatch is the mechanism
+  capsules replaced, so those paths hold bookkeeping from before this repo
+  existed. The measurement counted them as over-collection and they were worse —
+  an older answer to the question the exhibit settles. Only the target could say
+  so, which is the guinea-pig rule biting in the direction it is meant to.
+
+  **Asserted at build time, unrun against a capsule.** `snapshotCases` is the
+  third kind of check's third instance — 29 cases running the snapshot's own text
+  against a sandbox checkout holding two units, which is the only way to reach
+  this branch without driving a real unit of work in a checkout that holds
+  several. It pins the scope, both refusals, that a unit with no state is a
+  *skip*, that the generic halves stay unscoped, and the token bound including
+  the two cases it used to admit; watched failing on two mutations — a path losing
+  its hole, and the bound reverted. `just check`, `just build` and `just units`
+  are green. What is owed is a collect through it on a real capsule, and the
+  entry count that comes back.
+
+  One thing came along because widening the CLI's argument list ran into it:
+  `programVerbs` is built in [host/programs.nix](../host/programs.nix) now rather
+  than at each of `host/cli.nix`'s two call sites. That is the same duplication
+  that cost a host rebuild when `observe` was added to one of them, and the same
+  fix.
 
 - **A capsule's result has two halves, and the second one is built end to end.**
   `capsule-collect` brought back `refs/heads/*` and nothing else, which reports a
@@ -889,15 +946,17 @@ It is in flight rather than finished, and one of the two is cheap.
 
    `a` is no longer driving SL-254, so the constraint that shaped this whole arc
    is off and both slots may be started, stopped and provisioned freely.
-2. **Scope the exhibit at collect** — item 32's live invariant, *a collect brings
-   back the out-of-band state of the work the capsule was assigned, and none that
-   is not*, which fails by declaration today. The design is written: the policy
-   declares `statePaths` as a template with one hole, the assignment fills it with
-   an opaque unit token bounded to `[A-Za-z0-9._-]+`, and a template with a hole
-   and no unit **refuses** rather than degrading to the unscoped list. Item 34
-   deliberately inherits whatever this produces rather than growing a
-   doctrine-shaped rule in the extractor, so this is the only part of the
-   invariant still in a pair of hands.
+2. ~~**Scope the exhibit at collect**~~ — **built**, exactly as the design had it
+   (above, [item 32](./ledger/032-the-sideband-channel.md)), plus a bound that
+   turned out to admit `..` and a duplicated argument list that turned out to be
+   in the way. `just check`, `just build` and `just units` green; `snapshotCases`
+   29/29, watched failing on two mutations. **What is left is a host run**, and it
+   needs a `~/flakes` switch first for the reason the arc's own run did: the
+   installed `capsule-collect` has no `--unit`, so collecting against it would
+   exercise the unscoped program while reading as green. After the switch:
+   `capsule a unit <token>` (or read the one already recorded), `capsule a
+   collect`, and the entry count beside the measured 1886 goes in
+   [probes.md](./probes.md).
 
 ## Open, and nothing should claim these closed
 
@@ -946,7 +1005,12 @@ It is in flight rather than finished, and one of the two is cheap.
   argument sets being equal — which they were not, for `observe`, until a host
   rebuild said so. `hostModuleUnits` now forces the module's programs, so a
   *missing* argument is caught at eval; a **different** argument would still
-  produce two silently identical-looking programs.
+  produce two silently identical-looking programs. **Narrowed by subtraction:**
+  every argument that could differ now comes from one place — `programVerbs` was
+  the last one built at both call sites and moved to
+  [host/programs.nix](../host/programs.nix), so the two imports are the same
+  `inherit` over the same values plus five ambient ones. Nothing checks that
+  either; there is just less left to be wrong.
 - **`microvm -c capsule` would create a capsule with no perimeter.** The guest
   image is a flake attribute beside the slots — it has to be, since probes build
   `.#capsule` and match `microvm@capsule` — and `microvm -c` resolves any
@@ -968,19 +1032,17 @@ It is in flight rather than finished, and one of the two is cheap.
   atomic and an over-budget state half must skip rather than take the code refs
   down with it) — and `capsule-adopt` adds none: it reports the byte count and
   lets a human decide, since the operator reading 18.6 MB is the control.
-- **The exhibit's scope is wrong, and only a pair of hands narrows it.** Item 32's
-  invariant fails by declaration: `statePaths` names `.doctrine/state/slice` and
-  `.doctrine/dispatch`, every unit of work a checkout has ever held rather than
-  the one being driven. Surplus state in an exhibit is a second, older answer to
-  the question the exhibit is supposed to settle. The narrowing belongs at
-  collect; the design is in item 32 and nothing is built. **It has a second
-  reader now**: `capsule-brief` propagates whatever a collect over-collected into
-  a second capsule's checkout, which is not a new hole and is one more argument
-  for narrowing at the one choke point ([item 35](./ledger/035-briefing-a-capsule-with-state.md)).
-  **Now measured rather than argued**: 41 of the exhibit's 1886 entries name the
-  slice the capsule was driving, and three unrelated slices are each larger than
-  it — a unit-scoped collect is ~40 entries against 1886
-  ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+- ~~**The exhibit's scope is wrong, and only a pair of hands narrows it.**~~
+  Built: `statePaths` is a template, the assignment fills the hole, and a hole
+  with no unit refuses (above, [item 32](./ledger/032-the-sideband-channel.md)).
+  What replaces it is narrower, and it is two things. **No capsule has collected
+  through it** — the scoping is asserted against a sandbox checkout and the
+  entry count that would price it against the measured 1886 is owed, which also
+  means the host-side refusals (`--unit` missing, `--unit` on a target with no
+  hole) have never fired outside a build. And **the module path is a version
+  behind**, so `capsule <slot> collect` on this host still runs the unscoped
+  program until a `~/flakes` switch — the same staleness that blocked the arc's
+  own run, and the same trap: an unscoped collect would read as a green one.
 - ~~**`capsule-adopt` has never seen the real exhibit.**~~ It has: `--list` and a
   real layout, both green, 253 symlinks and no broken link
   ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).

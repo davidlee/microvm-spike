@@ -62,24 +62,41 @@ rec {
   stateRefs = stateRefsOf "$capsule";
 
   # An opaque identifier an operator typed, on its way to the end of a ref or of
-  # a path. Bounded to `[A-Za-z0-9._-]+` — the same bound item 32 puts on an
-  # assignment's unit token, for the same reason: such a name may identify an
-  # instance and may never widen a perimeter. `git update-ref` would refuse a
-  # malformed ref anyway, and nothing would refuse a malformed directory; both
-  # are caught here, at the end that has the argument in argv and before a round
-  # trip rather than after one.
+  # a path — or, since item 32's unit token, into the *middle* of one. Bounded to
+  # `[A-Za-z0-9._-]+` minus the two names that are not identifiers, for one
+  # reason: such a name may identify an instance and may never widen a
+  # perimeter. `git update-ref` would refuse a malformed ref anyway, and nothing
+  # would refuse a malformed directory; both are caught here, at the end that has
+  # the argument in argv and before a round trip rather than after one.
+  #
+  # **`.` and `..` are named separately, because the character class admits
+  # them.** That was harmless while every token landed at the *end* of a name —
+  # `refs/capsule/state/..` is a ref `update-ref` refuses, and a capsule's name
+  # is checked against the declared list before it is a directory — so the
+  # comment claiming "no '..'" was aspirational rather than wrong in effect. A
+  # token substituted into the middle of a path is where it stops being
+  # harmless: `.doctrine/state/slice/..` is `.doctrine/state`, which is the token
+  # widening the perimeter it exists not to widen. Refused here rather than at
+  # the new call site, because a bound with an exception is two bounds.
   #
   # `value` is the shell expression holding it and `shown` is what the operator
   # actually typed, because the two differ once one flag carries two tokens
   # (`--state a:implementation`) and a refusal that quotes the wrong one sends
   # the reader looking in the wrong place.
+  #
+  # The message says what the bound *is* and lets `shown` say which argument
+  # broke it, rather than describing where any one of them lands. It used to say
+  # "one link of a capsule's chain … on the end of a ref", which was true of the
+  # two call sites that existed and became false for the third: a unit token is
+  # not a chain link and goes into the *middle* of a path. A refusal naming the
+  # wrong reason is a different program passing.
   checkToken = value: shown: ''
     case ${value} in
-      "" | *[!A-Za-z0-9._-]*)
-        echo "''${0##*/}: ${shown} — that names one link of a capsule's chain, or" >&2
-        echo "  the capsule itself, and it goes on the end of a ref and of a path." >&2
-        echo "  So it is [A-Za-z0-9._-]+: no slash, no '..', nothing that could" >&2
-        echo "  name a different ref or a different directory." >&2
+      "" | "." | ".." | *[!A-Za-z0-9._-]*)
+        echo "''${0##*/}: ${shown} — that is an opaque name on its way into a ref" >&2
+        echo "  and into a path, so it is [A-Za-z0-9._-]+ and never '.' or '..':" >&2
+        echo "  it may identify one thing and may not name a different ref, a" >&2
+        echo "  different directory, or a directory above the one it belongs in." >&2
         exit 1
         ;;
     esac

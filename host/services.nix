@@ -105,13 +105,7 @@
     # Same store path as the devshell's, because it is the same construction from
     # the same values (host/programs.nix) — a status asks a guest one question
     # and does not care which door it came through.
-    inherit (hostPrograms) observe;
-    programVerbs =
-      ["provision" "collect" "inject"]
-      ++ lib.optional (hostPrograms.baseline != null) "baseline"
-      ++ lib.optional (hostPrograms.refresh != null) "refresh"
-      ++ lib.optional (hostPrograms.adopt != null) "adopt"
-      ++ lib.optional (hostPrograms.brief != null) "brief";
+    inherit (hostPrograms) observe programVerbs stateNeedsUnit;
   };
 
   # The one program that runs at guest *root*, and the reason a stop on this

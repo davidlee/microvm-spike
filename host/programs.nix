@@ -95,6 +95,11 @@
   # `null` when the target declares no out-of-band state, which is what makes
   # `capsule-collect` degrade to the code-only program it used to be rather than
   # grow a flag nobody sets.
+  #
+  # An attrset rather than the bare store path, since the scope invariant:
+  # `capsule-collect` needs to know whether this target's policy has a hole in it
+  # before it can decide that a unit is *required*, and that predicate belongs
+  # beside the templates it is a predicate over.
   stateSnapshot =
     if (target.statePaths or []) == []
     then null
@@ -205,6 +210,36 @@ in {
     if briefHook == null
     then null
     else briefHook.runnerFor;
+
+  # The outbound half's equivalent, and exported for the same reason
+  # `briefRunner` is: `snapshotCases` runs this text against a checkout the
+  # sandbox builds, because what an exhibit *contains* is decided by a branch a
+  # live host reaches only by driving a real unit of work in a real capsule.
+  stateSnapshotFor =
+    if stateSnapshot == null
+    then null
+    else stateSnapshot.snapshotFor;
+
+  # Whether this target's state paths are scoped to a unit of work (NOTES item
+  # 32). The front end needs it for two things a program must not do: offer the
+  # verb that records which unit a slot is driving, and hand that record to a
+  # collect. Exported rather than recomputed there, because the predicate belongs
+  # beside the templates and a second spelling of it is a scope that silently
+  # never applies.
+  stateNeedsUnit = stateSnapshot != null && stateSnapshot.needsUnit;
+
+  # Which `capsule-<verb>` programs this host actually has, for the front end's
+  # dispatcher. Here rather than at each of `host/cli.nix`'s two call sites, for
+  # the reason `observe` moved here: a list built twice is a list that can differ
+  # once, and the two copies of the CLI are one store path only while every
+  # argument agrees. Eval catches a *missing* argument now; nothing catches a
+  # different one, so the fix is to have one.
+  programVerbs =
+    ["provision" "collect" "inject"]
+    ++ lib.optional (target.baseline != null) "baseline"
+    ++ lib.optional (refreshHook != null) "refresh"
+    ++ lib.optional (stateSnapshot != null) "adopt"
+    ++ lib.optional (briefHook != null) "brief";
 
   # The same refresh `capsule-provision` runs, on its own: a human who has just
   # done a hand `git checkout` in the guest wants it and no push, and a provision

@@ -144,7 +144,8 @@ never read by the guest.
 | `class` | `mem`, `vcpu` | runner config |
 | `base.ref` | what the human or the client asked for | provenance and display only. Nothing resolves against it twice |
 | `base.oid` | the commit that ref resolved to at assignment time | **the authoritative one.** A ref moves; an assignment must not silently move with it, and every later comparison — dirty, ahead, is-this-a-valid-clone-source — is arithmetic on a commit |
-| `purpose` | free text | **opaque here, always.** Whatever a client puts in it is the client's; this repo displays it and never parses it. The same rule as `baseline` being a command line and not a build system |
+| `unit` | the unit of work this slot is driving, as one opaque token | **the scope of the exhibit**, and the reason it is not `purpose`. The profile's `statePaths` is a template with one `{unit}` in it and this fills the hole, so unlike every other field here it reaches a *path* — hence bounded to `[A-Za-z0-9._-]+` and not `.` or `..`, and hence validated on the way in rather than on the way out ([item 32](./ledger/032-the-sideband-channel.md)). Present only where the profile has a hole for it: a field nothing reads is a field that will one day be believed |
+| `purpose` | free text | **opaque here, always.** Whatever a client puts in it is the client's; this repo displays it and never parses it. The same rule as `baseline` being a command line and not a build system. It says what the slot is *for*; `unit` says what its exhibit is *of*, which is why one is a sentence and the other a token |
 
 ### One shape, three times: a name plus a resolved identity
 

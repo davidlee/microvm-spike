@@ -29,21 +29,22 @@ evaluates). `just` (default) runs the build, units, and fmt.
 **There are three kinds of check here, and they are not interchangeable.**
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
-not mention them. `guardCases` and `briefCases` *run* a host-side program's own
+not mention them. `guardCases`, `briefCases` and `snapshotCases` *run* a host-side program's own
 text with a substitute for the one thing tying it to this host (`just cases`),
 and are the answer whenever the interesting branches are ones a live host can
-only reach destructively — the guard's by unnaming a namespace under a running
-guest, the brief runner's by dirtying one capsule's worktree to watch another
-refuse it. All three kinds are in `just build`, so a failing case is a failing
+only reach destructively or expensively — the guard's by unnaming a namespace
+under a running guest, the brief runner's by dirtying one capsule's worktree to
+watch another refuse it, the state snapshot's by driving a real unit of work in
+a checkout that holds several. All three kinds are in `just build`, so a failing case is a failing
 build.
 
 The seam that makes the third kind possible is worth reusing rather than
 reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
 test cannot stub `ip` by prepending its own. **A program that needs testing takes
 as an argument the one thing that ties it to this host** — `host/guard.nix`'s
-`tools`, `host/brief.nix`'s guest `runner` taking the checkout it runs in —
-exactly as both take `transport`: one text, two instantiations, no second copy of
-an invariant. Two
+`tools`, `host/brief.nix`'s guest `runner` and `host/state-snapshot.nix`'s
+`snapshotFor`, both taking the checkout they run in — exactly as all three take
+`transport`: one text, two instantiations, no second copy of an invariant. Two
 rules for writing a case: assert the *reason* as well as the exit status, since a
 refusal for the wrong reason is a different program passing; and check the suite
 can fail by mutating the behaviour it claims to pin — the skip in
@@ -151,7 +152,15 @@ Break these and the confinement stops meaning anything:
   **no branch field** and gets none back: the guest's branch is `workBranch` in
   `flake.nix`, a constant, because a name that identifies the work is not
   project state (docs/contract-target.md). `capsule-provision <ref>` is a ref in
-  the target repo and is the other thing called a branch here. `doctrine` may appear in exactly two places: `target.nix`, and
+  the target repo and is the other thing called a branch here.
+  `statePaths` is a **template** list, not a path list: each entry may hold one
+  `{unit}`, filled at collect by an opaque token the assignment carries, and a
+  hole with no unit refuses rather than collecting everything (NOTES item 32).
+  That is the shape for anything a policy must scope by run-time state — the
+  policy says *where* the hole is, the assignment says *what* fills it, and the
+  token is bounded (`host/quarantine.nix`'s `checkToken`) so it can name an
+  instance and never widen a perimeter.
+  `doctrine` may appear in exactly two places: `target.nix`, and
   `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
   `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a
   value. And nothing target-shaped is ever read *out of the target repo* — the
@@ -391,6 +400,14 @@ which shape nearly every decision here:
   interactive shell. **Any new recipe that forwards `*args` into a program has
   this until it quotes**, and the general rule is that `{{...}}` is text
   substitution and never an argument.
+- **`CAPSULE_STATE` moves the quarantine and not the record.** The assignment
+  record's root is the literal `/var/lib/capsule`, deliberately — a slot is a
+  module-path thing, so a record for a devshell capsule would describe a slot
+  that does not exist (`host/cli.nix`, `recordRoot`) — while `quarantineOf`
+  *searches* both homes because either shape can collect. So a devshell
+  `capsule <name> unit|purpose|provision` writes the **live** record whatever
+  `CAPSULE_STATE` says, and there is no throwaway root to try one against: the
+  generation only goes up, so an experiment is a hand-edit to undo.
 - **`nix run`/devshell binaries are store paths, so an edited program is stale
   until it is rebuilt.** A probe that "ignores your fix" is the old build on
   `PATH` — `just build`, re-enter the devshell, or

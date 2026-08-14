@@ -82,7 +82,7 @@ changes until they are built.
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
-| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
+| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). A **template** list — each entry may hold one `{unit}`, filled at collect from the assignment. Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
 | `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
@@ -102,6 +102,22 @@ That is harmless while a target is a build-time literal and one host has one
 allowlist, and it stops being harmless the moment assigning a project is a
 run-time verb, because the project would then be naming its own perimeter
 ([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)).
+
+**`statePaths` is a template, and that is item 25's split applied inside one
+field.** An exhibit has a scope — *the out-of-band state of the work the capsule
+was assigned, and none that is not* — and a path list cannot state one, because
+the unit of work is run-time state and this file is a build-time literal.
+Unscoped is what doctrine's were, and it cost 1886 entries where 41 named the
+work. So the **policy** declares where the unit goes, as one `{unit}` per path,
+and the **assignment** says which unit, as an opaque token bounded to
+`[A-Za-z0-9._-]+` and not `.` or `..`: it may name an instance and may never
+widen a perimeter. A template with a hole and no unit **refuses**
+([item 28](./ledger/028-a-slot-has-no-default.md)) — the unscoped list is the
+failure being fixed, so it is the worst possible default. A target whose
+out-of-band state is not per-unit writes no hole and nothing changes for it. The
+capability is *a policy path allowlist may be parameterised by one identifier
+the assignment carries*; the value is the target's template, and a second target
+is a different template and a different token rather than different code.
 
 **And `path` is a third, quieter one.** `/home/david/dev/doctrine` says where
 *this host* keeps a checkout; it says nothing about the project, and the
@@ -234,7 +250,7 @@ the capsule as an argument rather than being built per capsule
 | command | arguments | touches the target repo? |
 | --- | --- | --- |
 | `capsule-provision` | `[--capsule <name>] <ref> [--force] [--state <capsule>[:<stage>]]` — any commit-ish in `path` | yes: reads it, as you. The only program that does. A provision is a three-step sequence: push, then `--state` if given ([item 35](./ledger/035-briefing-a-capsule-with-state.md)), then `refresh` in the guest when the target declares one ([item 33](./ledger/033-provision-is-a-sequence.md)) — it is not finished when the push lands |
-| `capsule-collect` | `[--capsule <name>] [--stage <name>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)) |
+| `capsule-collect` | `[--capsule <name>] [--stage <name>] [--unit <token>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)). `--unit` fills the hole in those paths and is **required** when they have one; `capsule <slot> collect` supplies it from the record |
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
 | `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
 | `capsule-refresh` | `[--capsule <name>]` | no: runs `refresh` in the guest's checkout. The same step `capsule-provision` takes itself — separate for a hand checkout in the guest, and for retrying the half that failed. It does **commit in the guest** when the refresh writes tracked files, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) |

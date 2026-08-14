@@ -378,13 +378,7 @@
     # of them can be missing.
     capsule-cli = import ./host/cli.nix {
       inherit pkgs lib net target capsules guestSsh;
-      inherit (hostPrograms) observe;
-      programVerbs =
-        ["provision" "collect" "inject"]
-        ++ lib.optional (hostPrograms.baseline != null) "baseline"
-        ++ lib.optional (hostPrograms.refresh != null) "refresh"
-        ++ lib.optional (hostPrograms.adopt != null) "adopt"
-        ++ lib.optional (hostPrograms.brief != null) "brief";
+      inherit (hostPrograms) observe programVerbs stateNeedsUnit;
     };
 
     # The guard's verdicts, asserted at build time against a stubbed kernel.
@@ -701,6 +695,152 @@
 
         rc=0; bash ${runner} "$state" "$code" >out 2>&1 || rc=$?
         ck "refuses a second brief onto an already-briefed capsule" 3 "$rc"
+
+        [ "$fail" = 0 ] || exit 1
+        cp "$log" $out
+        cat $out
+      '';
+
+    # `capsule-collect`'s guest half, run against a checkout the sandbox builds,
+    # plus the token bound that stands between an assignment and a path.
+    #
+    # The third kind of check (CLAUDE.md), a third instance of it, and the branch
+    # it exists for is item 32's scope invariant: *a collect brings back the
+    # out-of-band state of the work the capsule was assigned, and none that is
+    # not*. Reaching that on a live host means a capsule that has driven a real
+    # unit of work in a checkout holding several — which is a thirteen-hour slice
+    # and one host, so it is asserted here on a checkout that holds two units and
+    # costs a second. The seam is `host/state-snapshot.nix`'s `snapshotFor`, a
+    # function of the checkout it runs in, exactly as `brief.nix`'s runner is.
+    #
+    # The token cases are here rather than in a suite of their own because they
+    # are the *other half of the same control*: the bound is what makes a unit
+    # token safe to substitute into the middle of a path, and a suite that pinned
+    # the scoping without pinning the bound would pin the half that is easy.
+    #
+    # `null` for a target with no `statePaths`, in which case there is no
+    # snapshot and nothing to assert about one.
+    snapshotCases = let
+      snapshot = hostPrograms.stateSnapshotFor "src";
+      # The bound as a program, so the case suite runs the real fragment rather
+      # than a description of it (host/quarantine.nix).
+      token = pkgs.writeText "capsule-token-check" ''
+        ${(import ./host/quarantine.nix).checkToken ''"$1"'' "'unit $1'"}
+      '';
+    in
+      pkgs.runCommand "capsule-snapshot-cases" {nativeBuildInputs = [pkgs.git];} ''
+        export HOME=$PWD GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+        export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t
+        export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+        fail=0
+        ck() {
+          if [ "$2" = "$3" ]; then echo "ok   $1" >>"$log"
+          else echo "FAIL $1: exit $3, wanted $2" >&2; fail=1; fi
+        }
+        ckt() {
+          if "''${@:2}"; then echo "ok   $1" >>"$log"
+          else echo "FAIL $1" >&2; fail=1; fi
+        }
+        log=$PWD/log
+        : >"$log"
+
+        # ------------------------------------------------------- the token bound
+        #
+        # `.` and `..` are the cases the character class admits and the comment
+        # always claimed it did not. Harmless while a token only ever landed at
+        # the end of a ref; a path escape the moment one lands in the middle of a
+        # path, which is what a unit token does.
+        for good in 254 a.b-c_d 0 x; do
+          rc=0; bash ${token} "$good" >/dev/null 2>&1 || rc=$?
+          ck "token '$good' is a name" 0 "$rc"
+        done
+        for bad in "" . .. a/b "a b" 'a;b' '$x' '*'; do
+          rc=0; bash ${token} "$bad" >/dev/null 2>&1 || rc=$?
+          ck "token '$bad' is refused" 1 "$rc"
+        done
+
+        # ------------------------------------------------ a checkout of two units
+        #
+        # Shaped like the one the invariant was measured against: a runtime tier
+        # the project ignores on purpose, authored content beside it, two units of
+        # work in both, and an agent's uncommitted edit to one of them.
+        mkdir src && cd src
+        git init -q --initial-branch=work .
+        printf '%s\n' '.doctrine/state/' > .gitignore
+        mkdir -p .doctrine/slice/254 .doctrine/slice/253
+        mkdir -p .doctrine/state/slice/254 .doctrine/state/slice/253
+        echo authored-254 >.doctrine/slice/254/spec.md
+        echo authored-253 >.doctrine/slice/253/spec.md
+        echo code >src.txt
+        git add -A && git commit -qm base
+        echo "edited by the agent" >.doctrine/slice/254/spec.md
+        echo phase-254 >.doctrine/state/slice/254/phase-01.md
+        echo phase-253 >.doctrine/state/slice/253/phase-01.md
+        echo scratch >notes.md
+        cd ..
+
+        # Into a file rather than down a pipe: `ckt` takes a command, and a
+        # pipeline reaching it would grep `ckt`'s own output instead of git's —
+        # which passes, silently, for the wrong reason.
+        entries() { git -C src ls-tree -r --name-only "$1" >list; }
+
+        # ------------------------------------------------------- no unit, no scope
+        #
+        # The guest's own guard, and the reason it is not left to the host's: a
+        # missing token substitutes as the empty string, which collapses every
+        # scoped path onto its parent — the unscoped collect wearing the scoped
+        # one's name.
+        rc=0; bash ${snapshot} implementation >out 2>err || rc=$?
+        ck "refuses a scoped policy with no unit" 1 "$rc"
+        ckt "  and says the two ends disagree" grep -q "scoped to one unit" err
+        ckt "  and wrote no ref" \
+          test -z "$(git -C src for-each-ref 'refs/capsule/state/')"
+
+        # ----------------------------------------------------------- scoped, green
+        rc=0; bash ${snapshot} implementation 254 >out 2>err || rc=$?
+        ck "takes a snapshot scoped to one unit" 0 "$rc"
+        oid=$(cut -f1 out)
+        ckt "  and reported a commit" test "$oid" != -
+
+        entries "$oid"
+        ckt "  the unit's runtime tier is in it" \
+          grep -qx '.doctrine/state/slice/254/phase-01.md' list
+        ckt "  the unit's authored tree is in it" \
+          grep -qx '.doctrine/slice/254/spec.md' list
+        # The invariant, stated as the thing that used to be false: another unit's
+        # state in this exhibit is a second, older answer to the question the
+        # exhibit exists to settle, and nothing in the tree marks which is which.
+        ckt "  and no other unit's state is" \
+          test -z "$(grep 253 list || true)"
+
+        # Generic, so unscoped: "the agent has not committed this" is nobody's
+        # project's concept and there is no template to put a hole in.
+        ckt "  untracked-but-not-ignored still travels" grep -qx 'notes.md' list
+        ckt "  and the tracked edit travels as the diff" \
+          grep -qx '.capsule/dirty.diff' list
+        # A state tree is worktree content, which is what makes `code-oid` a
+        # control rather than a note (NOTES item 35).
+        ckt "  the authored file carries the agent's uncommitted edit" \
+          test "$(git -C src cat-file -p "$oid:.doctrine/slice/254/spec.md")" = "edited by the agent"
+        # What the tree cannot say. An exhibit whose scope is not on the record is
+        # one nobody can check the scope of.
+        git -C src cat-file commit "$oid" >msg
+        ckt "  the commit message names the unit" grep -qx 'unit: 254' msg
+        ckt "  the agent's real index was not touched" \
+          test -z "$(git -C src diff --cached --name-only)"
+
+        # ------------------------------------------- a unit this checkout never had
+        #
+        # Not a refusal: a target says what its state *is*, not what any one run
+        # produced, and that has to keep holding once the paths are scoped.
+        rc=0; bash ${snapshot} implementation 999 >out 2>err || rc=$?
+        ck "a unit with no state is a skip, not a failure" 0 "$rc"
+        ckt "  and names the paths it skipped" grep -q 'slice/999 in this checkout' err
+        oid=$(cut -f1 out)
+        entries "$oid"
+        ckt "  nothing of any unit is in it" \
+          test -z "$(grep -E '25[34]|999' list || true)"
+        ckt "  and the uncommitted work still is" grep -qx 'notes.md' list
 
         [ "$fail" = 0 ] || exit 1
         cp "$log" $out
@@ -1146,6 +1286,7 @@
       // adoptPackages
       // briefPackages
       // lib.optionalAttrs (hostPrograms.briefRunner != null) {inherit briefCases;}
+      // lib.optionalAttrs (hostPrograms.stateSnapshotFor != null) {inherit snapshotCases;}
       // {
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
         # The two checks that need no root and no host: what the module says, and

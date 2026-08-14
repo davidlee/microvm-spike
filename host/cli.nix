@@ -42,13 +42,25 @@
   # when the target declares none (host/programs.nix), and an unknown verb should
   # say so rather than exec a command that is not there.
   programVerbs,
+  # Whether this target's state paths are scoped to a unit of work (NOTES item
+  # 32). It decides two things here and nothing anywhere else: whether `unit` is
+  # a verb at all, and whether a collect is handed the one the record holds. A
+  # target with no hole in its policy gets neither, because a field nothing reads
+  # is a field that will one day be believed.
+  stateNeedsUnit,
   # The guest-side half of a status, as a store path pushed over the door
   # (host/observe.nix). A path and not a set of guest paths, deliberately: this
   # file asks a capsule what is true and does not know what `/work` is.
   observe,
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.
-  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose"];
+  # `unit` only exists where the target's policy has a hole for one (NOTES item
+  # 32) — `collect` stays a program's verb and is merely *intercepted* below, the
+  # way `provision` is, to do the one thing a front end may do and a program may
+  # not: read this host's record.
+  ownVerbs =
+    ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose"]
+    ++ lib.optional stateNeedsUnit "unit";
 
   # Verbs `all` may be applied to. A question aggregates: N answers on one screen,
   # and a failure on one capsule is a row rather than a decision. An *action* does
@@ -93,6 +105,12 @@
   # The assignment record's mechanism, injected rather than reimplemented
   # (host/record.nix). Desired state only — the observed half is `observe`.
   record = import ./record.nix {inherit pkgs;};
+
+  # For `checkToken` alone, and it is the same bound `capsule-collect` applies to
+  # the same value one layer down: a unit token written into the record here is
+  # read back and substituted into a path there, so checking it in one place and
+  # not the other would make the record the way round the check.
+  quarantine = import ./quarantine.nix;
 in
   assert collide == [] || throw "host/cli.nix: '${builtins.head collide}' is both a capsule and a verb (or `all`), so `capsule ${builtins.head collide} …` cannot be read either way";
     pkgs.writeShellApplication {
@@ -109,7 +127,7 @@ in
           echo "  capsules:  ''${declared[*]}   (omitted: the one that is up)"
           echo "  lifecycle: start | stop | created       (start injects too)"
           echo "  ask:       status | branches | fetch     (these take 'all')"
-          echo "  assigned:  record | purpose [text…]"
+          echo "  assigned:  record | purpose [text…]${lib.optionalString stateNeedsUnit " | unit [<token>]"}"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
         }
@@ -394,13 +412,13 @@ in
           echo "$cur/$peak"
         }
 
-        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %s\n'
+        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s ${lib.optionalString stateNeedsUnit "%-6s "}%s\n'
 
         statusHeader() {
           # shellcheck disable=SC2059
           printf "$statusFmt" \
             capsule created vm proxy relay door answers \
-            head dirty baseline age disk 'mem cur/peak' refs gen purpose
+            head dirty baseline age disk 'mem cur/peak' refs gen ${lib.optionalString stateNeedsUnit "unit "}purpose
         }
 
         yesno() { if "$@"; then echo yes; else echo no; fi; }
@@ -415,11 +433,13 @@ in
             ans=yes
             IFS=$'\t' read -r head dirty baseline stamp disk <<<"$line"
           fi
-          # `gen` and `purpose` are the *desired* side, read from the record rather
-          # than measured — the two objects stay apart on one row, which is the
+          # `gen`, `unit` and `purpose` are the *desired* side, read from the record
+          # rather than measured — the two objects stay apart on one row, which is the
           # whole point of keeping them apart in the first place
           # (docs/contract-assignment.md). `purpose` is last because it is free text
-          # this repo never parses, so it is the one column with no width.
+          # this repo never parses, so it is the one column with no width. `unit` sits
+          # beside it and is not free text: it is what the next collect will scope
+          # the exhibit by, so a `-` there is a collect that will refuse.
           # shellcheck disable=SC2059
           printf "$statusFmt" \
             "$n" \
@@ -432,7 +452,7 @@ in
             "''${head:0:9}" "$dirty" "$baseline" "$(ageOf "$stamp")" "$disk" \
             "$(memOf "$n")" \
             "$refs" \
-            "$(recordField "$n" generation)" \
+            "$(recordField "$n" generation)" ${lib.optionalString stateNeedsUnit ''"$(recordField "$n" unit)"''} \
             "$(recordField "$n" purpose)"
         }
 
@@ -741,6 +761,60 @@ in
                 '.purpose = $p' --arg p "$*")"
             fi
             ;;
+
+          ${lib.optionalString stateNeedsUnit ''
+          # Which unit of work this slot is driving, and the only assigner-owned
+          # field here that is *not* free text: it fills the hole in the target's
+          # state paths, so it reaches a collect as part of a path and is bounded
+          # accordingly (NOTES item 32, host/quarantine.nix's `checkToken`).
+          # `purpose` says what the slot is for and this says what the exhibit is
+          # of — a display string and a scope, which is why they are two fields
+          # and not one.
+          #
+          # `"$1"` and not `"$*"`, for the same reason: a sentence is a purpose
+          # and a token is not.
+          unit)
+            if [ "$#" -eq 0 ]; then
+              recordField "$name" unit
+            else
+              [ "$#" -eq 1 ] || {
+                echo "capsule: unit takes one token — it names a unit of work and" >&2
+                echo "  goes into the middle of a path. 'capsule $name purpose …'" >&2
+                echo "  is the field that takes a sentence." >&2
+                exit 1
+              }
+              ${quarantine.checkToken ''"$1"'' "'unit $1'"}
+              # shellcheck disable=SC2016  # `$u` is jq's, bound by --arg below
+              echo "capsule $name: generation $(recordWrite "$name" \
+                '.unit = $u' --arg u "$1")"
+            fi
+            ;;
+
+          # Intercepted for exactly one thing, and it is the thing item 20 keeps
+          # out of a program: the record is host state, so the program refuses
+          # without a unit and this is what usually supplies one. An explicit
+          # `--unit` on the command line wins — a one-off collect of some other
+          # unit's state is a human's call, and re-recording the slot's
+          # assignment as a side effect of reading it would be this front end
+          # deciding something nobody asked it to.
+          #
+          # No unit anywhere is *not* handled here: `capsule-collect`'s own
+          # refusal already names both remedies, and a second copy of it here
+          # would be a second thing to keep true.
+          collect)
+            given=no
+            for a in ''${1+"$@"}; do
+              case "$a" in
+                --unit | --unit=*) given=yes ;;
+              esac
+            done
+            recordedUnit=$(recordField "$name" unit)
+            if [ "$given" = no ] && [ "$recordedUnit" != - ]; then
+              set -- --unit "$recordedUnit" ''${1+"$@"}
+            fi
+            work "$name" collect ''${1+"$@"}
+            ;;
+        ''}
 
           *) work "$name" "$verb" ''${1+"$@"} ;;
         esac

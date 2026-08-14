@@ -3,7 +3,8 @@
 *State: built, and run once against a live capsule; extraction is
 [item 34](./034-adopting-a-guest-authored-tree.md) and no longer by hand, and the
 inbound half is [item 35](./035-briefing-a-capsule-with-state.md) and no longer
-absent. The allowlist's scope is the one thing here still open.*
+absent. **The allowlist's scope is built too** — the template, the token and the
+refusal are below, asserted at build time and unrun against a capsule.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -119,7 +120,10 @@ files (`git ls-files -o --exclude-standard`) and a `.capsule/dirty.diff` blob of
 doctrine concept — and both are exactly the class that a `refs/heads/*` collect
 silently drops.
 
-## The invariant the allowlist has to meet, and does not yet
+## The invariant the allowlist has to meet — and now does
+
+*Built. The section below is the diagnosis as it stood, unedited, because the
+measurement in it is what priced the fix; what was built is at the end.*
 
 The state half exists so an audit can read *the run*. That makes it an exhibit,
 and an exhibit has a scope:
@@ -209,6 +213,92 @@ challenge is a different template and a different token, not different code.
 The residual this dissolves: narrowing at collect means `capsule-adopt` inherits
 the scope for free, because the sideband tree does not contain what must not
 land. One choke point, and no doctrine-shaped rule in the extractor.
+
+### What was built, and the four things it turned out to need
+
+The design above survived contact. `target.nix`'s `statePaths` is a template
+list, `{unit}` is the one hole, and doctrine's two surviving entries are
+`.doctrine/state/slice/{unit}` and `.doctrine/slice/{unit}`. The predicate
+*does this policy have a hole* lives in `host/state-snapshot.nix` beside the
+templates it is a predicate over, and everything downstream reads it rather than
+recomputing it — a second spelling of `{unit}` is a scope that silently never
+applies. `capsule-collect` grows `--unit`, refuses without one when the policy
+has a hole, and refuses *with* one when it has not; the guest substitutes and
+never parses. `capsule-adopt` and `capsule-brief` are untouched, which was the
+whole point.
+
+Four things the build found, none of them predicted here.
+
+**The token bound admitted the thing it was named against.** `checkToken`'s
+comment has always said "no `..`", and `[A-Za-z0-9._-]+` **matches** `..`. That
+was harmless for as long as every token landed at the *end* of a name — a ref
+called `refs/capsule/state/..` is one `update-ref` refuses, and a capsule's name
+is checked against the declared list before it is ever a directory — so the
+comment was aspirational rather than wrong in effect. A token substituted into
+the *middle* of a path is where it stops being harmless: `.doctrine/state/slice/..`
+is `.doctrine/state`, which is this token widening the perimeter it exists not to
+widen. Fixed in `checkToken` rather than at the new call site, because a bound
+with an exception is two bounds, and its other three call sites get it free.
+
+**The refusal wants to be in two places, for two different reasons.** The host
+refuses before it opens the door, because an argument error that has already
+crossed into a capsule is one the program made worse. The guest refuses too, and
+that copy is unreachable by design — kept because the alternative to an
+unreachable refusal is a *reachable* substitution of the empty string, which
+collapses every scoped path onto its parent. That is not a degraded collect; it
+is the unscoped collect wearing the scoped one's name, which is the exact failure
+this item exists to fix, arriving through the door marked "safe fallback".
+
+**The assignment fills the hole, and that means the front end.** A program may
+not read host state ([item 20](./020-which-capsule-a-program-means.md)) and the
+record is written by the front end and never by a program
+([item 29](./029-the-record-is-front-end-written.md)), so `capsule-collect` takes
+`--unit` in argv and `capsule <slot> collect` is what usually supplies it, from a
+new `unit` field beside `purpose`. An explicit `--unit` wins: collecting some
+other unit's state once is a human's call, and re-recording the slot's assignment
+as a side effect of reading it would be a front end deciding something nobody
+asked it to. `unit` is *not* `purpose` and the difference is the whole reason it
+is a second field — `purpose` is free text this repo displays and never parses,
+and this one reaches a path.
+
+**The verb only exists where the policy has a hole.** A target with no `{unit}`
+gets no `unit` verb, no column and no flag, because a field nothing reads is a
+field that will one day be believed. Same shape as `baseline` being absent when
+the target declares none.
+
+Two smaller things fell out. The commit message carries `unit:` beside
+`code-oid:` and `dirty:`, on the rule that an exhibit whose scope is not on the
+record is one nobody can check the scope of. And `host/programs.nix` now exports
+`programVerbs`, because adding an argument to `host/cli.nix` meant editing the
+same hand-maintained list at both of its call sites — which is the duplication
+that already cost a host rebuild once, found while widening it.
+
+**Asserted, not run.** `snapshotCases` (29 cases) runs the snapshot's own text
+against a sandbox checkout holding two units, which is the third kind of check
+(CLAUDE.md) and the only kind available: reaching this branch on a live host
+means driving a real unit of work in a checkout that holds several. It pins the
+scope, the refusal, that a unit with no state is a *skip*, that the generic
+halves — untracked-but-not-ignored, `dirty.diff` — stay unscoped, and the token
+bound including the two cases it used to admit. Watched failing on two
+mutations: a path losing its hole, and the bound reverted to its old form. What
+no capsule has done is collect through it.
+
+**What is deliberately not scoped**: untracked-but-not-ignored files and
+`.capsule/dirty.diff`. Both are generic — "the agent has not committed this" is
+nobody's project's concept — so there is no template to put a hole in and no host
+policy that could say which of it belongs to which unit. One agent working on one
+thing in one capsule is what makes that sound, and it is the assumption
+`dirty.diff` already rested on.
+
+**And a value that turned out to be history, not scope.** `.doctrine/dispatch`
+and `.doctrine/state/dispatch` are *deleted* from `statePaths` rather than
+narrowed: dispatch is the mechanism capsules replaced, so what those paths hold
+is bookkeeping from before this repo existed. The measurement above counted them
+as over-collection and they were worse than that — a collect that took them was
+shipping an older answer to the question the exhibit settles. Worth separating
+because only the target could say so: nothing here can tell a stale path from a
+narrow one, which is the guinea-pig rule biting in the direction it is supposed
+to.
 
 ## Namespace: siblings, not nesting
 

@@ -31,10 +31,11 @@
   # only, which is a script pushed at the guest rather than a question git can
   # answer (`snapshot` below). The code half still knows only a URL.
   guestHost,
-  # The guest-side snapshot script as a store path, pushed on stdin at each
-  # collect and never baked into the guest (host/state-snapshot.nix, NOTES item
-  # 32). `null` for a target that declares no `statePaths`, which degrades to the
-  # code-only collect this program used to be.
+  # The guest-side snapshot as `{script, needsUnit, …}` (host/state-snapshot.nix,
+  # NOTES item 32): a store path pushed on stdin at each collect and never baked
+  # into the guest, plus whether this target's state paths are scoped to a unit
+  # of work. `null` for a target that declares no `statePaths`, which degrades to
+  # the code-only collect this program used to be.
   snapshot,
   # The third step of a provision, as one shell command line (host/refresh.nix):
   # regenerate the derived state the push cannot carry, in the checkout the push
@@ -251,6 +252,14 @@
       # two stages of one story, and overwriting one ref with the other would
       # lose the half that says what was seen (NOTES item 32).
       stage=implementation
+      ${lib.optionalString (snapshot != null) ''
+        # `--unit` names the work this capsule was assigned, and it is the scope
+        # of the exhibit rather than a label on it: the target's state paths are
+        # templates, and this is what fills their hole (NOTES item 32). Opaque
+        # here — a token, never a path and never a glob — so nothing in this
+        # program learns what a unit of work is for the target it collects from.
+        unit=""
+      ''}
       while [ "$#" -gt 0 ]; do
         case "$1" in
           --stage)
@@ -262,8 +271,19 @@
             stage="$1"
             ;;
           --stage=*) stage="''${1#--stage=}" ;;
+          ${lib.optionalString (snapshot != null) ''
+        --unit)
+          shift
+          [ "$#" -gt 0 ] || {
+            echo "--unit needs a token" >&2
+            exit 1
+          }
+          unit="$1"
+          ;;
+        --unit=*) unit="''${1#--unit=}" ;;
+      ''}
           *)
-            echo "usage: capsule-collect [--capsule <name>] [--stage <name>]" >&2
+            echo "usage: capsule-collect [--capsule <name>] [--stage <name>]${lib.optionalString (snapshot != null) " [--unit <token>]"}" >&2
             echo "  the capsule names its own quarantine — refs/capsule/<name>/*." >&2
             exit 1
             ;;
@@ -271,6 +291,39 @@
         shift
       done
       ${quarantine.checkStage}
+      ${lib.optionalString (snapshot != null) (
+        if snapshot.needsUnit
+        then ''
+          # Item 28's rule at the sharpest place there is one. A template with a
+          # hole and no unit does **not** degrade to the unscoped list: the
+          # unscoped list is the failure this exists to fix — 1886 entries where
+          # 41 name the work, three unrelated units each larger than the driven
+          # one (docs/probes.md) — so the worst possible default is the old
+          # behaviour under the new name.
+          #
+          # Refused here rather than in the guest, before the door is opened: the
+          # token goes into the middle of a path, and an argument error that has
+          # already crossed into a capsule is one this program made worse.
+          if [ -z "$unit" ]; then
+            echo "capsule-collect: this target's state paths are scoped to one unit" >&2
+            echo "  of work, and nothing said which. A collect brings back the" >&2
+            echo "  out-of-band state of the work the capsule was assigned, and" >&2
+            echo "  none that is not — so there is no unscoped fallback." >&2
+            echo "  Either 'capsule $capsule unit <token>' to record what this" >&2
+            echo "  slot is driving, or --unit <token> for this collect alone." >&2
+            exit 1
+          fi
+          ${quarantine.checkToken ''"$unit"'' "'--unit $unit'"}
+        ''
+        else ''
+          # A flag that scopes nothing is a flag that lies about what landed.
+          if [ -n "$unit" ]; then
+            echo "capsule-collect: --unit, but this target's state paths hold no" >&2
+            echo "  place for one, so it would scope nothing. Collect without it." >&2
+            exit 1
+          fi
+        ''
+      )}
       quarantine=${quarantine.repo}
 
       # Host-created, host-configured, and never writable by the guest: the
@@ -303,12 +356,17 @@
         # Its failure is not the collect's: a state half that cannot be taken
         # leaves that ref where it was, and the commits are still worth having.
         refspecs+=("+refs/capsule/state/*:${quarantine.stateRefs}/*")
-        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" < ${snapshot}); then
+        # The scope goes on the line as well as into the commit message, because
+        # the count beside it means nothing without it: `41 files` is a correct
+        # collect or a broken one depending on what it was scoped by.
+        scope=""
+        ${lib.optionalString snapshot.needsUnit ''scope=" (unit $unit)"''}
+        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" < ${snapshot.script}); then
           IFS=$'\t' read -r oid stateBytes stateFiles <<<"$line"
           if [ "$oid" = - ]; then
             echo "capsule-collect: no state snapshot this run (see above)."
           else
-            echo "capsule-collect: state/$stage $oid — $stateFiles files, $stateBytes bytes"
+            echo "capsule-collect: state/$stage$scope $oid — $stateFiles files, $stateBytes bytes"
           fi
         else
           echo "capsule-collect: the state snapshot failed — collecting code only." >&2
