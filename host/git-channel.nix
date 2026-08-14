@@ -17,16 +17,25 @@
 #     closure for a single guest image; the other is the address, which netns
 #     handles.
 #
-# Jail-agnostic in the same sense as perimeter/: it knows a git URL and a shell
-# fragment that reaches it. No tap, no namespace, no hypervisor. Under netns the
-# URL is unchanged and the fragment grows a `ProxyCommand` against the capsule's
-# unix socket (NOTES item 17) — that is the whole difference, and it is at the
-# call site.
+# Jail-agnostic in the same sense as perimeter/: it knows a git URL, an ssh
+# destination and a shell fragment that reaches either. No tap, no namespace, no
+# hypervisor. Under netns the URL is unchanged and the fragment grows a
+# `ProxyCommand` against the capsule's unix socket (NOTES item 17) — that is the
+# whole difference, and it is at the call site.
 {
   pkgs,
   # Which repo is confined: `path` to push from, `collectMaxBytes` as the
   # ceiling on what a fetch may write.
   target,
+  # Where to ssh, e.g. `agent@10.99.0.2` — for the *state* half of a collect
+  # only, which is a script pushed at the guest rather than a question git can
+  # answer (`snapshot` below). The code half still knows only a URL.
+  guestHost,
+  # The guest-side snapshot script as a store path, pushed on stdin at each
+  # collect and never baked into the guest (host/state-snapshot.nix, NOTES item
+  # 32). `null` for a target that declares no `statePaths`, which degrades to the
+  # code-only collect this program used to be.
+  snapshot,
   # The branch a capsule's work lives on inside the guest — a constant, and not
   # the target's to name (docs/contract-target.md). The guest's seed sets the
   # same one; they must agree or a provision moves a ref and checks nothing out,
@@ -40,6 +49,8 @@
   # knows which capsule it is for.
   transport,
 }: let
+  inherit (pkgs) lib;
+
   # Same two variables `perimeter/default.nix` defines, deliberately spelled the
   # same way: `CAPSULE_ROOT` and `CAPSULE_STATE` mean one thing per capsule, and
   # both files document them. Change one, change the other.
@@ -167,11 +178,31 @@
       # `capsule-provision` meant a ref and neither meant a capsule. One
       # identity: whatever a capsule is called is what its refs and its
       # quarantine are called, which is what every caller already passed.
-      if [ "$#" -gt 0 ]; then
-        echo "usage: capsule-collect [--capsule <name>]" >&2
-        echo "  the capsule names its own quarantine — refs/capsule/<name>/*." >&2
-        exit 1
-      fi
+      #
+      # `--stage` names which link of the sideband chain this collect appends
+      # to: an implementation capsule and the audit capsule that judges it are
+      # two stages of one story, and overwriting one ref with the other would
+      # lose the half that says what was seen (NOTES item 32).
+      stage=implementation
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --stage)
+            shift
+            [ "$#" -gt 0 ] || {
+              echo "--stage needs a name" >&2
+              exit 1
+            }
+            stage="$1"
+            ;;
+          --stage=*) stage="''${1#--stage=}" ;;
+          *)
+            echo "usage: capsule-collect [--capsule <name>] [--stage <name>]" >&2
+            echo "  the capsule names its own quarantine — refs/capsule/<name>/*." >&2
+            exit 1
+            ;;
+        esac
+        shift
+      done
       quarantine="$state/collect/$capsule.git"
 
       # Host-created, host-configured, and never writable by the guest: the
@@ -189,10 +220,45 @@
         echo "capsule-collect: new quarantine at $quarantine"
       fi
 
+      # One refspec per half of a result. The code half is what every collect has
+      # always taken; the state half is added only when the target declares any
+      # (NOTES item 32), so a target with no `statePaths` gets exactly the
+      # program it got before.
+      refspecs=("+refs/heads/*:refs/capsule/$capsule/heads/*")
+      ${lib.optionalString (snapshot != null) ''
+        # The state half is built *in the guest*, first, so that it and the code
+        # refs come back in one fetch. A script pushed on stdin, never a program
+        # in the guest's closure — host-side policy about what leaves a capsule,
+        # and a live capsule cannot be rebuilt without a restart
+        # (host/state-snapshot.nix).
+        #
+        # Its failure is not the collect's: a state half that cannot be taken
+        # leaves that ref where it was, and the commits are still worth having.
+        refspecs+=("+refs/capsule/state/*:refs/capsule/$capsule/state/*")
+        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" < ${snapshot}); then
+          IFS=$'\t' read -r oid stateBytes stateFiles <<<"$line"
+          if [ "$oid" = - ]; then
+            echo "capsule-collect: no state snapshot this run (see above)."
+          else
+            echo "capsule-collect: state/$stage $oid — $stateFiles files, $stateBytes bytes"
+          fi
+        else
+          echo "capsule-collect: the state snapshot failed — collecting code only." >&2
+        fi
+      ''}
       echo "capsule-collect: ${guestRepo} -> $quarantine"
       # --no-tags is load-bearing, not tidiness: tag auto-following writes
       # refs/tags/* outside the namespace this refspec names, which is the one
-      # way the guest could otherwise choose where its refs land.
+      # way the guest could otherwise choose where its refs land. The second
+      # refspec is the state half and obeys the same rule: the guest chooses
+      # what is in its refs, never where they land.
+      #
+      # `heads/` and `state/` are siblings rather than the second nested under
+      # the first: a guest branch literally named `state` would otherwise be a
+      # directory/file ref-lock collision, which is loud but timed by the guest.
+      #
+      # --atomic buys the invariant the whole sideband exists for — nobody
+      # observes a result commit without the capsule state that goes with it.
       #
       # fsck on the way in, because index-pack parses guest-authored bytes
       # host-side whatever the transport. The ulimit is the byte ceiling: no
@@ -200,8 +266,7 @@
       (
         ulimit -f ${toString maxBlocks}
         git -C "$quarantine" -c transfer.fsckObjects=true \
-          fetch --no-tags "${guestRepo}" \
-          "+refs/heads/*:refs/capsule/$capsule/*"
+          fetch --no-tags --atomic "${guestRepo}" "''${refspecs[@]}"
       ) || {
         echo "capsule-collect: fetch failed — a malformed object, or a packfile" >&2
         echo "  over ${toString target.collectMaxPackBytes} bytes (target.nix collectMaxPackBytes)." >&2

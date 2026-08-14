@@ -72,6 +72,46 @@ rec {
   # ref in *this* repo and is untouched — the two things called "branch" are
   # separate (docs/contract-target.md, plan-d L13).
 
+  # The out-of-band half of a result: what this target keeps in its worktree
+  # that no commit carries. `capsule-collect` snapshots exactly these paths into
+  # a sideband commit under `refs/capsule/state/*` and fetches it beside the code
+  # refs (NOTES item 32, host/state-snapshot.nix).
+  #
+  # An explicit allowlist, and emphatically not "the files git ignores": a
+  # `.gitignore` covers credentials, machine-local config, agent state and build
+  # caches, and `git add -f` over one is a loaded gun pointed wherever that list
+  # happens to face. Keep it short, name real directories, and remember that
+  # every path here is guest-authored data that a human will later extract.
+  #
+  # doctrine's storage rule is what makes it need one at all: its runtime tier —
+  # phase sheets, dispatch state, the boot snapshot, research artefacts — is
+  # gitignored *on purpose*, and is also what an audit of a finished capsule
+  # reads. Untracked-but-not-ignored files come along regardless and are not
+  # declared here: "the agent has not committed this yet" is generic, not a
+  # target's concept.
+  #
+  # A target with no such state omits the field. `[]` degrades to a code-only
+  # collect plus whatever is uncommitted, which is what every collect did before.
+  statePaths = [
+    ".doctrine/state/slice" # per-slice runtime: phase sheets, progress
+    ".doctrine/state/dispatch" # dispatch runtime for a driven slice
+    ".doctrine/state/boot.md" # the governance snapshot the agent booted with
+    ".doctrine/dispatch" # per-slice dispatch bookkeeping
+    ".doctrine/slice" # research/ (ignored) and uncommitted authored edits
+  ];
+
+  # Ceiling on one snapshot, in bytes. Not the same backstop as
+  # `collectMaxPackBytes` and not in the same place: this one is checked in the
+  # guest *before* the commit is made, because the fetch is atomic and a
+  # too-large state half must skip rather than take the code refs down with it.
+  #
+  # 64 MiB against a target whole history of 32 MiB. The number is a smell
+  # detector rather than a budget: this repo's own `.doctrine/state` on the
+  # human's host has grown a 1.7 GiB scratch directory under it, and a path list
+  # that catches one of those should fail loudly on the first collect rather than
+  # quietly move a gigabyte per run.
+  stateMaxBytes = 67108864;
+
   # Largest packfile one `capsule-collect` may write, as `ulimit -f`. A backstop
   # on the file, not a bound on the transfer — many small objects or a delta bomb
   # go straight past it (NOTES item 18). 512 MiB against a 32 MiB repo leaves

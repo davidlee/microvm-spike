@@ -48,8 +48,25 @@
   # has no records, which is what a status reporting `none` forever means.
   baselineRecord = "${target.volumePath}/baseline";
 
+  # The guest half of a collect's sideband — a store path, like `observe` below
+  # and for the same reasons, pushed on stdin at each collect rather than baked
+  # into a guest that would have to be restarted to carry it (NOTES item 32).
+  # `null` when the target declares no out-of-band state, which is what makes
+  # `capsule-collect` degrade to the code-only program it used to be rather than
+  # grow a flag nobody sets.
+  stateSnapshot =
+    if (target.statePaths or []) == []
+    then null
+    else
+      import ./state-snapshot.nix {
+        inherit pkgs lib;
+        workdir = target.guestPath;
+        inherit (target) statePaths stateMaxBytes;
+      };
+
   gitChannel = import ./git-channel.nix {
-    inherit pkgs target workBranch guestRepo transport;
+    inherit pkgs target workBranch guestRepo guestHost transport;
+    snapshot = stateSnapshot;
   };
 in {
   inherit guestHost guestRepo baselineRecord;

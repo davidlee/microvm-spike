@@ -82,6 +82,8 @@ changes until they are built.
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
+| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32) | no | `[]` — a code-only collect plus whatever is uncommitted, which is every collect before item 32 |
+| `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
 | `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
 | `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
@@ -90,6 +92,11 @@ changes until they are built.
 **Three rows are the ones the column exists for.** `allowlist` and
 `collectMaxPackBytes` are host controls — what a capsule may talk to, and how
 much may come back — sitting in the same file as `commands` and a motd string.
+`statePaths` joins them and is the sharpest of the three, because it is the one
+that names *files*: an allowlist of paths that are read out of a guest's
+worktree with `.gitignore` deliberately bypassed, and therefore a list to keep
+short and to read as a control rather than as configuration
+([item 32](./ledger/032-the-sideband-channel.md)).
 That is harmless while a target is a build-time literal and one host has one
 allowlist, and it stops being harmless the moment assigning a project is a
 run-time verb, because the project would then be naming its own perimeter
@@ -226,7 +233,7 @@ the capsule as an argument rather than being built per capsule
 | command | arguments | touches the target repo? |
 | --- | --- | --- |
 | `capsule-provision` | `[--capsule <name>] <ref> [--force]` — any commit-ish in `path` | yes: reads it, as you. The only program that does |
-| `capsule-collect` | `[--capsule <name>]` | no: fetches into a host-authored quarantine named for the capsule |
+| `capsule-collect` | `[--capsule <name>] [--stage <name>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)) |
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
 | `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
 
