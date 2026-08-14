@@ -662,6 +662,55 @@ across a host rebuild, two renamed slots and two freshly created state
 directories. Third identical reading, sessions apart. A slice's peak is not
 attributable to any session that reads it, and nothing in the reading says so.
 
+## The first exhibit, adopted — and what it costs to over-collect
+
+`capsule-adopt` run against the tree it was written from
+([item 34](./ledger/034-adopting-a-guest-authored-tree.md)): slot `a`'s
+`refs/capsule/a/state/implementation` at `44f4d3005`, the state half of the
+single collect [item 32](./ledger/032-the-sideband-channel.md) took while the
+guest was still working. `--list` first, which writes nothing, then a real
+layout into an empty directory. Both green, no refusal, on the in-tree copy
+rather than the host's — `CAPSULE_STATE=/var/lib/capsule` against the module
+path's quarantine, because the installed copy predates item 35.
+
+| figure | value |
+| --- | --- |
+| entries in the state tree | 1886 — 1633 files, **253 symlinks** |
+| bytes, as git counts them | 18 647 563 (18.6 MiB) |
+| filesystem entries written | 2171 (directories are the difference) |
+| on disk after layout | 23 MiB |
+| broken symlinks after layout | **0** — every target resolves inside the root |
+| gitlinks | none, so the mode class went untested by this tree |
+| `code-oid` in the commit message | `3aee9dc7d`, `dirty: 1` |
+
+The 253 symlinks are the point: they are what made *resolution within the root*
+the rule rather than a `..` ban, and a real tree exercising 253 of them is the
+first evidence that the rule admits the trees it has to admit. It is not
+evidence the refusals fire — those are asserted against hand-built hostile trees,
+by hand, in [item 34](./ledger/034-adopting-a-guest-authored-tree.md).
+
+**And the exhibit measures its own over-collection**, which is
+[item 32](./ledger/032-the-sideband-channel.md)'s open invariant — *bring back
+the out-of-band state of the work the capsule was assigned, and none that is
+not* — failing by declaration rather than by accident:
+
+| slice of the exhibit | entries | bytes |
+| --- | --- | --- |
+| whole tree | 1886 | 18.6 MiB |
+| `.doctrine/slice` (all slices) | 2127 of 2171 written | ~23 MiB of 23 |
+| `.doctrine/slice/254` — the assigned unit | 17 | ~448 KiB |
+| any path naming 254 | **41** | — |
+| `.doctrine/dispatch` | 15 | <1 MiB |
+| `.doctrine/state/slice` | holds `254` only | <1 MiB |
+
+So **41 of 1886 entries are the unit the capsule was driving**, and the largest
+declared path is the one that scales with the project's whole history: three
+unrelated slices (`233`, `248`, `228`) are each larger than `254`. A unit-scoped
+collect is ~40 entries against 1886 — a 45× cut in entries and ~40× in bytes at
+the one choke point both `capsule-adopt` and `capsule-brief` read through.
+`.doctrine/state/slice` is already narrow, but by accident of what that checkout
+held rather than by declaration.
+
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the

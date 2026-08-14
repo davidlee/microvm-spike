@@ -12,7 +12,11 @@ and a way back in** ([items 32](./ledger/032-the-sideband-channel.md),
 [33](./ledger/033-provision-is-a-sequence.md),
 [34](./ledger/034-adopting-a-guest-authored-tree.md),
 [35](./ledger/035-briefing-a-capsule-with-state.md); below). Item 32 ran once
-against live slot `a`; 33, 34 and 35 are **built and evaluated, and unrun against
+against live slot `a`, and **item 34 has now run against what that collect
+produced** — `capsule-adopt --list` and a real layout, on the 1886-entry /
+18.6 MiB exhibit, both green
+([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+33 and 35 are **built and evaluated, and unrun against
 a capsule** — `just check`, `just build` and `just units` are green now, so
 shellcheck-at-build has seen every render and `hostModuleUnits` has forced the
 module's three new programs, which was the specific gap 33 and 34 were carrying.
@@ -101,7 +105,8 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   checkout with uncommitted tracked changes.
 
   **The extractor** ([item 34](./ledger/034-adopting-a-guest-authored-tree.md),
-  built; **shell asserted against hand-built git objects**, nix unevaluated):
+  built; **shell asserted against hand-built git objects**, and now **run against
+  the real exhibit**):
   `capsule-adopt <dir>` validates a guest-authored tree and lays it out with
   `read-tree`/`checkout-index` rather than `archive | tar -x`. The finding is what
   the checks turned out to be. Item 32 predicted "modes and prefixes"; the path
@@ -115,6 +120,16 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   inside the root and load-bearing, so the rule is lexical resolution within the
   root. Measured: `git archive | tar -x` on the hostile tree plants both symlinks
   and the empty gitlink directory, exit 0, silent.
+
+  **Run, on the tree it was written from.** `--list` and then a real layout into
+  an empty directory, against slot `a`'s collected `implementation` state:
+  1886 entries / 18.6 MiB out, 2171 filesystem entries and 23 MiB in, **253
+  symlinks and no broken link** — the first evidence that resolution-within-the-
+  root admits the trees it has to admit, which a `..` ban would not have. No
+  gitlink in it, so that class stays hand-asserted only. It ran on the *in-tree*
+  copy pointed at the module path's quarantine (`CAPSULE_STATE=/var/lib/capsule`),
+  because the host's installed copy predates item 35's `host/exhibit.nix` — which
+  is the same staleness that blocks the rest of the arc, below.
 
   Two smaller things came out of it. `host/quarantine.nix` is one construction for
   where a quarantine lives and what its refs are called, now that two programs
@@ -850,11 +865,24 @@ It is in flight rather than finished, and one of the two is cheap.
    `capsule-adopt` and `capsule-brief` — which was the specific class that cost a
    host rebuild when `observe` was added to one of `host/cli.nix`'s two call
    sites. What is left is **the host run**, and the order is now four steps rather
-   than three: `capsule a adopt --list` against the real 1886-entry exhibit (it
-   writes nothing, so it is free), then a real adoption, then a provision to
-   exercise `capsule-refresh`, then the brief — `capsule a collect`, `capsule a
-   fetch`, `capsule b provision <oid> --state a`, which is the first time two
-   capsules have been on one story.
+   than three. **Two of the four are done** — `capsule a adopt --list` against the
+   real 1886-entry exhibit and then a real adoption, both green
+   ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+   Steps three and four — a provision to exercise `capsule-refresh`, then the
+   brief (`capsule a collect`, `capsule a fetch`, `capsule b provision <oid>
+   --state a`, the first time two capsules have been on one story) — are
+   **blocked on a `~/flakes` switch**, and the block is not merely `capsule-brief`
+   being absent from this host: item 35 changed `host/git-channel.nix`, so the
+   installed `capsule-provision` is a copy without `--state` at all. Running the
+   arc against it would exercise the pre-35 program while reading as a green run,
+   which is the trap a stale `capsule-collect` already cost this arc once. The
+   adoption above sidestepped it by running the in-tree copy at the module path's
+   quarantine (`CAPSULE_STATE=/var/lib/capsule`); a provision cannot, because it
+   goes through the relay.
+
+   The host has also been rebooted since, so both slots are `inactive` and `a` is
+   no longer driving SL-254 — the constraint that shaped this whole arc is off,
+   and `a` may be stopped, started and provisioned freely now.
 2. **Scope the exhibit at collect** — item 32's live invariant, *a collect brings
    back the out-of-band state of the work the capsule was assigned, and none that
    is not*, which fails by declaration today. The design is written: the policy
@@ -943,11 +971,16 @@ It is in flight rather than finished, and one of the two is cheap.
   reader now**: `capsule-brief` propagates whatever a collect over-collected into
   a second capsule's checkout, which is not a new hole and is one more argument
   for narrowing at the one choke point ([item 35](./ledger/035-briefing-a-capsule-with-state.md)).
-- **`capsule-adopt` has never seen the real exhibit.** Its assertions are against
-  hand-built trees in a throwaway repository — a doctrine-shaped tree, a hostile
-  one, and the class fsck lets through. Slot `a`'s 1886 entries and 18.6 MB are
-  what it was written *from* and have never been fed to it. `--list` writes
-  nothing, so that run costs nothing.
+  **Now measured rather than argued**: 41 of the exhibit's 1886 entries name the
+  slice the capsule was driving, and three unrelated slices are each larger than
+  it — a unit-scoped collect is ~40 entries against 1886
+  ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+- ~~**`capsule-adopt` has never seen the real exhibit.**~~ It has: `--list` and a
+  real layout, both green, 253 symlinks and no broken link
+  ([probes](./probes.md#the-first-exhibit-adopted--and-what-it-costs-to-over-collect)).
+  What replaces it is narrower — **the mode class is still hand-asserted only**,
+  because no target carries a gitlink, so the one check nothing else anywhere
+  holds has never been exercised by a tree a capsule wrote.
 - ~~**Items 33 and 34 are unevaluated nix.**~~ Evaluated: `just check`, `just
   build` and `just units` green, with `hostModuleUnits` forcing all three new
   programs on the module's `environment.systemPackages`. What replaces it is

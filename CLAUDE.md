@@ -17,7 +17,7 @@ would cost. Do not put present-tense state in a plan; that is `status.md`'s job.
 
 ## Working here
 
-capsule a is currently driving a production workload (doctrine's SL-254).
+capsule a has finished driving a production workload (doctrine's SL-254).
 
 **Be judicious about running nix builds or evals.** The user runs those
 in ~/flakes for system builds themselves. Builds for this project are fine. 
