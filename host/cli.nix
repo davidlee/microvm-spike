@@ -58,6 +58,10 @@
   # (host/observe.nix). A path and not a set of guest paths, deliberately: this
   # file asks a capsule what is true and does not know what `/work` is.
   observe,
+  # What points that program at this target's paths, as **one opaque word** for
+  # the same reason (NOTES item 51). The paths moved out of `observe`'s text and
+  # into its command line; they did not move into this file's vocabulary.
+  observeArgs,
   # Where the module keeps its state: quarantines and the assignment records. The
   # allowlist links are *not* in here — they are the one thing a proxy must read,
   # and this directory is the one place it may not (NOTES item 39,
@@ -461,7 +465,7 @@ in
         observed() {
           local ssh_argv=()
           door "$1" probe || return 1
-          "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' < ${observe} 2>/dev/null
+          "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- ${observeArgs} < ${observe} 2>/dev/null
         }
 
         # A baseline stamp is **the host's** UTC, minted host-side so both ends

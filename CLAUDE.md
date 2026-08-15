@@ -32,7 +32,8 @@ evaluates). `just` (default) runs the build, units, and fmt.
 **There are three kinds of check here, and they are not interchangeable.**
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
-not mention them. `guardCases`, `briefCases`, `snapshotCases`, `refreshCases` and `policyCases`
+not mention them. `guardCases`, `briefCases`, `snapshotCases`, `refreshCases`, `observeCases`,
+`baselineCases` and `policyCases`
 *run* a host-side
 program's own text with a substitute for the one thing tying it to this host
 (`just cases`), and are the answer whenever the interesting branches are ones a
@@ -40,7 +41,9 @@ live host can only reach destructively or expensively — the guard's by unnamin
 namespace under a running guest, the brief runner's by dirtying one capsule's
 worktree to watch another refuse it, the state snapshot's by driving a real unit
 of work in a checkout that holds several, the refresh's by giving it a target
-command that fails or eats its own stdin, the front end's by editing the declared
+command that fails or eats its own stdin, the baseline's by having a build that
+can be asked to fail, the status's by catching an unprovisioned volume or a run
+in flight before it leaves that state, the front end's by editing the declared
 pool and writing the live record of a slot somebody is using. All three kinds are in `just build`, so a failing case is a failing
 build.
 
@@ -48,10 +51,18 @@ The seam that makes the third kind possible is worth reusing rather than
 reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
 test cannot stub `ip` by prepending its own. **A program that needs testing takes
 as an argument the one thing that ties it to this host** — `host/guard.nix`'s
-`tools`, `host/brief.nix`'s guest `runner` and `host/state-snapshot.nix`'s
-`snapshotFor`, both taking the checkout they run in, and `host/cli.nix`'s
-`moduleState`, an argument with a default so both shipped copies stay one store
-path — exactly as all of them take `transport`: one text, two instantiations, no second copy of an invariant. Two
+`tools` and `host/cli.nix`'s `moduleState`, an argument with a default so both
+shipped copies stay one store path — exactly as all of them take `transport`.
+**For the five guest-pushed scripts that argument is now a *run-time* one**
+(NOTES item 51): `state-snapshot`, `refresh`, `brief`'s runner, `observe` and
+`baseline`'s runner take their checkout — and their ceiling, their command, their
+declared paths — on the command line, so a suite runs the store path a capsule
+runs rather than a second render of the same text, and one program serves any
+number of targets. Values reaching a guest cross **two** shells (this host's,
+building the ssh argv, and the guest's, handed one string), so they are escaped
+twice; `host/guest-exec.nix`'s `loginRun` is `bash -l -c 'bash -s "$@"'` for
+exactly that reason and `host/baseline.nix` uses the same `"$0" "$@"` shape to
+keep a third parse out of a staged run. Two
 rules for writing a case: assert the *reason* as well as the exit status, since a
 refusal for the wrong reason is a different program passing; and check the suite
 can fail by mutating the behaviour it claims to pin — the skip in

@@ -6,7 +6,24 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s
+Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)'s
+first two steps were built**: the five guest-pushed scripts — `state-snapshot`,
+`refresh`, `brief`'s runner, `observe` and `baseline`'s runner — take every value
+they are *about* on their command line instead of in their text, so
+`snapshotFor`, `refreshFor` and `runnerFor` are gone and each is one store path
+where it was one per checkout. Nothing has yet changed about *where* those values
+come from — `target.nix`, spelled by the host program that makes the call — so no
+program has stopped being a function of the target; that is step 3 onward, and it
+is gated on three decisions the item now names rather than one. Two things the
+plan did not have: `host/guest-exec.nix`'s `loginRun` had **no argument channel at
+all** and is `bash -l -c 'bash -s "$@"'` now, and a value crossing ssh is parsed
+by **two** shells so it is escaped twice — `capsule-baseline`'s nested
+`bash -l -c "bash '$dir/run.sh' …"` made it three and is the `"$0" "$@"` shape
+now. `observeCases` and `baselineCases` are new — those two programs had **no
+suite at all** — so `just cases` runs seven, and each was watched going red
+against a deliberately broken copy of what it pins. `just` green; nothing
+switched, and no capsule was touched. Before that, the same day, after
+**[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s
 read was taken and the reading under it was half wrong**. Two assignments to slot
 `e`, one quarantine: the code half behaves as the item predicted — forced,
 non-fast-forward, the first assignment's commit left `unreachable` — and the

@@ -61,10 +61,15 @@
   # The human's own checkout — `target.path`. Read here and by
   # `capsule-provision`, both always as the human (NOTES item 11).
   hostCheckout,
-  # The same text as the guest's snapshot, instantiated at that checkout
-  # (host/state-snapshot.nix). A store path run locally rather than pushed on
-  # stdin, because there is no door in front of this one.
-  hostSnapshot,
+  # The guest's snapshot, verbatim — the same store path, not a second
+  # instantiation of the same text (host/state-snapshot.nix, NOTES item 51). Run
+  # locally rather than pushed on stdin, because there is no door in front of
+  # this one.
+  snapshotScript,
+  # What points it at this host's checkout: the checkout, the ceiling and the
+  # declared templates, in the order the script reads them. A command line rather
+  # than a build, which is what lets one program serve more than one project.
+  snapshotArgs,
   # Whether this target's state paths are scoped to a unit of work, which decides
   # whether `--unit` is required here exactly as it decides it for a collect.
   needsUnit,
@@ -90,127 +95,134 @@
   # this state specifically and a capsule that silently did not get it is one an
   # agent will answer from anyway.
   #
-  # **A function of the checkout it runs in**, which is the seam that makes it
-  # testable at all — the same one `host/guard.nix` takes its `tools` through and
-  # `perimeter/` takes its fragments through. The interesting branches here (a
-  # code-oid that does not match, a worktree somebody else has dirtied) are ones a
-  # live host can only reach by having two capsules and dirtying one, so
-  # `briefCases` instantiates this same text against a throwaway checkout in a
-  # build sandbox. One text, two instantiations, no second copy of an invariant.
-  runner = workdir:
-    pkgs.writeText "capsule-brief-run" ''
-      # Deliberately not `set -e`: every exit below is chosen, and each one says
-      # which of the three preconditions failed rather than vanishing at the first
-      # non-zero.
-      set -uo pipefail
+  # **The checkout it runs in is its third argument**, which is the seam that
+  # makes it testable at all — the same one `host/guard.nix` takes its `tools`
+  # through and `perimeter/` takes its fragments through. The interesting branches
+  # here (a code-oid that does not match, a worktree somebody else has dirtied) are
+  # ones a live host can only reach by having two capsules and dirtying one, so
+  # `briefCases` runs this store path against a throwaway checkout in a build
+  # sandbox. It used to be a function of the checkout and is one text with no
+  # instantiations now (NOTES item 51): a value the script is *about* travels on
+  # its command line, so a second project needs a second argument and not a second
+  # program.
+  runText = pkgs.writeText "capsule-brief-run" ''
+    # Deliberately not `set -e`: every exit below is chosen, and each one says
+    # which of the three preconditions failed rather than vanishing at the first
+    # non-zero.
+    set -uo pipefail
 
-      work=${lib.escapeShellArg workdir}
-      commit=''${1:-}
-      codeOid=''${2:-}
+    commit=''${1:-}
+    codeOid=''${2:-}
+    work=''${3:-}
 
-      if [ -z "$commit" ] || [ -z "$codeOid" ]; then
-        echo "capsule-brief: usage: <commit> <code-oid>" >&2
-        exit 2
-      fi
+    if [ -z "$commit" ] || [ -z "$codeOid" ] || [ -z "$work" ]; then
+      echo "capsule-brief: usage: <commit> <code-oid> <work>" >&2
+      exit 2
+    fi
 
-      cd "$work" 2>/dev/null || {
-        echo "capsule-brief: no checkout at $work" >&2
-        exit 2
-      }
+    cd "$work" 2>/dev/null || {
+      echo "capsule-brief: no checkout at $work" >&2
+      exit 2
+    }
 
-      head=$(git rev-parse --verify --quiet HEAD) || {
-        echo "capsule-brief: $work has no commit — capsule-provision first" >&2
-        exit 2
-      }
+    head=$(git rev-parse --verify --quiet HEAD) || {
+      echo "capsule-brief: $work has no commit — capsule-provision first" >&2
+      exit 2
+    }
 
-      # The control, and the reason this is git rather than tar at both ends. See
-      # the header: a state tree carries worktree content, so it is only ever the
-      # state of one commit and laying it over another makes a checkout that never
-      # existed anywhere — which then gets read as one.
-      if [ "$head" != "$codeOid" ]; then
-        echo "capsule-brief: that state was the state of $codeOid, and this checkout" >&2
-        echo "  is at $head. Refusing: the tree carries the other capsule's" >&2
-        echo "  uncommitted work, and over different code that composes a worktree" >&2
-        echo "  nobody ever had." >&2
-        echo "  Provision this capsule at $codeOid first — if that commit is not in" >&2
-        echo "  the target repo yet, it is the source capsule's collected code half." >&2
-        exit 3
-      fi
+    # The control, and the reason this is git rather than tar at both ends. See
+    # the header: a state tree carries worktree content, so it is only ever the
+    # state of one commit and laying it over another makes a checkout that never
+    # existed anywhere — which then gets read as one.
+    if [ "$head" != "$codeOid" ]; then
+      echo "capsule-brief: that state was the state of $codeOid, and this checkout" >&2
+      echo "  is at $head. Refusing: the tree carries the other capsule's" >&2
+      echo "  uncommitted work, and over different code that composes a worktree" >&2
+      echo "  nobody ever had." >&2
+      echo "  Provision this capsule at $codeOid first — if that commit is not in" >&2
+      echo "  the target repo yet, it is the source capsule's collected code half." >&2
+      exit 3
+    fi
 
-      # A brief overwrites tracked files, and that is intended — see above. What it
-      # must not do is overwrite an agent's *own* uncommitted work, which is
-      # exactly what it cannot tell apart afterwards. Immediately after a provision
-      # this is empty by construction, because `updateInstead` only lets a push
-      # land on a clean tree; a second brief onto an already-briefed capsule is
-      # what this refuses, deliberately and with no override.
-      if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-        echo "capsule-brief: this checkout has uncommitted changes to tracked files," >&2
-        echo "  and a brief overwrites tracked files with another capsule's worktree" >&2
-        echo "  content. There would be no way to tell the two apart afterwards, so" >&2
-        echo "  nothing was written. Commit or discard them, or re-provision." >&2
-        exit 3
-      fi
+    # A brief overwrites tracked files, and that is intended — see above. What it
+    # must not do is overwrite an agent's *own* uncommitted work, which is
+    # exactly what it cannot tell apart afterwards. Immediately after a provision
+    # this is empty by construction, because `updateInstead` only lets a push
+    # land on a clean tree; a second brief onto an already-briefed capsule is
+    # what this refuses, deliberately and with no override.
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+      echo "capsule-brief: this checkout has uncommitted changes to tracked files," >&2
+      echo "  and a brief overwrites tracked files with another capsule's worktree" >&2
+      echo "  content. There would be no way to tell the two apart afterwards, so" >&2
+      echo "  nothing was written. Commit or discard them, or re-provision." >&2
+      exit 3
+    fi
 
-      git rev-parse --verify --quiet "$commit^{commit}" >/dev/null || {
-        echo "capsule-brief: $commit is not in this guest's repository — the push" >&2
-        echo "  that should have put it there did not land." >&2
-        exit 2
-      }
+    git rev-parse --verify --quiet "$commit^{commit}" >/dev/null || {
+      echo "capsule-brief: $commit is not in this guest's repository — the push" >&2
+      echo "  that should have put it there did not land." >&2
+      exit 2
+    }
 
-      # An index of ours, never the agent's. The symmetry runs the whole length of
-      # this channel: the source guest built the tree in a temporary index so its
-      # agent's index never learned the paths (host/state-snapshot.nix), the host
-      # reads it back through one (host/adopt.nix), and this writes it through one.
-      # No repository anywhere has an index worth contaminating.
-      #
-      # Explicit per call rather than exported, which is not fastidiousness: with
-      # `GIT_INDEX_FILE` in the environment, the `git status` below would compare
-      # the worktree against the *state tree* and rewrite that index on the way
-      # past — silently, and with a plausible wrong answer (the same trap
-      # `host/state-snapshot.nix` orders itself around).
-      idx=$(mktemp -u "''${TMPDIR:-/tmp}/capsule-brief-index.XXXXXX")
-      trap 'rm -f "$idx"' EXIT
-      gidx() { GIT_INDEX_FILE="$idx" git "$@"; }
+    # An index of ours, never the agent's. The symmetry runs the whole length of
+    # this channel: the source guest built the tree in a temporary index so its
+    # agent's index never learned the paths (host/state-snapshot.nix), the host
+    # reads it back through one (host/adopt.nix), and this writes it through one.
+    # No repository anywhere has an index worth contaminating.
+    #
+    # Explicit per call rather than exported, which is not fastidiousness: with
+    # `GIT_INDEX_FILE` in the environment, the `git status` below would compare
+    # the worktree against the *state tree* and rewrite that index on the way
+    # past — silently, and with a plausible wrong answer (the same trap
+    # `host/state-snapshot.nix` orders itself around).
+    idx=$(mktemp -u "''${TMPDIR:-/tmp}/capsule-brief-index.XXXXXX")
+    trap 'rm -f "$idx"' EXIT
+    gidx() { GIT_INDEX_FILE="$idx" git "$@"; }
 
-      # git's own writer rather than a second one made of shell and tar. It also
-      # refuses the path class independently of the host's check
-      # (`error: invalid path '.git/…'`), which is the arrangement to want when the
-      # other refusal is upstream and out of sight from here.
-      gidx read-tree "$commit" || {
-        echo "capsule-brief: read-tree refused $commit — see its message above." >&2
-        exit 1
-      }
+    # git's own writer rather than a second one made of shell and tar. It also
+    # refuses the path class independently of the host's check
+    # (`error: invalid path '.git/…'`), which is the arrangement to want when the
+    # other refusal is upstream and out of sight from here.
+    gidx read-tree "$commit" || {
+      echo "capsule-brief: read-tree refused $commit — see its message above." >&2
+      exit 1
+    }
 
-      # `.capsule/` is *this system's* namespace inside a state tree, not the
-      # target's: `dirty.diff` is a record *of* a worktree rather than part of one.
-      # Writing it here would put it on disk as untracked content, which the next
-      # collect from this capsule would pick up and carry again as though this
-      # agent had written it. Dropped from the index and not from the tree, so the
-      # exhibit in quarantine keeps it and `capsule <src> adopt` still hands it
-      # over.
-      while IFS= read -r -d "" p; do
-        gidx update-index --force-remove -- "$p"
-      done < <(gidx ls-files -z -- .capsule)
+    # `.capsule/` is *this system's* namespace inside a state tree, not the
+    # target's: `dirty.diff` is a record *of* a worktree rather than part of one.
+    # Writing it here would put it on disk as untracked content, which the next
+    # collect from this capsule would pick up and carry again as though this
+    # agent had written it. Dropped from the index and not from the tree, so the
+    # exhibit in quarantine keeps it and `capsule <src> adopt` still hands it
+    # over.
+    while IFS= read -r -d "" p; do
+      gidx update-index --force-remove -- "$p"
+    done < <(gidx ls-files -z -- .capsule)
 
-      files=$(gidx ls-files | wc -l)
+    files=$(gidx ls-files | wc -l)
 
-      # `-f`, and the two refusals above are what earn it: same code, clean tree.
-      gidx checkout-index -a -f || {
-        echo "capsule-brief: checkout-index refused — see its message above." >&2
-        exit 1
-      }
+    # `-f`, and the two refusals above are what earn it: same code, clean tree.
+    gidx checkout-index -a -f || {
+      echo "capsule-brief: checkout-index refused — see its message above." >&2
+      exit 1
+    }
 
-      printf '%s\t%s\n' "$files" "$(git status --porcelain | wc -l)"
-    '';
+    printf '%s\t%s\n' "$files" "$(git status --porcelain | wc -l)"
+  '';
 
-  script = guestExec.checked (runner workdir);
+  script = guestExec.checked runText;
+
+  # The guest's checkout, escaped twice: ssh joins its arguments with spaces and
+  # the guest's shell parses the result again (host/guest-exec.nix).
+  guestArgs = lib.escapeShellArgs [(lib.escapeShellArg workdir)];
   # `rec`, so the standalone program is the fragment plus an argument parse
   # rather than a second spelling of the same sequence.
 in rec {
-  # The same text at another checkout, for `briefCases` in `flake.nix`. Lint
-  # included: a case suite that ran an unlinted render would be asserting about
-  # a program this repo does not ship.
-  runnerFor = w: guestExec.checked (runner w);
+  # The very store path a capsule runs, for `briefCases` in `flake.nix` — lint
+  # included, since a case suite running an unlinted render would be asserting
+  # about a program this repo does not ship. Not a render *for* the suite: there
+  # is nothing left to render (NOTES item 51).
+  runner = script;
 
   # `briefCheckSpec` on its own, for `briefCases`. The rest of this file needs a
   # guest, a door and a quarantine; **which names may be a source** needs none of
@@ -335,7 +347,7 @@ in rec {
       fi
 
       if ! line=$("''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} 'bash -s' -- \
-        "$commit" "$codeOid" < ${script}); then
+        "$commit" "$codeOid" ${guestArgs} < ${script}); then
         echo "capsule-brief: the guest refused to lay that state out (above)." >&2
         return 1
       fi
@@ -455,7 +467,7 @@ in rec {
       briefDropHostRef "$stage"
       # `declared`: this origin is a human's desk, so nothing outside the
       # target's declared paths travels (host/state-snapshot.nix, NOTES item 42).
-      if ! line=$(bash ${hostSnapshot} "$stage" "$unit" declared); then
+      if ! line=$(bash ${snapshotScript} "$stage" "$unit" declared ${snapshotArgs}); then
         echo "capsule-brief: no state snapshot of this host's checkout (above)." >&2
         briefDropHostRef "$stage"
         return 1

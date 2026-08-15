@@ -512,7 +512,7 @@
         # at the call site rather than defaulted in the script, because the other
         # origin is a human's desk and a default would make that one the quiet
         # case (NOTES item 42).
-        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" all < ${snapshot.script}); then
+        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" all ${snapshot.guestArgs} < ${snapshot.script}); then
           IFS=$'\t' read -r oid stateBytes stateFiles <<<"$line"
           if [ "$oid" = - ]; then
             echo "capsule-collect: no state snapshot this run (see above)."

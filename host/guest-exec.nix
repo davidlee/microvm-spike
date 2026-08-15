@@ -60,10 +60,21 @@
   # guest's login environment. Spliced escaped, because it is one remote command
   # line and ssh joins its arguments with spaces:
   #
-  #     "the ssh_cmd array" <guestHost> <loginRun> < <the script>
+  #     "the ssh_cmd array" <guestHost> <loginRun> <args…> < <the script>
   #
-  # with the last three spliced through `lib.escapeShellArg`. `host/refresh.nix`'s
+  # with the first three spliced through `lib.escapeShellArg`. `host/refresh.nix`'s
   # `invoke` is the whole of it, in one line.
+  #
+  # **`"$@"` is why there is anything after `bash -s`**, and it is the channel a
+  # script that has already claimed stdin has left (NOTES item 51). Values a guest
+  # script is *about* — the checkout it runs in, the command it runs, the ceiling
+  # it enforces — used to be interpolated into the text, which made a store path a
+  # function of the project. They arrive here instead. The word after the `-c`
+  # string is `$0` and is a label, not an argument; everything after it is `$1`
+  # onward, forwarded to the script on stdin. Every one of them crosses **two**
+  # shells — this host's, building the ssh argv, and the guest's, handed one
+  # string — so a caller escapes them twice or watches the first value with a
+  # space in it split.
   #
   # One caller today (`host/refresh.nix`). `capsule-baseline` needs the same form
   # but composes its command line at run time — a staged path and a stamp neither
@@ -85,5 +96,5 @@
   # relying on — it stages the script to a file and detaches the run with
   # `</dev/null` already — so this is one rule with one enforced instance, not a
   # pattern to assume.
-  loginRun = "bash -l -c 'bash -s'";
+  loginRun = "bash -l -c 'bash -s \"$@\"' capsule-guest-script";
 }

@@ -70,16 +70,17 @@
     # error to abort on. It is the whole question this program asks.
     set -uo pipefail
 
-    dir=${lib.escapeShellArg recordDir}
-    work=${lib.escapeShellArg workdir}
-    measured=(${lib.escapeShellArgs measure})
-
     verb=''${1:-}
     stamp=''${2:-}
-    if [ -z "$verb" ] || [ -z "$stamp" ]; then
-      echo "capsule-baseline: usage: run.sh start|run STAMP" >&2
+    dir=''${3:-}
+    work=''${4:-}
+    cmd=''${5:-}
+    if [ "$#" -lt 6 ] || [ -z "$verb" ] || [ -z "$stamp" ]; then
+      echo "capsule-baseline: usage: run.sh start|run STAMP DIR WORK CMD MEASURED..." >&2
       exit 64
     fi
+    shift 5
+    measured=("$@")
 
     running="$dir/running"
     history="$dir/history.tsv"
@@ -129,7 +130,11 @@
         # inherits its environment: the proxy and cache variables are
         # `environment.variables`, which is login-shell scope (NOTES item 6), and
         # a build that cannot reach the proxy fails looking like a network fault.
-        setsid bash "$0" run "$stamp" </dev/null >"$log" 2>&1 &
+        # Every value this script is about, forwarded: the detached half is the
+        # same store path with the same arguments, and a re-exec that dropped one
+        # would run the target's build in whatever directory it landed in.
+        setsid bash "$0" run "$stamp" "$dir" "$work" "$cmd" "''${measured[@]}" \
+          </dev/null >"$log" 2>&1 &
         # The child writes $running first thing; wait for it, so the host can
         # attach by pid without racing. Not $! — `setsid` execs or forks
         # depending on whether its caller leads a process group, so $! is not
@@ -149,7 +154,7 @@
         commit=$(git rev-parse --short HEAD 2>/dev/null || echo none)
         before=$(total)
         echo "capsule-baseline $stamp"
-        echo "  command : ${cmd}"
+        echo "  command : $cmd"
         echo "  workdir : $work"
         echo "  commit  : $commit"
         # Cheap, and it turns the commonest failure — no proxy, so nothing
@@ -160,7 +165,7 @@
         echo
 
         start=$(date +%s)
-        ( ${command} )
+        ( eval "$cmd" )
         status=$?
         seconds=$(( $(date +%s) - start ))
 
@@ -175,7 +180,7 @@
           || printf 'stamp\tstatus\tseconds\tcommit\tmib_before\tmib_after\tcommand\n' \
              > "$history"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-          "$stamp" "$status" "$seconds" "$commit" "$before" "$after" ${cmd} \
+          "$stamp" "$status" "$seconds" "$commit" "$before" "$after" "$cmd" \
           >> "$history"
         echo "capsule-baseline: exit $status in ''${seconds}s"
         ;;
@@ -190,8 +195,22 @@
   # The same lint the host-side programs get, and the reason it cannot simply be
   # `writeShellApplication` is in host/guest-exec.nix, which now owns it.
   checkedRunner = guestExec.checked runner;
-in
-  pkgs.writeShellApplication {
+
+  # What points that one text at this target: the record directory, the checkout,
+  # the command and the paths to size, in the order the runner reads them (NOTES
+  # item 51). Escaped twice, because ssh joins its arguments with spaces and the
+  # guest's shell parses the result again — see the invocation below, which is the
+  # `"$0" "$@"` shape for exactly this reason.
+  runnerArgs =
+    lib.escapeShellArgs
+    (map lib.escapeShellArg ([recordDir workdir command] ++ measure));
+
+  # The two words in front of them, in the same two-parse form. `bash "$0" "$@"`
+  # is the whole of the remote `-c` script: it *uses* its arguments rather than
+  # re-parsing a string built out of them, which is what makes two shells enough.
+  remoteRun = lib.escapeShellArg (lib.escapeShellArg ''bash "$0" "$@"'');
+  remoteRunner = lib.escapeShellArg (lib.escapeShellArg "${recordDir}/run.sh");
+  program = pkgs.writeShellApplication {
     name = "capsule-baseline";
     runtimeInputs = [pkgs.openssh pkgs.coreutils];
     text = ''
@@ -234,10 +253,16 @@ in
       # (NOTES item 24). One more process, and `set -u` dies with the child.
       #
       # Spelled here rather than taken from `host/guest-exec.nix`'s `loginRun`
-      # because this command line is composed at *run* time — a staged path and a
-      # stamp, neither of which exists at eval. Same rule, stated there; this is a
-      # second instance of it and not a second decision.
-      reply=$("''${ssh_cmd[@]}" "$host" "bash -l -c \"bash '$dir/run.sh' start $stamp\"")
+      # because that one feeds a script on stdin and this one runs a staged file.
+      # Same rule, stated there; this is a second instance of it and not a second
+      # decision — including the `"$0" "$@"` shape, which is what keeps the number
+      # of shells parsing these values at **two**. The nested `bash -l -c "…"`
+      # string this replaced made it three, and a third parse is where a value
+      # with a space in it disappears without a message (NOTES item 51).
+      # SC2016: `$0` and `$@` are the *guest* shell's, and not expanding them here
+      # is the entire point — this host has no run.sh and no arguments to it.
+      # shellcheck disable=SC2016
+      reply=$("''${ssh_cmd[@]}" "$host" bash -l -c ${remoteRun} ${remoteRunner} start "$stamp" ${runnerArgs})
       echo "capsule-baseline: $reply"
       # `started STAMP` or `attached STAMP` — the second is an older run, and
       # from here on the two are the same thing.
@@ -273,4 +298,14 @@ in
       printf '  %s\n' "$line"
       exit "$status"
     '';
-  }
+  };
+in {
+  inherit program;
+
+  # The guest half on its own, for `baselineCases` — the seam every other
+  # guest-pushed script here already had (NOTES item 51). The branches worth
+  # pinning are a build that fails, a run that is already in flight and a
+  # checkout with no commit, and a live host reaches them by having a target
+  # whose build can be asked to fail on demand, which no target can.
+  runner = checkedRunner;
+}

@@ -1,7 +1,13 @@
 # NOTES item 51 — the four programs still spell the target, and it is item 20 one level up
 
-*State: **planned and read twice, nothing built; steps 1-2 ready, 3-6 gated on
-three decisions.** [Plan D](../plan-d-fleet.md) §6.4, which that
+*State: **steps 1 and 2 built and green; 3-6 gated on three decisions.** The five
+guest-pushed scripts take every value they are about on their command line, the
+two that had no case suite have one, and each of the seven suites was watched
+going red against a deliberately broken copy of what it pins. Nothing about
+*where* the values come from has changed yet — they are still `target.nix`'s,
+spelled by the host program that makes the call — so no store path has stopped
+being a function of the target. That is step 3 onward.
+[Plan D](../plan-d-fleet.md) §6.4, which that
 file names as **D7's first task rather than a detail of it** and says is worth
 doing even if flavours never happen. Written up here rather than left as a
 paragraph in a plan because the implementation will not fit one session, and a
@@ -31,6 +37,12 @@ path goes on serving everything.
 | `cachePaths`, `volumePath` | `caches`, `volumePath` | `capsule-baseline`'s `measure`, `observe`, `inject`'s payload destinations |
 | `name`, `sizes` | `target` | the record's `profile` and `class` (`host/cli.nix:591`), the motd, `services.nix`'s `repo` default |
 | `statePaths`' `{unit}` hole, as `stateNeedsUnit` | `statePaths` | the front end's **own** text — usage, the status table's `printf` format, its header and its row, and the `unit` verb's parser (`host/cli.nix:111,169,513,519,554,1069-1090`) |
+
+The table is the inventory as read, and two of its names are gone: step 2 removed
+`snapshotFor` and `refreshFor`, and the values in the guest-side column arrive on
+a command line now (see *What steps 1 and 2 turned out to be*). Nothing else in
+it has moved — the store paths still *carry* those values, because the host
+program that spells the command line still gets them from `target.nix`.
 
 `programVerbs` is the same coupling in its other form: which verbs exist at all
 is decided at build time by which `target.nix` fields are non-null.
@@ -138,11 +150,57 @@ the easy half. Not decided, and it is the only one of the three that could
 reasonably be deferred past step 3, since the predicate can stay build-time while
 every *value* around it has moved.
 
+## What steps 1 and 2 turned out to be
+
+Written after doing them, because three things were not in the plan above.
+
+**One text, not one text per instantiation.** The seam these five scripts already
+had was a *nix function* of the checkout, which is one store path per checkout —
+the same shape as one program per capsule ([item 20](./020-which-capsule-a-program-means.md)),
+one level down. Moving the values to argv removed the function: `snapshotFor`,
+`refreshFor` and `runnerFor` are gone and `stateSnapshotScript`, `refreshScript`
+and `briefRunner` are store paths. The state snapshot had **three** call sites — a
+guest, this host's own checkout under `--from-host`, and the sandbox — and they
+are now one path and three command lines. Each file exports the tail of that
+command line (`argsFor`, `guestArgs`, `runnerArgs`) so no call site can order the
+values differently, which is also the one place step 4 has to change.
+
+**A value crossing ssh is parsed twice, and that had to be built.**
+`guest-exec.nix`'s `loginRun` was `bash -l -c 'bash -s'`, which has no channel for
+an argument at all; it is `bash -l -c 'bash -s "$@"' capsule-guest-script` now.
+ssh joins its arguments with spaces and the guest's shell parses the result, so
+every value is escaped **twice** — the same class as a `just` recipe's `{{...}}`
+being text and never an argument (CLAUDE.md), and the failure is a value with a
+space in it splitting silently. `capsule-baseline`'s invocation was worse: it
+built a nested `bash -l -c "bash '$dir/run.sh' start $stamp"`, which is *three*
+parses. It is the `"$0" "$@"` shape now, which uses its arguments instead of
+re-parsing a string built out of them, and that is what keeps the count at two.
+
+**`needsUnit` came down a level, and it is the shape decision 3 is about.**
+`host/state-snapshot.nix` decided at eval whether its templates were unit-scoped
+and emitted the refusal conditionally, so *whether the guest checks at all* was a
+property of which flake the host had built. The script computes it from the
+templates it was handed. The host still asks the same question at eval —
+`capsule-collect` refuses before it opens the door — and `stateNeedsUnit` still
+shapes the front end's printed text, which is the half that has not moved.
+
+**The two files with no suite have one, and neither was covered by accident.**
+`observeCases` and `baselineCases` are new; `just cases` runs seven suites now.
+Both reach branches a live host reaches expensively — an unprovisioned volume, a
+baseline that failed, a run already in flight, a build that can be asked to fail
+— and `host/baseline.nix` had to split into `{program, runner}` for its guest half
+to be reachable at all. Every suite was then run against a mutated copy
+(a script ignoring its argv, a hardcoded path) and the rounds that went red were
+the ones naming the value: no collateral, and nothing that passed for the wrong
+reason.
+
 ## Order of work
 
-Red/green, and the first step is a test that fails:
+Red/green, and the first step is a test that fails. **Steps 1 and 2 are done**;
+what follows is what was written before they were, kept because 3-6 are still
+what it says:
 
-1. **Extend `snapshotCases`, `refreshCases` and `briefCases`** to pin the
+1. **Done. Extend `snapshotCases`, `refreshCases` and `briefCases`** to pin the
    argument-taking form of every value each guest-side script currently
    interpolates. Watch them fail against today's text, which is the rule about
    mutating the behaviour a suite claims to pin. Note what these three actually
@@ -151,12 +209,12 @@ Red/green, and the first step is a test that fails:
    both of its values, and `briefRunner`'s guest half already takes its only one —
    what `brief` bakes is host-side (`guestRepo`, `hostCheckout`). So step 1 is
    mostly one file's worth of new pinning, not three.
-2. **Move the values into arguments** in `host/state-snapshot.nix`,
+2. **Done. Move the values into arguments** in `host/state-snapshot.nix`,
    `host/observe.nix`, `host/refresh.nix`, `host/brief.nix`, `host/baseline.nix`.
    Nothing about where the values *come from* changes yet; this step only ends
    interpolation.
 
-   **Step 1 does not cover this list, and the gap is two files.**
+   **Step 1 did not cover this list, and the gap was two files — closed.**
    `host/observe.nix` (`:42-44`) and `host/baseline.nix` (`:73-75`) each
    interpolate three values and **neither has a case suite at all** — so red/green
    is red for three of the five and silent for the other two. Either they get

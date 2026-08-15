@@ -128,6 +128,15 @@
   # invocation would get wrong (host/guest-exec.nix, NOTES item 24).
   guestExec = import ./guest-exec.nix {inherit pkgs;};
 
+  # The guest half of a status: one store path plus the command line that points
+  # it at this target's paths (host/observe.nix).
+  observeHook = import ./observe.nix {
+    inherit pkgs lib;
+    workdir = target.guestPath;
+    recordDir = baselineRecord;
+    inherit (target) volumePath;
+  };
+
   # The third step of a provision — regenerate what the push cannot carry, in the
   # checkout the push just made (host/refresh.nix, NOTES item 33). `null` when
   # the target derives nothing from its checkout, which is what keeps the
@@ -168,9 +177,29 @@
         # other one, and `slots` is what lets a source name be refused for not
         # being a capsule.
         hostCheckout = target.path;
-        hostSnapshot = stateSnapshot.snapshotFor target.path;
+        # One store path and the arguments that point it at this host's checkout
+        # (NOTES item 51). It used to be a third instantiation of the same text;
+        # there is only one now, and what differs between the three callers is a
+        # command line.
+        snapshotScript = stateSnapshot.script;
+        snapshotArgs = stateSnapshot.argsFor target.path;
         inherit (stateSnapshot) needsUnit;
         slots = builtins.attrNames capsules.instances;
+      };
+
+  # The target's own build-and-test, host-initiated (host/baseline.nix). `null`
+  # when the target declares no baseline — a better absent path than a program
+  # that cannot work.
+  baselineHook =
+    if target.baseline == null
+    then null
+    else
+      import ./baseline.nix {
+        inherit pkgs guestExec guestHost transport;
+        command = target.baseline;
+        workdir = target.guestPath;
+        recordDir = baselineRecord;
+        measure = [target.guestPath] ++ target.cachePaths;
       };
 
   gitChannel = import ./git-channel.nix {
@@ -194,12 +223,12 @@ in {
   # `baselineRecord` is exported for this reader specifically. The alternative
   # was building it at each of `capsule-cli`'s two call sites, which is how the
   # module path came to be missing an argument the devshell path had.
-  observe = import ./observe.nix {
-    inherit pkgs lib;
-    workdir = target.guestPath;
-    recordDir = baselineRecord;
-    inherit (target) volumePath;
-  };
+  observe = observeHook.script;
+
+  # The three guest paths it reads, as a command line rather than as text in it
+  # (NOTES item 51). One opaque word to the front end, which is what keeps
+  # `host/cli.nix` knowing a program and not a set of guest paths.
+  observeArgs = observeHook.guestArgs;
 
   inherit (gitChannel) provision collect;
 
@@ -232,7 +261,7 @@ in {
   briefRunner =
     if briefHook == null
     then null
-    else briefHook.runnerFor;
+    else briefHook.runner;
 
   # Which names may be a source of a brief, as a runnable text (host/brief.nix).
   # Exported for `briefCases` beside the runner, and for the same reason: the
@@ -247,10 +276,14 @@ in {
   # `briefRunner` is: `snapshotCases` runs this text against a checkout the
   # sandbox builds, because what an exhibit *contains* is decided by a branch a
   # live host reaches only by driving a real unit of work in a real capsule.
-  stateSnapshotFor =
+  #
+  # A store path rather than a function of one now (NOTES item 51): the checkout,
+  # the ceiling and the declared templates are arguments, so the sandbox's
+  # instantiation *is* the guest's and there is nothing left to instantiate.
+  stateSnapshotScript =
     if stateSnapshot == null
     then null
-    else stateSnapshot.snapshotFor;
+    else stateSnapshot.script;
 
   # Whether this target's state paths are scoped to a unit of work (NOTES item
   # 32). The front end needs it for two things a program must not do: offer the
@@ -282,13 +315,15 @@ in {
     then null
     else refreshHook.program;
 
-  # And the same export for the same reason `stateSnapshotFor` has one: the branch
-  # a case must reach is chosen by the *target's* command line, so the command is
-  # what a suite substitutes (NOTES item 47).
-  refreshFor =
+  # And the same export for the same reason `stateSnapshotScript` has one: the
+  # branch a case must reach is chosen by the *target's* command line, so the
+  # command is what a suite passes (NOTES item 47) — passes, now, rather than
+  # substitutes, which is what makes this a store path instead of a function of
+  # one (NOTES item 51).
+  refreshScript =
     if refreshHook == null
     then null
-    else refreshHook.refreshFor;
+    else refreshHook.refreshScript;
 
   # The non-git half of provisioning: credentials, secrets and anything else a
   # fresh capsule needs that no repository carries. The list is ./setup.nix,
@@ -308,14 +343,15 @@ in {
   # target declares no baseline — a better absent path than a program that
   # cannot work.
   baseline =
-    if target.baseline == null
+    if baselineHook == null
     then null
-    else
-      import ./baseline.nix {
-        inherit pkgs guestExec guestHost transport;
-        command = target.baseline;
-        workdir = target.guestPath;
-        recordDir = baselineRecord;
-        measure = [target.guestPath] ++ target.cachePaths;
-      };
+    else baselineHook.program;
+
+  # The guest half on its own, for `baselineCases` — the same export
+  # `stateSnapshotScript` and `refreshScript` have, and for the same reason: the
+  # only interface to that logic is the script's own text (NOTES item 51).
+  baselineRunner =
+    if baselineHook == null
+    then null
+    else baselineHook.runner;
 }

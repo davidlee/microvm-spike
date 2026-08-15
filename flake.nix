@@ -433,7 +433,7 @@
     # of them can be missing.
     capsule-cli = import ./host/cli.nix {
       inherit pkgs lib net target capsules policies guestSsh;
-      inherit (hostPrograms) observe programVerbs stateNeedsUnit;
+      inherit (hostPrograms) observe observeArgs programVerbs stateNeedsUnit;
     };
 
     # The guard's verdicts, asserted at build time against a stubbed kernel.
@@ -681,7 +681,10 @@
     # `null` for a target with no `statePaths`, in which case there is no program
     # and nothing to assert about one.
     briefCases = let
-      runner = hostPrograms.briefRunner "dest";
+      # One text, no instantiation (NOTES item 51): the checkout the guest half
+      # lays a tree out in is its third argument now, so the sandbox runs the
+      # store path a capsule runs rather than a copy of it built for `dest`.
+      runner = hostPrograms.briefRunner;
       spec = hostPrograms.briefSpecChecker;
     in
       pkgs.runCommand "capsule-brief-cases" {nativeBuildInputs = [pkgs.git];} ''
@@ -738,18 +741,18 @@
         git clone -q src dest -b work
         git -C dest fetch -q "$PWD/src" '+refs/capsule/state/*:refs/capsule/state/*'
 
-        rc=0; bash ${runner} "$state" 0000000000000000000000000000000000000000 >out 2>&1 || rc=$?
+        rc=0; bash ${runner} "$state" 0000000000000000000000000000000000000000 dest >out 2>&1 || rc=$?
         ck "refuses a state that was the state of other code" 3 "$rc"
         ckt "  and names the commit it was of" grep -qF "that state was the state of" out
         ckt "  and wrote nothing" test ! -e dest/.doctrine/state/slice/254/phases/03.md
 
         echo mine >>dest/src.txt
-        rc=0; bash ${runner} "$state" "$code" >out 2>&1 || rc=$?
+        rc=0; bash ${runner} "$state" "$code" dest >out 2>&1 || rc=$?
         ck "refuses over an agent's own uncommitted work" 3 "$rc"
         ckt "  and wrote nothing" test ! -e dest/.doctrine/state/slice/254/phases/03.md
         git -C dest checkout -q -- src.txt
 
-        rc=0; bash ${runner} "$state" "$code" >out 2>&1 || rc=$?
+        rc=0; bash ${runner} "$state" "$code" dest >out 2>&1 || rc=$?
         ck "lays the tree out over matching code" 0 "$rc"
         ckt "  the ignored runtime file landed" test -f dest/.doctrine/state/slice/254/phases/03.md
         # The whole reason the code-oid check earns the overwrite: a state tree
@@ -769,8 +772,24 @@
         ckt "  the worktree now differs from its HEAD" \
           test -n "$(git -C dest status --porcelain)"
 
-        rc=0; bash ${runner} "$state" "$code" >out 2>&1 || rc=$?
+        rc=0; bash ${runner} "$state" "$code" dest >out 2>&1 || rc=$?
         ck "refuses a second brief onto an already-briefed capsule" 3 "$rc"
+
+        # ------------------------------------------- what used to be in the text
+        #
+        # The checkout, which every case above names as the same directory the old
+        # text baked ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)).
+        # A second capsule of the same source, briefed by the same store path in
+        # the same run — and the refusal above is what makes it discriminate, since
+        # a text that ignored the argument would refuse this as already briefed.
+        git clone -q src second -b work
+        git -C second fetch -q "$PWD/src" '+refs/capsule/state/*:refs/capsule/state/*'
+        rc=0; bash ${runner} "$state" "$code" second >out 2>&1 || rc=$?
+        ck "the checkout is an argument, not the text" 0 "$rc"
+        ckt "  and the tree landed in that one" \
+          test -f second/.doctrine/state/slice/254/phases/03.md
+        ckt "  while the first is untouched by it" \
+          test "$(cat dest/.doctrine/slice/254/spec.md)" = "edited by the agent"
 
         # ------------------------------------------------ which names a source
         #
@@ -826,7 +845,12 @@
     # `null` for a target with no `statePaths`, in which case there is no
     # snapshot and nothing to assert about one.
     snapshotCases = let
-      snapshot = hostPrograms.stateSnapshotFor "src";
+      # **One text and no instantiation** ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)).
+      # The checkout, the ceiling and the declared templates are arguments now, so
+      # this suite chooses its own rather than substituting a target's — which is
+      # what makes the last three cases below reachable at all, and what keeps the
+      # three call sites (a capsule, a host origin, this sandbox) one store path.
+      snapshot = hostPrograms.stateSnapshotScript;
       # The bound as a program, so the case suite runs the real fragment rather
       # than a description of it (host/quarantine.nix).
       token = pkgs.writeText "capsule-token-check" ''
@@ -848,6 +872,16 @@
         }
         log=$PWD/log
         : >"$log"
+
+        # What a target used to bake into this text and now hands it: the
+        # checkout, the ceiling, and the declared templates. Spelled here rather
+        # than taken from `target.nix`, because a suite that borrowed the live
+        # values would pass for the same reason a probe on the real /30 does
+        # (NOTES item 38) — and because the three cases at the end need values no
+        # target has.
+        paths=('.doctrine/state/slice/{unit}' '.doctrine/slice/{unit}')
+        max=67108864
+        snap() { bash ${snapshot} "$1" "$2" "$3" src "$max" "''${paths[@]}"; }
 
         # ------------------------------------------------------- the token bound
         #
@@ -899,14 +933,14 @@
         # missing token substitutes as the empty string, which collapses every
         # scoped path onto its parent — the unscoped collect wearing the scoped
         # one's name.
-        rc=0; bash ${snapshot} implementation "" all >out 2>err || rc=$?
+        rc=0; snap implementation "" all >out 2>err || rc=$?
         ck "refuses a scoped policy with no unit" 1 "$rc"
         ckt "  and says the two ends disagree" grep -q "scoped to one unit" err
         ckt "  and wrote no ref" \
           test -z "$(git -C src for-each-ref 'refs/capsule/state/')"
 
         # ----------------------------------------------------------- scoped, green
-        rc=0; bash ${snapshot} implementation 254 all >out 2>err || rc=$?
+        rc=0; snap implementation 254 all >out 2>err || rc=$?
         ck "takes a snapshot scoped to one unit" 0 "$rc"
         oid=$(cut -f1 out)
         ckt "  and reported a commit" test "$oid" != -
@@ -942,7 +976,7 @@
         #
         # Not a refusal: a target says what its state *is*, not what any one run
         # produced, and that has to keep holding once the paths are scoped.
-        rc=0; bash ${snapshot} implementation 999 all >out 2>err || rc=$?
+        rc=0; snap implementation 999 all >out 2>err || rc=$?
         ck "a unit with no state is a skip, not a failure" 0 "$rc"
         ckt "  and names the paths it skipped" grep -q 'slice/999 in this checkout' err
         oid=$(cut -f1 out)
@@ -959,13 +993,13 @@
         # where one agent works on one thing, and is whatever is lying around in
         # a human's checkout. So the sweep is an argument, and it has no default
         # because the value one would fall back to is the failure.
-        rc=0; bash ${snapshot} implementation 254 >out 2>err || rc=$?
+        rc=0; snap implementation 254 >out 2>err || rc=$?
         ck "refuses an origin it was not told" 1 "$rc"
         ckt "  and names both of them" grep -q "'all'" err
-        rc=0; bash ${snapshot} implementation 254 sideways >out 2>err || rc=$?
+        rc=0; snap implementation 254 sideways >out 2>err || rc=$?
         ck "refuses an origin that is neither" 1 "$rc"
 
-        rc=0; bash ${snapshot} implementation 254 declared >out 2>err || rc=$?
+        rc=0; snap implementation 254 declared >out 2>err || rc=$?
         ck "takes a host origin scoped to the declared paths" 0 "$rc"
         oid=$(cut -f1 out)
         entries "$oid"
@@ -991,10 +1025,349 @@
         # Same unit, same checkout, two origins, and the pair is the point: a
         # capsule takes the desk along with it and a host origin has nothing to
         # take at all.
-        rc=0; bash ${snapshot} implementation 999 declared >out 2>err || rc=$?
+        rc=0; snap implementation 999 declared >out 2>err || rc=$?
         ck "a host origin with no declared path present takes nothing" 0 "$rc"
         ckt "  and reports no commit" test "$(cut -f1 out)" = -
         ckt "  and says why" grep -q 'takes nothing outside them' err
+
+        # ------------------------------------------- what used to be in the text
+        #
+        # Three values a target used to interpolate, each pinned by a case that is
+        # only reachable once it arrives as an argument
+        # ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)). None of
+        # them can be reached by choosing a different *instantiation*, which is why
+        # they are here rather than in a second one: the whole claim is that there
+        # is no second one.
+        #
+        # The checkout. A second repository, snapshotted by the same store path in
+        # the same run — which is one store path serving two projects, in the
+        # smallest form the claim has.
+        mkdir other && cd other
+        git init -q --initial-branch=work .
+        mkdir -p .doctrine/slice/7
+        echo elsewhere >.doctrine/slice/7/spec.md
+        git add -A && git commit -qm base
+        cd ..
+        rc=0; bash ${snapshot} implementation 7 all other "$max" "''${paths[@]}" >out 2>err || rc=$?
+        ck "the checkout is an argument, not the text" 0 "$rc"
+        oid=$(cut -f1 out)
+        # Guarded, so a text that ignored the argument fails *this* case by name
+        # rather than killing the run at git with `not a tree object` — which is
+        # what the mutation that proves this suite does, and a suite whose red is
+        # a hard stop names the wrong round (NOTES item 37).
+        git -C other ls-tree -r --name-only "$oid" >list 2>/dev/null || : >list
+        ckt "  and the snapshot is of that one" grep -qx '.doctrine/slice/7/spec.md' list
+        ckt "  and nothing of the first is in it" \
+          test -z "$(grep -E '25[34]' list || true)"
+
+        # The ceiling. A byte count no real target would set, which is the point:
+        # the branch is chosen by the argument and not by the build.
+        rc=0; bash ${snapshot} implementation 254 all src 1 "''${paths[@]}" >out 2>err || rc=$?
+        ck "the ceiling is an argument" 0 "$rc"
+        ckt "  and a snapshot over it is skipped" test "$(cut -f1 out)" = -
+        ckt "  naming the bound it tripped" grep -q 'over the 1 ceiling' err
+        ckt "  and the code half is still collectable" test "$(cut -f2 out)" -gt 1
+
+        # The declared set — and with it `needsUnit`, which was an *eval-time*
+        # predicate over a build-time list. A target whose state is not per-unit
+        # writes no hole and must not be refused for having no unit; that used to
+        # be decided by which flake this host built.
+        rc=0; bash ${snapshot} implementation "" all src "$max" .doctrine/slice >out 2>err || rc=$?
+        ck "an unscoped template needs no unit" 0 "$rc"
+        oid=$(cut -f1 out)
+        git -C src ls-tree -r --name-only "$oid" >list 2>/dev/null || : >list
+        ckt "  and takes every unit under it" \
+          test "$(grep -c 'doctrine/slice/25[34]/spec.md' list)" = 2
+        rc=0; snap implementation "" all >/dev/null 2>&1 || rc=$?
+        ck "  while a scoped one still refuses" 1 "$rc"
+
+        # A template no target here declares, and the reason the two arg forms in
+        # `host/state-snapshot.nix` are two: a value with a space in it is carried
+        # by argv and destroyed by any hop that re-parses it. This pins the local
+        # form. The ssh hop's second escaping has no sandbox that can reach it —
+        # there is no guest here — and is the call site's until step 4 moves it.
+        mkdir -p 'src/.doctrine/two words'
+        echo spaced >'src/.doctrine/two words/note.md'
+        rc=0; bash ${snapshot} implementation "" all src "$max" '.doctrine/two words' >out 2>err || rc=$?
+        ck "a declared path with a space survives argv" 0 "$rc"
+        oid=$(cut -f1 out)
+        git -C src ls-tree -r --name-only "$oid" >list 2>/dev/null || : >list
+        ckt "  and its file is in the tree" grep -q 'two words/note.md' list
+
+        [ "$fail" = 0 ] || exit 1
+        cp "$log" $out
+        cat $out
+      '';
+
+    # The guest half of a baseline, run against commands no target can be asked to
+    # supply — the second suite for a program that had none
+    # ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)), and the
+    # same argument `refreshCases` makes: the branches worth pinning are chosen by
+    # what the *target's* build does, and this target's build takes an hour and
+    # goes green.
+    #
+    # What a live host cannot cheaply reach: a build that fails (a red recorded as
+    # a result rather than an error), a checkout with no commit (a red that is a
+    # mistake and must not enter the record), and a run already in flight (which
+    # must attach rather than interleave a second set of figures into one file).
+    #
+    # `run` rather than `start` wherever a case is about the record, because
+    # `start` detaches and a suite that raced the detached half would be timing a
+    # build in a sandbox.
+    baselineCases = let
+      runner = hostPrograms.baselineRunner;
+    in
+      pkgs.runCommand "capsule-baseline-cases" {
+        nativeBuildInputs = [pkgs.git pkgs.util-linux];
+      } ''
+        export HOME=$PWD GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+        export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t
+        export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+        fail=0
+        ck() {
+          if [ "$2" = "$3" ]; then echo "ok   $1" >>"$log"
+          else echo "FAIL $1: got '$3', wanted '$2'" >&2; fail=1; fi
+        }
+        ckt() {
+          if "''${@:2}"; then echo "ok   $1" >>"$log"
+          else echo "FAIL $1" >&2; fail=1; fi
+        }
+        log=$PWD/log
+        : >"$log"
+
+        # A record directory and a checkout, the way a provisioned capsule has
+        # them: the record beside the checkout and never inside it, because a
+        # record in the worktree is the dirty worktree the next provision refuses.
+        #
+        # **Absolute, and that is not tidiness**: the `run` verb `cd`s into the
+        # checkout before it writes anything, so a relative record directory would
+        # be written *inside* the tree being built — which is the one placement
+        # this program exists to avoid.
+        seed() {
+          rm -rf rec work && mkdir -p rec work && cd work
+          git init -q --initial-branch=work .
+          echo code >src.txt
+          git add -A && git commit -qm base
+          cd ..
+        }
+        # The field order is `host/baseline.nix`'s, and this suite reads it by
+        # number rather than re-spelling it.
+        field() { tail -1 "$1/history.tsv" | cut -f"$2"; }
+
+        # ---------------------------------------------------------- a green run
+        seed
+        rc=0; bash ${runner} run 20260101T000000Z "$PWD/rec" "$PWD/work" 'echo built' "$PWD/work" \
+          >ran 2>&1 || rc=$?
+        ck "a green build is recorded" 0 "$rc"
+        ckt "  and the file explains itself" grep -q '^stamp	status' rec/history.tsv
+        ck "  the status is the command's" 0 "$(field rec 2)"
+        ck "  under the stamp the host minted" 20260101T000000Z "$(field rec 1)"
+        ck "  and the command is on the line" "echo built" "$(field rec 7)"
+        ckt "  the command's own output is in the run's" grep -qx built ran
+        ckt "  the marker is gone afterwards" test ! -e rec/running
+
+        # ------------------------------------------------------------ a red run
+        #
+        # **A failing build is a result, not an error** — the whole question this
+        # program asks. So the run itself is still 0 and the record carries the
+        # status, which is the property NOTES item 24 was about from the other end.
+        rc=0; bash ${runner} run 20260102T000000Z "$PWD/rec" "$PWD/work" 'exit 3' "$PWD/work" \
+          >/dev/null 2>&1 || rc=$?
+        ck "a failing build still records" 0 "$rc"
+        ck "  with the build's status on the line" 3 "$(field rec 2)"
+
+        # ------------------------------------------- the log is not the terminal
+        #
+        # `start`'s redirect is what puts a run's output on the volume, and it is
+        # the property two lost sizing runs paid for. Only `start` detaches, so
+        # this is the one case that waits.
+        reply=$(bash ${runner} start 20260103T000000Z "$PWD/rec" "$PWD/work" 'echo built' "$PWD/work")
+        ck "a start detaches and says so" "started 20260103T000000Z" "$reply"
+        for _ in $(seq 100); do
+          [ -n "$(grep 20260103 rec/history.tsv || true)" ] && break
+          sleep 0.1
+        done
+        ckt "  the log is on the volume" test -s rec/20260103T000000Z.log
+        ckt "  and names the command it ran" grep -q 'command : echo built' rec/20260103T000000Z.log
+        ckt "  and the detached half wrote the record" \
+          test -n "$(grep 20260103 rec/history.tsv || true)"
+
+        # ------------------------------------------------- no checkout to build
+        #
+        # A red for want of a checkout is a mistake and would sit in the record
+        # looking like a result. `start`, because that is where the guard is.
+        rm -rf empty && mkdir empty
+        rc=0; bash ${runner} start 20260104T000000Z "$PWD/rec" "$PWD/empty" 'echo built' "$PWD/empty" \
+          >/dev/null 2>err || rc=$?
+        ck "a checkout with no commit refuses" 2 "$rc"
+        ckt "  and says which step comes first" grep -q 'capsule-provision first' err
+        ckt "  and recorded nothing" test -z "$(grep 20260104 rec/history.tsv || true)"
+
+        # ------------------------------------------------- a run already in flight
+        #
+        # A second run would interleave into one record and make both figures
+        # meaningless, so this attaches. The marker is a *live* pid, never the
+        # file: a VMM that died under a run leaves the file behind.
+        sleep 300 & live=$!
+        echo "$live" > rec/running
+        printf '%s' 20260101T000000Z > rec/stamp
+        reply=$(bash ${runner} start 20260105T000000Z "$PWD/rec" "$PWD/work" 'echo built' "$PWD/work")
+        ck "a run in flight is attached, not restarted" "attached 20260101T000000Z" "$reply"
+        ckt "  and started nothing of its own" test -z "$(grep 20260105 rec/history.tsv || true)"
+        kill "$live" 2>/dev/null || true
+        echo 2147483646 > rec/running
+        reply=$(bash ${runner} start 20260106T000000Z "$PWD/rec" "$PWD/work" 'echo built' "$PWD/work")
+        ck "a stale marker is not a run" "started 20260106T000000Z" "$reply"
+
+        # ------------------------------------------- what used to be in the text
+        #
+        # Four values, one store path ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)).
+        # The command has already been three different things above, which no
+        # target could have supplied; these are the other three.
+        rm -rf other && mkdir -p other/rec other/work other/big && cd other/work
+        git init -q --initial-branch=work .
+        echo elsewhere >other.txt
+        git add -A && git commit -qm base
+        cd ../..
+        head -c 2000000 /dev/zero > other/big/blob
+        rc=0; bash ${runner} run 20260201T000000Z "$PWD/other/rec" "$PWD/other/work" 'echo built' \
+          "$PWD/other/big" >/dev/null 2>&1 || rc=$?
+        ck "the record directory is an argument" 0 "$rc"
+        ckt "  and the second record is where it landed" test -s other/rec/history.tsv
+        ckt "  while the first is untouched" \
+          test -z "$(grep 20260201 rec/history.tsv || true)"
+
+        # The measured paths decide the two figures a recorded run is *for*, so
+        # this asks for a number a differently-measured run could not produce:
+        # `other/big` is ~2 MiB and every other path here is a few kilobytes.
+        ck "the measured paths are an argument" 2 "$(field other/rec 5)"
+
+        rc=0; bash ${runner} run 20260202T000000Z >/dev/null 2>err || rc=$?
+        ck "a runner with too few arguments refuses" 64 "$rc"
+        ckt "  and says what it wanted" grep -q 'STAMP DIR WORK CMD' err
+
+        [ "$fail" = 0 ] || exit 1
+        cp "$log" $out
+        cat $out
+      '';
+
+    # The guest half of a status, run against fixtures no capsule would produce
+    # on demand — and the first suite for a program that had none
+    # ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)). It was
+    # three interpolated paths and no case, which is the pairing that let a whole
+    # class of defect live in `capsule-netns` unread by shellcheck (NOTES item 37):
+    # a program nothing builds is a program nothing checks.
+    #
+    # What a live host cannot cheaply reach here is the *unhappy* half — an
+    # unprovisioned volume, a baseline that failed, a run in flight — each of which
+    # means driving a real capsule into that state and reading it before it leaves.
+    #
+    # The contract is one tab-separated line, `head dirty baseline stamp disk`,
+    # defined in `host/observe.nix` and nowhere else, so every case reads a field
+    # by number and none of them counts words.
+    observeCases = let
+      observe = hostPrograms.observe;
+    in
+      pkgs.runCommand "capsule-observe-cases" {nativeBuildInputs = [pkgs.git];} ''
+        export HOME=$PWD GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+        export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t
+        export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+        fail=0
+        ck() {
+          if [ "$2" = "$3" ]; then echo "ok   $1" >>"$log"
+          else echo "FAIL $1: got '$3', wanted '$2'" >&2; fail=1; fi
+        }
+        log=$PWD/log
+        : >"$log"
+
+        # Field by number, never by position in a sentence: this is the only
+        # definition of that order and a suite that re-spelled it would agree with
+        # itself rather than with the program.
+        f() { cut -f"$1" out; }
+        run() { bash ${observe} "$@" >out 2>err; }
+
+        # ------------------------------------------------- nothing provisioned yet
+        #
+        # What a fresh volume answers, and the reason every field has a `-`: this
+        # is a state to report, not an error to abort on.
+        mkdir -p vol/rec
+        rc=0; run vol/nothing vol/rec vol || rc=$?
+        ck "an unprovisioned checkout still answers" 0 "$rc"
+        ck "  head is unknown" - "$(f 1)"
+        ck "  dirty is unknown" - "$(f 2)"
+        ck "  and no baseline has ever run" none "$(f 3)"
+        ck "  while the volume still reports its disk" 1 "$(f 5 | grep -c '%')"
+
+        # ------------------------------------------------------ a clean checkout
+        mkdir -p vol/work && cd vol/work
+        git init -q --initial-branch=work .
+        echo code >src.txt
+        git add -A && git commit -qm base
+        oid=$(git rev-parse HEAD)
+        cd ../..
+        rc=0; run vol/work vol/rec vol || rc=$?
+        ck "a provisioned checkout answers its head" 0 "$rc"
+        # The **full** oid: the caller shortens it for a column, and the assignment
+        # record pins it. A pin is not an abbreviation.
+        ck "  in full, not abbreviated" "$oid" "$(f 1)"
+        ck "  and says it is clean" no "$(f 2)"
+
+        echo "the agent's edit" >>vol/work/src.txt
+        run vol/work vol/rec vol
+        ck "an edited worktree is dirty" yes "$(f 2)"
+
+        # ------------------------------------------------------------- the record
+        #
+        # **The record, never an exit status** (NOTES item 24): the line on the
+        # volume was right throughout the period the status was wrong, which is
+        # why a status reads it rather than asking anything to re-run.
+        printf 'stamp\tstatus\tseconds\tcommit\tmib_before\tmib_after\tcommand\n' \
+          > vol/rec/history.tsv
+        printf '20260101T000000Z\t0\t61\tabc\t1\t2\tjust test\n' >> vol/rec/history.tsv
+        run vol/work vol/rec vol
+        ck "a green baseline is ok" ok "$(f 3)"
+        ck "  and its stamp is the host's" 20260101T000000Z "$(f 4)"
+
+        printf '20260102T000000Z\t7\t61\tabc\t1\t2\tjust test\n' >> vol/rec/history.tsv
+        run vol/work vol/rec vol
+        ck "a failed baseline carries its status" fail:7 "$(f 3)"
+        ck "  and the last run is the one reported" 20260102T000000Z "$(f 4)"
+
+        # A run in flight outranks the last verdict — the answer to "what is this
+        # slot doing" is not what it did yesterday.
+        echo $$ > vol/rec/running
+        run vol/work vol/rec vol
+        ck "a live run outranks the last record" running "$(f 3)"
+        # A pid file left behind by a killed run is not a run. `1` is init, which
+        # exists and is not ours; the check is liveness, not existence.
+        echo 2147483646 > vol/rec/running
+        run vol/work vol/rec vol
+        ck "a stale pid file is not a run" fail:7 "$(f 3)"
+        rm vol/rec/running
+
+        # ------------------------------------------- what used to be in the text
+        #
+        # Three paths, one store path, and each of them named by the caller
+        # ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md)). A
+        # second volume in the same run is the smallest form of the claim: two
+        # projects, one program.
+        mkdir -p other/rec other/work && cd other/work
+        git init -q --initial-branch=work .
+        echo elsewhere >other.txt
+        git add -A && git commit -qm base
+        second=$(git rev-parse HEAD)
+        cd ../..
+        printf 'stamp\tstatus\tseconds\tcommit\tmib_before\tmib_after\tcommand\n' \
+          > other/rec/history.tsv
+        printf '20260303T000000Z\t0\t9\tdef\t1\t2\tmake\n' >> other/rec/history.tsv
+        run other/work other/rec other
+        ck "the checkout is an argument" "$second" "$(f 1)"
+        ck "  and so is the record directory" 20260303T000000Z "$(f 4)"
+        ck "  and the two answers differ" different \
+          "$(if [ "$second" != "$oid" ]; then echo different; else echo same; fi)"
+
+        rc=0; run vol/work >/dev/null 2>&1 || rc=$?
+        ck "a status with too few arguments refuses" 2 "$rc"
 
         [ "$fail" = 0 ] || exit 1
         cp "$log" $out
@@ -1028,9 +1401,10 @@
       # The same write with stdin left alone, so a red case can be told from a
       # suite that cannot pass at all.
       polite = "echo regenerated >derived.txt";
-      # Relative, like `snapshotCases`' checkout: the sandbox's cwd is the build
-      # directory and every case returns to it.
-      runner = cmdline: hostPrograms.refreshFor cmdline "src";
+      # One text, no instantiation (NOTES item 51). The checkout and the command
+      # are arguments now, so a suite that wants a command no target would run
+      # passes one rather than building a second copy of this program.
+      script = hostPrograms.refreshScript;
     in
       pkgs.runCommand "capsule-refresh-cases" {nativeBuildInputs = [pkgs.git];} ''
         export HOME=$PWD GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -1059,8 +1433,10 @@
           git add -A && git commit -qm base
           cd ..
         }
-        # As a guest runs it: the script *is* stdin.
-        run() { bash -s <"$1" >out 2>err; }
+        # As a guest runs it: the script *is* stdin, and everything it is about
+        # arrives on the command line beside it — `bash -s <args>` is how a value
+        # reaches a script that has already claimed stdin.
+        run() { bash -s src "$1" <${script} >out 2>err; }
 
         # ------------------------------------------- the command that eats stdin
         #
@@ -1068,7 +1444,7 @@
         # every one of these fails: the script is truncated at the command, so the
         # run is a silent success that commits nothing.
         seed
-        rc=0; run ${runner greedy} || rc=$?
+        rc=0; run ${lib.escapeShellArg greedy} || rc=$?
         ck "a refresh whose command reads stdin still finishes" 0 "$rc"
         ckt "  and commits the tracked half" \
           test "$(git -C src rev-list --count HEAD)" = 2
@@ -1079,7 +1455,7 @@
         # The control. Same write, stdin untouched — so a suite that went red
         # everywhere would be caught here rather than read as this finding.
         seed
-        rc=0; run ${runner polite} || rc=$?
+        rc=0; run ${lib.escapeShellArg polite} || rc=$?
         ck "and so does one that leaves stdin alone" 0 "$rc"
         ckt "  with the same commit" test "$(git -C src rev-list --count HEAD)" = 2
 
@@ -1089,7 +1465,7 @@
         # asserted against a command that fails *and* eats stdin, which is the
         # pairing that was silently returning 0.
         seed
-        rc=0; run ${runner "cat >/dev/null; exit 7"} || rc=$?
+        rc=0; run ${lib.escapeShellArg "cat >/dev/null; exit 7"} || rc=$?
         ck "a failing refresh is the run's status" 7 "$rc"
         ckt "  and says so" grep -q 'exited 7' err
         ckt "  and commits nothing" test "$(git -C src rev-list --count HEAD)" = 1
@@ -1100,7 +1476,7 @@
         # branch below the comparison is inert for it — including, now, the fact
         # that it is reached at all.
         seed
-        rc=0; run ${runner "cat >/dev/null; echo x >ignored.txt"} || rc=$?
+        rc=0; run ${lib.escapeShellArg "cat >/dev/null; echo x >ignored.txt"} || rc=$?
         ck "a refresh that writes only ignored files commits nothing" 0 "$rc"
         ckt "  and leaves HEAD alone" test "$(git -C src rev-list --count HEAD)" = 1
 
@@ -1111,11 +1487,37 @@
         # nothing is committed and it is loud about why.
         seed
         echo "somebody else's edit" >src/derived.txt
-        rc=0; run ${runner greedy} || rc=$?
+        rc=0; run ${lib.escapeShellArg greedy} || rc=$?
         ck "a refresh onto an already-dirty checkout refuses" 3 "$rc"
         ckt "  naming the reason and not the symptom" \
           grep -q 'no way to tell the two' err
         ckt "  and commits nothing" test "$(git -C src rev-list --count HEAD)" = 1
+
+        # ------------------------------------------- what used to be in the text
+        #
+        # Five commands have already gone through one store path above, which is
+        # the command half of [item 51](./docs/ledger/051-the-target-in-four-store-paths.md)
+        # asserted by the shape of this suite rather than by a case. The checkout
+        # half needs one, because every case so far names the same directory the
+        # old text baked.
+        seed
+        rm -rf elsewhere && mkdir elsewhere && cd elsewhere
+        git init -q --initial-branch=work .
+        echo original >derived.txt
+        git add -A && git commit -qm base
+        cd ..
+        rc=0; bash -s elsewhere ${lib.escapeShellArg polite} <${script} >out 2>err || rc=$?
+        ck "the checkout is an argument, not the text" 0 "$rc"
+        ckt "  and the second repository is the one that moved" \
+          test "$(git -C elsewhere rev-list --count HEAD)" = 2
+        ckt "  while the first stands still" \
+          test "$(git -C src rev-list --count HEAD)" = 1
+
+        # A refusal rather than a run against whatever the guest's cwd happens to
+        # be: this is item 28's rule where the fall-back value is a directory.
+        rc=0; bash -s <${script} >out 2>err || rc=$?
+        ck "a refresh with no arguments refuses" 2 "$rc"
+        ckt "  and says what it wanted" grep -q 'usage: <work> <command>' err
 
         [ "$fail" = 0 ] || exit 1
         cp "$log" $out
@@ -1164,7 +1566,7 @@
       cli = import ./host/cli.nix {
         inherit pkgs lib net target policies guestSsh;
         capsules = fixture;
-        inherit (hostPrograms) observe programVerbs stateNeedsUnit;
+        inherit (hostPrograms) observe observeArgs programVerbs stateNeedsUnit;
         moduleState = ''"$CASE_STATE"'';
         # NOTES item 41's branch and its failure, made reachable from a sandbox
         # that has neither systemd nor root — which is exactly why the front end
@@ -2103,13 +2505,14 @@
       // adoptPackages
       // briefPackages
       // lib.optionalAttrs (hostPrograms.briefRunner != null) {inherit briefCases;}
-      // lib.optionalAttrs (hostPrograms.stateSnapshotFor != null) {inherit snapshotCases;}
-      // lib.optionalAttrs (hostPrograms.refreshFor != null) {inherit refreshCases;}
+      // lib.optionalAttrs (hostPrograms.stateSnapshotScript != null) {inherit snapshotCases;}
+      // lib.optionalAttrs (hostPrograms.refreshScript != null) {inherit refreshCases;}
+      // lib.optionalAttrs (hostPrograms.baselineRunner != null) {inherit baselineCases;}
       // {
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
-        inherit hostModuleUnits hostModulePrograms guardCases policyCases;
+        inherit hostModuleUnits hostModulePrograms guardCases policyCases observeCases;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-restart probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;

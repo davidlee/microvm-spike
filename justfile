@@ -110,6 +110,8 @@ cases:
   @cat "$(nix build --no-link --print-out-paths '.#briefCases')"
   @cat "$(nix build --no-link --print-out-paths '.#snapshotCases')"
   @cat "$(nix build --no-link --print-out-paths '.#refreshCases')"
+  @cat "$(nix build --no-link --print-out-paths '.#observeCases')"
+  @cat "$(nix build --no-link --print-out-paths '.#baselineCases')"
 
 # the guest closure and its runner — the slow one
 build-vm:
