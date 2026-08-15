@@ -87,7 +87,8 @@ build:
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
     '.#capsule-baseline' '.#capsule-refresh' '.#capsule-adopt' \
     '.#capsule-brief' \
-    '.#hostModuleUnits' '.#guardCases' '.#policyCases' '.#briefCases' '.#snapshotCases'
+    '.#hostModuleUnits' '.#hostModulePrograms' \
+    '.#guardCases' '.#policyCases' '.#briefCases' '.#snapshotCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has

@@ -1103,7 +1103,10 @@
     # evaluator, which is where a wrong option name, a bad interpolation or a
     # failed assertion actually lives. Seconds, no NixOS build, and it is in
     # `just build` — the alternative was finding those in a host rebuild.
-    hostModuleUnits = let
+    # Two derivations off one evaluation of the module: what it *says*
+    # (`hostModuleUnits`, seconds, no build) and what it *runs*
+    # (`hostModulePrograms`, a build, because shellcheck is a build).
+    hostModule = let
       host = lib.nixosSystem {
         inherit system;
         modules = [
@@ -1176,26 +1179,46 @@
         else if builtins.isString v
         then [v]
         else [];
-      newlined = lib.filter (n:
-        lib.any (lib.hasInfix "\n")
-        (lib.concatMap literals
-          (lib.attrValues (host.config.systemd.services.${n}.serviceConfig or {}))))
-      units;
-    in
-      if failed != []
-      then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"
-      else if newlined != []
-      then throw "capsule-perimeter: a newline in a serviceConfig value of ${lib.concatStringsSep ", " newlined} — systemd reads that as unbalanced quoting and drops the rest of the unit. Put the script in the store and name it."
-      else if !(lib.elem "CAP_SYS_PTRACE" guardCaps)
-      then throw "capsule-perimeter: the guard's CapabilityBoundingSet has no CAP_SYS_PTRACE, so `ip netns pids` will silently omit the VMM it is asked about and the guard will refuse a correctly-bound guest (NOTES item 30)."
-      else
-        pkgs.writeText "capsule-units.txt" ''
-          units:
-          ${lib.concatStringsSep "\n" units}
+      directives = n:
+        literals (lib.attrValues (host.config.systemd.services.${n}.serviceConfig or {}));
+      newlined = lib.filter (n: lib.any (lib.hasInfix "\n") (directives n)) units;
 
-          programs:
-          ${lib.concatStringsSep "\n" installed}
-        '';
+      # Refused before either derivation is named, so a `nix build` of the
+      # programs cannot pass a module whose units are wrong.
+      checked = drv:
+        if failed != []
+        then throw "capsule-perimeter: ${lib.concatMapStringsSep "; " (a: a.message) failed}"
+        else if newlined != []
+        then throw "capsule-perimeter: a newline in a serviceConfig value of ${lib.concatStringsSep ", " newlined} — systemd reads that as unbalanced quoting and drops the rest of the unit. Put the script in the store and name it."
+        else if !(lib.elem "CAP_SYS_PTRACE" guardCaps)
+        then throw "capsule-perimeter: the guard's CapabilityBoundingSet has no CAP_SYS_PTRACE, so `ip netns pids` will silently omit the VMM it is asked about and the guard will refuse a correctly-bound guest (NOTES item 30)."
+        else drv;
+    in {
+      units = checked (pkgs.writeText "capsule-units.txt" ''
+        units:
+        ${lib.concatStringsSep "\n" units}
+
+        programs:
+        ${lib.concatStringsSep "\n" installed}
+      '');
+
+      # **The exact inversion of the rule one comment up**, and deliberately a
+      # second derivation for it: embedding the *string* of a store path makes
+      # every program a build input, which is why `installed` refuses to — and
+      # is the only way to make shellcheck run on a program no flake output
+      # names. `capsule-netns` and `capsule-egress-ns` are only ever an
+      # ExecStart, so nothing in `just build` had ever built them and a rollback
+      # written into one shipped unchecked (NOTES item 37).
+      #
+      # Every serviceConfig literal, not a hand-listed set, so a program added
+      # to a unit tomorrow is checked without this line being touched.
+      programs =
+        checked (pkgs.writeText "capsule-module-programs.txt"
+          (lib.concatStringsSep "\n" (lib.concatMap directives units)));
+    };
+
+    hostModuleUnits = hostModule.units;
+    hostModulePrograms = hostModule.programs;
 
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
@@ -1582,7 +1605,7 @@
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
-        inherit hostModuleUnits guardCases policyCases;
+        inherit hostModuleUnits hostModulePrograms guardCases policyCases;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;

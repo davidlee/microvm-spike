@@ -321,6 +321,18 @@ which shape nearly every decision here:
   careful ones.** `observe` moved into `host/programs.nix` beside the paths it
   reads for that reason, which is the same reason `baselineRecord` is exported
   there.
+  **Forcing is not building, and shellcheck is a build.** So the same hole
+  survived one layer down: a program that is only ever an `ExecStart` —
+  `capsule-netns`, `capsule-egress-ns`, `capsule-perimeter-guard` — is named by
+  no flake output and is not in `systemPackages`, and *nothing had ever built
+  one*. A rollback written into `capsule-netns` passed `just check`, `just
+  build` and `just units` unread by shellcheck (NOTES item 37).
+  `hostModulePrograms` is the deliberate inversion of the paragraph above — a
+  second derivation off the same evaluation whose text *is* every
+  `serviceConfig` literal, which makes each one a build input on purpose. Two
+  derivations, one eval: `just units` stays seconds, `just build` gains the
+  build. Adding a program to a unit needs no edit there; adding one that no unit
+  references still needs a flake output.
 - **A hardened unit that may not read `/proc` gets a short answer, not an
   error.** `ip netns pids <ns>` works by reading `/proc/<pid>/ns/net` for every
   process, which `ptrace_may_access` gates on **`CAP_SYS_PTRACE`** for anything

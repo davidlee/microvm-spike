@@ -64,8 +64,25 @@
       nets=''${UPLINK_NET:?}
       pattern=''${LINK_PATTERN:?}
 
+      # Deleting either end of a veth takes both, and the host route with it.
+      # The namespace goes last so nothing is half-torn-down if a capsule is
+      # still attached — its own unit refuses in that case.
+      #
+      # `down` is this and nothing else, which is what lets `up` use it as its
+      # own rollback (NOTES item 37).
+      undo_up() {
+        ip link del "$peer" 2>/dev/null || true
+        ip netns del "$ns" 2>/dev/null || true
+      }
+
       case "''${1:-}" in
         up)
+          # A unit that fails in ExecStart never runs ExecStop, so whatever
+          # `up` created before it died is not reachable by `systemctl stop`
+          # and only a human's `ip` clears it. Roll back here or nowhere.
+          built=0
+          trap '[ "$built" = 1 ] || undo_up' EXIT
+
           ip netns add "$ns"
           ip -n "$ns" link set lo up
           # It has to forward: it is the point every capsule's proxy leaves
@@ -100,13 +117,10 @@
         }
       }
       EOF
+          built=1
           ;;
         down)
-          # Deleting either end of a veth takes both, and the host route with
-          # it. The namespace goes last so nothing is half-torn-down if a
-          # capsule is still attached — its own unit refuses in that case.
-          ip link del "$peer" 2>/dev/null || true
-          ip netns del "$ns" 2>/dev/null || true
+          undo_up
           ;;
         *)
           echo "usage: capsule-egress-ns up|down" >&2
@@ -146,8 +160,33 @@
         return 1
       }
 
+      # Everything `up` builds, in reverse, and the peer **explicitly and
+      # first**. `ip netns del` alone leaves the veth to the kernel's async
+      # reaper, so a restart that beats it finds the old peer still in the
+      # aggregator and dies on `An interface with the same name exists in the
+      # target netns` — the aggregator's own teardown has always done this and
+      # this one did not, which cost a recovery (NOTES item 37).
+      #
+      # Two homes for the peer because an *aborted* `up` can leave it in
+      # either: it is created in the root namespace and moved, and a failed
+      # move leaves a link where it was.
+      undo_up() {
+        ip -n "$egress_ns" link del "$peer" 2>/dev/null || true
+        ip link del "$peer" 2>/dev/null || true
+        ip netns del "$ns" 2>/dev/null || true
+        rm -f "/etc/netns/$ns/resolv.conf"
+        rmdir "/etc/netns/$ns" 2>/dev/null || true
+      }
+
       case "''${1:-}" in
         up)
+          # A unit that fails in ExecStart never runs ExecStop, so a half-built
+          # namespace is not reachable by `systemctl stop` — and the next
+          # `start` fails differently, on `Cannot create namespace file`, which
+          # names neither the strand nor the race that made it.
+          built=0
+          trap '[ "$built" = 1 ] || undo_up' EXIT
+
           ip netns add "$ns"
           ip -n "$ns" link set lo up
           # The whole confinement, in one sysctl that is *ours*: forwarding is
@@ -183,6 +222,7 @@
         }
       }
       EOF
+          built=1
           ;;
         addr)
           # Runs *inside* the namespace, as ExecStartPost on microvm.nix's own
@@ -205,10 +245,11 @@
               echo "  delete the namespace. Stop microvm@<name> first." >&2
               exit 1
             fi
-            ip netns del "$ns"
           fi
-          rm -f "/etc/netns/$ns/resolv.conf"
-          rmdir "/etc/netns/$ns" 2>/dev/null || true
+          # Unconditionally, and not only when the namespace is present: the
+          # wreckage of an aborted `up` is a peer with no namespace, and that
+          # is the shape a human had to clear by hand once.
+          undo_up
           ;;
         *)
           echo "usage: capsule-netns up|addr|down" >&2
