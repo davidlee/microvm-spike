@@ -16,7 +16,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
 | `netns-egress.sh` | does the *perimeter* survive the move into one? | `sudo probe-netns-egress` | **33/33 green, run 3** — 27/27 for the perimeter, plus stage 2b's six, which is the first time a *selected* policy has reached a wire. The real capsule with the real proxy joined to its namespace; allowed **and** denied both asserted, in both rounds |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
-| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, twice (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
+| `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | **42/42 green, run 4** — 28/28 twice before stage 2b existed (doctrine EVD-020), then 40/42 on run 3 whose two reds were the probe's own stale assertion. Two capsules on two policies at the same moment, and the answers swap when the policies do. Figures below, and it **withdrew a figure this file never had a right to** |
 
 Two figures here come from something that is not a probe, and both say so where
 they sit. `capsule-baseline` is a lifecycle command a human runs on a capsule
@@ -335,7 +335,9 @@ that counts it as one is worse than a checklist that admits the gap.
 ## What two-capsules.sh established
 
 **28/28 green, twice**, then **40/42 on run 3** — the two reds a stale assertion
-in the probe rather than anything the programs did, see *Run 3* below. One runner
+in the probe rather than anything the programs did, see *Run 3* below — and
+**42/42 on run 4**, which is that assertion re-run against the construction
+instead of against a memory of it. One runner
 store path serving both capsules throughout, and from run 2 one set of host
 programs serving both as well (see the asymmetry it found, below). The four
 independences hold in every run, and the pair costs this:
@@ -406,7 +408,24 @@ state half — so the assertion has been wrong since that change and nothing
 noticed, because nothing *runs* a probe. Same family as
 [item 38](./ledger/038-a-probe-that-became-a-borrower.md) one level up: an
 assertion written against a convention that later moved. Fixed by injecting
-`quarantine.codeRefsOf` rather than spelling it a second time; **unrun**.
+`quarantine.codeRefsOf` rather than spelling it a second time.
+
+### Run 4 — the fix, run
+
+**42/42.** Same probe, same host, the injected `codeRefsOf` in place of the
+spelled convention: *what came out of A is what went into A* passes for both
+capsules, and nothing else moved. That is the whole of what this run claims — it
+is a re-take of run 3's round, not a new one, and the fourteen policy assertions
+were already green.
+
+Worth naming, because it is the only thing run 4 adds beyond a colour: **42 is
+still what says it ran**. A skipped stage 2b lands at 28, which is exactly the
+figure runs 1 and 2 reported as fully green, so a two-capsules run that skipped
+its policy round would agree with two years of this file's history and read as a
+regression to nothing. The total is the discriminator, and the reason to keep
+reading it is sharper here than for netns-egress, whose skip lands on 27 and
+means nothing else: this probe's vacuous total is a total this file already
+records twice as a full pass.
 
 **And the fabric move cost the host's resolver.** The run reports `no host
 resolver on 10.111.0.1 — fell back to 1.1.1.1, which LOSES the host's DoT hop`.

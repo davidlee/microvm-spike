@@ -9,8 +9,12 @@ the cases could not make is made — `probe/netns-egress.sh` **33/33**, stage 2b
 six included, so a selected allowlist is what a guest meets and `sealed` has
 served something. **And the last claim is made**: `probe/two-capsules.sh` run 3,
 fourteen assertions green, `build` and `sealed` on two guests at the same moment
-with the answers swapping when the policies do. Nothing about this item is
-outstanding except that no *declared slot* has been put on `sealed`. This is
+with the answers swapping when the policies do (run 4, **42/42**, is that same
+round re-taken once a stale assertion of the probe's own was fixed). **A declared
+slot has been put on `sealed`**: `b`, record and link together, first time. What
+is outstanding is only what wants that slot *running* — the verb's proxy restart,
+and the `mayCollect` refusal, which a slot with no door never reaches because the
+transport check sits ahead of the policy parse. This is
 [item 25](./025-assignment-is-a-perimeter-verb.md)'s
 resolution shape turned into a mechanism, and it is the run-time half of
 [Plan D](../plan-d-fleet.md) D2 — the declaration half is
@@ -135,12 +139,62 @@ rule that probe was written under.
 | `collectMaxPackBytes` and `mayCollect` move | **built**, four `capsule-collect` refusals exercised |
 | `capsule <slot> policy <name>`, the status column, and the cases | **built**, 28 cases green, two mutations watched red |
 | the live claim — the same guest under two policies | **run**: `probe/netns-egress.sh` 33/33, stage 2b green ([probes](../probes.md#run-3--a-selected-policy-reaches-the-wire)) |
+| two guests under two policies at once | **run**: `probe/two-capsules.sh` 40/42 then 42/42 ([probes](../probes.md#run-4--the-fix-run)) |
+| a **declared slot** on `sealed` | **half-run**: `b`'s record and link, on a slot that was down — the proxy restart and the `mayCollect` refusal want it up |
 
 **Switched.** tmpfiles created the per-slot symlinks at each slot's declared
 policy, so `/var/lib/capsule/slot/{a,b}/allowlist` point at `build`'s file and
 the `policy` column reads `build` for every declared slot. Nothing had to be
 assigned for that: an operator's declaration is what an unassigned slot runs, and
 that is the whole reason the link is tmpfiles' rather than the verb's.
+
+## Putting a declared slot on `sealed`
+
+The one thing two probes could not say, because both sealed a capsule of their
+own making. `capsule b policy sealed`, on a slot that was down:
+
+```
+capsule b: policy sealed, generation 4
+  capsule-proxy-b is not running; it will render sealed when it starts
+```
+
+`slot/b/allowlist` moved from `egress-allow.txt` to `egress-none.txt`, the record
+went from `"policy": null` to `"policy": "sealed"` at generation 4, and the
+status column reads `sealed` for `b` against `build` for the other nine. Both
+halves under the one `flock`, link first, exactly as the cases pin them — so
+what a case asserts against a sandbox is now what the host does to a real slot.
+
+**Two things are still owed, and they are the same thing: the slot was down.**
+The verb took the `is-active` false arm rather than restarting a proxy, which is
+correct and is not the branch that needed exercising. And `capsule b collect`
+refused — but on the **transport**, not on `mayCollect`:
+
+```
+no way in to capsule 'b': /run/capsule/b/ssh.sock is not a socket.
+```
+
+That refines a sentence below rather than contradicting it. `mayCollect` does
+refuse before the door is *opened*; the injected `transport` fragment's own
+precondition sits ahead of it, so a slot with no door never reaches the policy
+that would have refused it. The order is right — a program that cannot find its
+capsule should say so before it reasons about that capsule's policy — but it
+means the refusal is only demonstrable on a **running** slot, which is the
+opposite of what a refusal about not collecting looks like it should need.
+
+**And it found a third face of the store-path trap.** `capsule b collect` ran a
+`capsule-collect` old enough to predate this item — its usage line has no
+`--policy`. `host/cli.nix`'s `program()` picks `/run/current-system/sw/bin/<prog>`
+only when *that slot's* ssh socket exists, and falls back to the bare name
+otherwise, which the caller's `$PATH` then resolves. On a host login that is the
+system copy and the fallback is invisible; inside this checkout the devshell's
+copy shadows it, and a slot being **down** is exactly the condition that selects
+the shadowed one. The two known faces of this are a wrapper read instead of the
+program ([item 20](./020-which-capsule-a-program-means.md)) and a stale third
+copy on an interactive `PATH`; this is a *delegation by name* rather than either,
+and the reason it is worth writing down is that the fallback is load-bearing —
+`program()` chooses the reachable copy on purpose — so the fix is not to hard-code
+a path. Ask the installed program directly when the question is what the host
+would do.
 
 **The count is part of the evidence.** Stage 2b skips when `ALLOW` holds no plain
 hostname, and a skip lands the run at 27 — the number the first two runs scored —
@@ -154,7 +208,9 @@ refusing without one, resolving both limbs from a case generated out of
 recording — `--policy sealed` selects from what this host declared, while
 `--max-pack-bytes 10G` would let any caller author a bound, and the whole item is
 about who may author a control. `mayCollect` refuses before the door opens, so a
-capsule that may not send anything back is not asked to build a snapshot first.
+capsule that may not send anything back is not asked to build a snapshot first —
+though not before the transport's own check that there *is* a door, which is why
+it takes a running slot to demonstrate (above).
 The front end fills the flag from the record, falling back to the slot's declared
 default — the same two steps tmpfiles takes for the allowlist link, so an
 unassigned slot ingests under exactly the policy its proxy is serving.

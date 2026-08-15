@@ -136,7 +136,16 @@ correct about the day it was written, in a language nobody compiles.
 Fixed the same way as the fabric, for the same reason: `flake.nix` binds
 `quarantine = import ./host/quarantine.nix` and injects
 `quarantine.codeRefsOf pairA`, so the probe reads the construction that *decides*
-where a collect lands rather than this repo's memory of it. Unrun.
+where a collect lands rather than this repo's memory of it.
+
+**Run: 42/42** ([probes](../probes.md#run-4--the-fix-run)) — both reds green, and
+nothing else moved. Which closes the finding and leaves the worry it is an
+instance of: every probe in this repo holds assertions nobody has executed since
+the last thing that moved under them, and the only thing that says which is
+running one. Three fixes here were derived from a construction rather than
+restated beside it — the fabric, `borrowed`, and this — and that is what a
+`grep` cannot give you: an assertion spelled twice is green until someone reads
+both spellings on the same day.
 
 ## What the fix cost
 

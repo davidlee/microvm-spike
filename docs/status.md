@@ -13,9 +13,12 @@ its whole fabric with production**
 `probe/two-capsules.sh` has a stage 2b: two guests, one aggregator, `build` and
 `sealed` at the same moment, and the swap that stops a broken capsule reading as
 a refused one. **Run: 40/42, all fourteen green**, `200` against `403` for
-`api.anthropic.com` and both swapping when the policies did — so **item 36 is
-closed**, bar `sealed` on a declared slot. `probe-netns-egress` re-ran green on
-the new fabric as a regression check.
+`api.anthropic.com` and both swapping when the policies did — and **re-run 42/42**
+once the two reds, which were the probe's own stale assertion, read the
+construction instead. `probe-netns-egress` re-ran green on the new fabric as a
+regression check. **Slot `b` has been on `sealed`** since, which is the first time
+a *declared* slot has been — the record and the allowlist link, with the proxy
+restart and the `mayCollect` refusal still owed because both want the slot up.
 The finding underneath it is larger: `probe/netns-egress.sh` never borrowed
 `cap-egress`, `eg-rt`, `10.100/16` or `10.101/30` — `capsules.nix` was written
 *from that probe's map*, so the probe became a borrower by standing still, and
@@ -121,9 +124,22 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   all fourteen green** — `api.anthropic.com` answered `HTTP/1.1 200 Connection
   established` for the capsule on `build` and `HTTP/1.1 403 Filtered` for the one
   on `sealed`, at the same moment, and the two answers swapped when the policies
-  did ([probes](./probes.md#run-3--two-capsules-two-policies-at-the-same-moment)).
+  did ([probes](./probes.md#run-3--two-capsules-two-policies-at-the-same-moment)),
+  then **42/42 on run 4** with the two reds fixed
+  ([probes](./probes.md#run-4--the-fix-run)).
   That closes [item 36](./ledger/036-a-policy-is-selected-not-named.md) bar one
-  thing: no *declared slot* has ever been put on `sealed`.
+  thing, now half-done: **slot `b` is on `sealed`**, which is the first time a
+  declared slot has been. `capsule b policy sealed` re-pointed
+  `slot/b/allowlist` at `egress-none.txt` and wrote the record at generation 4,
+  under the one `flock`, link first; `capsule all status` reads `sealed` in `b`'s
+  policy column and `build` in the other nine. What that run could **not** reach
+  is everything downstream of the slot being *up*: the verb took the
+  `is-active` false arm and printed that the proxy will render `sealed` when it
+  starts, and `capsule b collect` refused on the **transport** rather than on
+  `mayCollect` — the injected fragment's socket check sits ahead of the policy
+  parse, so a slot with no door never gets as far as the policy that would have
+  refused it. Both are one boot of `b` away, and `b` is left on `sealed` so they
+  cost one.
 
   **The two reds are a third instance of the same class, one level down.** The
   probe asserted a collect landed at `refs/capsule/<name>/<branch>`;
@@ -132,7 +148,8 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   state half. The assertion has been wrong since that day and nothing noticed,
   because **nothing runs a probe** — item 37 found programs nothing *built*, this
   finds an assertion nothing *ran*. Fixed by injecting `quarantine.codeRefsOf`
-  rather than spelling the convention twice; unrun.
+  rather than spelling the convention twice, and **re-run: 42/42**
+  ([probes](./probes.md#run-4--the-fix-run)).
 
   **And the fix costs the probes the host's DoT hop.** `~/flakes` stubs
   `DNSStubListenerExtra` on `10.101.0.1`, the live capsule-facing address, so a
