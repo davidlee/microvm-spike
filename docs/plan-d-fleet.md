@@ -637,10 +637,11 @@ only place a repo name appears.
   host. That was L12, and it is closed
   ([item 30](./ledger/030-a-pool-audits-what-exists.md)) — so what is left of D2
   is the declaration and the run-time assignment, with nothing standing in front
-  of them. **The declaration has landed**: `capsules.nix` says `a`…`j`, the eval
-  cost of it is 3% of a module eval
-  ([probes](./probes.md#what-ten-declared-slots-cost)), and the at-rest cost
-  needs a switch. What is left of D2 is the run-time half — `policy` as a field
+  of them. **The declaration has landed and is switched**: `capsules.nix` says
+  `a`…`j`, and it costs 3% of a module eval and one page of PID 1 at rest
+  ([probes](./probes.md#what-ten-declared-slots-cost)) — so "the cost is not idle
+  namespaces" above is now measured rather than argued. What is left of D2 is the
+  run-time half — `policy` as a field
   an assignment selects from a declared set, rather than one allowlist for the
   fleet.
 - **D3 — volume verbs.** `capsule <slot> volume {df,reset,reset-home,clone-from

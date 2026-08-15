@@ -43,10 +43,12 @@ let
   # fleet-wide (NOTES item 30, run on this host).
   #
   # A declaration is not a reservation. Nothing the module generates is
-  # `wantedBy` anything, so no namespace, unit, volume or byte of RAM exists
-  # until some capsule starts — ten idle slots are ten names, an index each, and
-  # five units per name that nothing has queued. What the pool costs at eval is
-  # measured and it is not the eval: docs/probes.md#what-ten-declared-slots-cost.
+  # `wantedBy` anything, so no namespace, tap, volume or VMM exists until some
+  # capsule starts — an idle slot is a name, an index, three unit files and nine
+  # loaded unit instances, six of which are microvm.nix's own templates. Both
+  # halves are measured: 3% of a module eval, and one page of PID 1 for the
+  # seventy-two units the eight new slots added
+  # (docs/probes.md#what-ten-declared-slots-cost).
   declared = {
     a = {index = 0;};
     b = {index = 1;};

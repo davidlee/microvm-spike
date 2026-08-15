@@ -740,14 +740,42 @@ wall clock cannot resolve a 3% arithmetic difference at this scale; the counters
 can, and are deterministic. Three wall-clock runs each spanned 1.66–1.72 s at two
 and 1.69–1.79 s at ten, i.e. overlapping.
 
-The units the pool generates: **5 per slot** — `capsule-netns-<n>`,
-`capsule-proxy-<n>`, `capsule-ssh-relay-<n>`, `microvm-tap-interfaces@<n>` and
-`microvm@<n>` — so 50 rather than 10, plus the aggregator and the guard. None is
-`wantedBy` anything, which is what makes the at-rest half of the question worth
-asking rather than answering by arithmetic. **The at-rest half is still
-unmeasured**, and needs a switch on this host: whether ten idle declarations cost
-anything is a claim about systemd's unit table and nothing else, since no
-namespace, volume or VMM exists until a capsule starts.
+### At rest, after the switch
+
+The second half, and the reason it was worth measuring rather than deriving:
+**the arithmetic predicted from this repo's own units was wrong by 4× on the
+count that matters.** Taken on this host either side of the switch, with slots
+`a` and `b` running throughout and nothing else changed.
+
+| figure | 2 slots | 10 slots | change |
+| --- | --- | --- | --- |
+| systemd unit **files** | 398 | 422 | +24 = **3 per slot** |
+| **loaded** unit instances | 517 | 589 | +72 = **9 per slot** |
+| PID 1 `MemoryCurrent` | 88 068 096 | 88 072 192 | **+4096 B — one page** |
+| named network namespaces | 3 | 3 | — |
+| taps, volumes, VMMs | — | — | unchanged |
+
+**Three unit files per slot and nine loaded instances**, because six of the nine
+are microvm.nix's templates instantiated per declared instance —
+`microvm@`, `microvm-tap-interfaces@`, `microvm-set-booted@`, and the three that
+are inert under firecracker anyway (`microvm-macvtap-interfaces@`,
+`microvm-pci-devices@`, `microvm-virtiofsd@`). A template is one *file* whatever
+its instance count, which is why the two rows move at different rates. So the
+pool's unit cost is mostly upstream's and not this repo's, and the earlier
+"five per slot, 50 in total" figure — read off `just units`, which lists what the
+module *generates* — undercounted what systemd actually loads.
+
+**One page of PID 1 for seventy-two units** is the at-rest answer, and the rest of
+the answer is the rows that did not move: eight declared slots exist as names, an
+index and a unit definition each, with no namespace, tap, volume or VMM anywhere.
+Host-wide `free` moved 160 MiB across the switch and **none of that is
+attributable** — this host runs other agents, so nothing host-wide is a capsule
+figure. PID 1's own RSS is the measurement that is.
+
+**The guard reports `2 of 10 declared`**, and both running slots survived the
+switch untouched: same VMM pids either side, no restart, no guest disturbed. That
+is item 30's degradation reading correctly at a size it had never been asked
+about — eight slots absent is a smaller fleet, not a refusal.
 
 ## The same exhibit, scoped — what the prediction was worth
 

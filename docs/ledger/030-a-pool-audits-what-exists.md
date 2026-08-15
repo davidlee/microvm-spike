@@ -183,13 +183,21 @@ eval and switch — indices, uplink /30s, five units each, one image shared, no
 volume until first boot — and whether ten idle declarations change anything at
 rest, which the chain above says is nothing and nothing has confirmed.
 
-**The first is measured now** and is 3% of a module eval, against a fixed cost
-that is 97% not about slots
-([probes](../probes.md#what-ten-declared-slots-cost)). The second still needs a
-switch: it is a claim about systemd's unit table, since nothing here is
-`wantedBy` anything and no namespace, volume or VMM exists until a capsule
-starts. The count "four units each" above was wrong by one — it is five, and
-`microvm-tap-interfaces@<n>` is the one it missed.
+**Both are measured now** ([probes](../probes.md#what-ten-declared-slots-cost)).
+The eval is 3%, against a fixed cost that is 97% not about slots. At rest, eight
+extra declarations cost **one page of PID 1** across the seventy-two unit
+instances they added, and nothing else moved: three named namespaces before and
+after, no tap, no volume, no VMM. The guard read `2 of 10 declared` and both
+running slots kept their VMM pids across the switch.
+
+**The unit count in this item was wrong twice, in the same direction.** "Four
+units each" missed `microvm-tap-interfaces@<n>`; correcting it to five still
+counted what the module *generates* rather than what systemd *loads*, which is
+nine — six of them microvm.nix's templates instantiated per declared instance,
+three of those inert under firecracker. A template is one unit *file* whatever
+its instance count, so files grew by three per slot and loaded instances by nine.
+The general shape is the one this repo keeps paying for: a count derived from
+this repo's own declarations is not a count of what the host ends up with.
 
 ## What building it produced besides the guard
 

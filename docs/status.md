@@ -7,9 +7,10 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 happens next.
 
 Last updated 2026-08-15, after **the pool — `capsules.nix` declares `a`…`j`,
-which is [Plan D](./plan-d-fleet.md) D2's declaration half** (below): built and
-green, eval cost measured at 3%, **not yet switched onto this host**, and the
-run-time half (`policy`) still to come. Before that, the same day, after **the
+which is [Plan D](./plan-d-fleet.md) D2's declaration half** (below): built,
+switched, and costing 3% of an eval and one page of PID 1 at rest — with the
+guard reading `2 of 10 declared` and both running slots undisturbed. The run-time
+half (`policy`) is still to come. Before that, the same day, after **the
 exhibit's scope — a collect is narrowed to
 the unit of work the capsule was assigned, which closes item 32's last open
 invariant** (below). **Built, asserted, switched and run**: the same slot, guest
@@ -70,21 +71,30 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
-- **The pool is ten slots, declared and unswitched.** `capsules.nix` says
-  `a`…`j`, which is [Plan D](./plan-d-fleet.md) D2's first half and what
-  [item 30](./ledger/030-a-pool-audits-what-exists.md) was the precondition for:
-  a slot that never came up is capacity that does not exist, so declaring eight
-  more adds no way to deny the host. `just check`, `just build` and `just units`
-  are green and the module generates **50 unit definitions** — five per slot,
-  none `wantedBy` anything — plus the aggregator and the guard.
+- **The pool is ten slots, declared and switched onto this host.**
+  `capsules.nix` says `a`…`j`, which is [Plan D](./plan-d-fleet.md) D2's first
+  half and what [item 30](./ledger/030-a-pool-audits-what-exists.md) was the
+  precondition for: a slot that never came up is capacity that does not exist, so
+  declaring eight more adds no way to deny the host. `just check`, `just build`
+  and `just units` green, then switched — **the guard reads `2 of 10 declared`**
+  and both running slots kept their VMM pids across it, so item 30's degradation
+  read correctly at a size it had never been asked about.
 
-  **What it costs at eval is 3%**, against a fixed cost that is 97% not about
-  slots: +3.0% thunks, +3.7% function calls, +1.7% heap over the same eval at two
-  slots, and a `cpuTime` that came out *lower* at ten because wall clock cannot
-  resolve it ([probes](./probes.md#what-ten-declared-slots-cost)). **The at-rest
-  half is unmeasured and needs a switch** — it is a question about systemd's unit
-  table and nothing else, since no namespace, volume or VMM exists until a
-  capsule starts.
+  **Both costs are measured and neither is a cost**
+  ([probes](./probes.md#what-ten-declared-slots-cost)). At eval, 3% — +3.0%
+  thunks, +3.7% function calls, +1.7% heap — against a fixed cost that is 97% not
+  about slots, with a `cpuTime` that came out *lower* at ten because wall clock
+  cannot resolve it. At rest, **one page of PID 1** for the seventy-two unit
+  instances the eight new slots added, and nothing else moved: three named
+  namespaces before and after, no tap, no volume, no VMM.
+
+  **The unit count was wrong before the switch, and it is the finding.** The
+  prediction was five units per slot, read off `just units` — what the module
+  *generates*. systemd loads **nine** per slot, six of them microvm.nix's own
+  templates instantiated per declared instance and three of those inert under
+  firecracker; unit *files* grew by three per slot, because a template is one
+  file whatever its instance count. A count derived from this repo's declarations
+  is not a count of what the host ends up with.
 
   **Declaring it found what `guardCases` had baked in.** Eleven cases asserted
   `N of 2 declared` against the live `capsules.nix`, so the suite pinned this
