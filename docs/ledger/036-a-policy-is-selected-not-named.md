@@ -1,6 +1,11 @@
 # NOTES item 36 — a policy is selected from a declared set, never named by a project
 
-*State: designed, nothing built. This is [item 25](./025-assignment-is-a-perimeter-verb.md)'s
+*State: **two of four slices built and green, unswitched**. The vocabulary and
+each slot's set are declared, and the allowlist is a policy's — selected by
+`--policy` on the devshell path and by a per-slot symlink on the module path.
+What is left is the two collect limbs, the `policy` verb that re-points the
+symlink, and the cases; the checklist is at the foot of this file. This is
+[item 25](./025-assignment-is-a-perimeter-verb.md)'s
 resolution shape turned into a mechanism, and it is the run-time half of
 [Plan D](../plan-d-fleet.md) D2 — the declaration half is
 [item 30](./030-a-pool-audits-what-exists.md)'s and has landed.*
@@ -114,3 +119,31 @@ kind: it is a live-host claim, and the honest instrument for it is
 `probe/netns-egress.sh` run against two slots on two policies — one host
 allowlisted for `a` and denied for `b`, asserted both directions, which is the
 rule that probe was written under.
+
+## Where the build got to
+
+| slice | state |
+| --- | --- |
+| the vocabulary, and each slot's declared default and set | **built**, two eval refusals watched firing |
+| the allowlist moves — `perimeter/` loses its value, both call sites resolve a policy | **built**, three `capsule-host` refusals exercised |
+| `collectMaxPackBytes` and `mayCollect` move | not started |
+| `capsule <slot> policy <name>`, the status column, and the cases | not started |
+
+**Nothing is switched**, so this host still runs the fleet-wide allowlist. The
+switch is also what materialises the per-slot symlinks, since tmpfiles is what
+creates them at each slot's declared policy.
+
+**What the third slice has to decide**, and the precedent is `unit`'s exactly
+([item 32](./032-the-sideband-channel.md)): `collectMaxPackBytes` is a build-time
+literal today, baked into `capsule-collect`'s store path as `ulimit -f` blocks,
+and it becomes a run-time argument the front end fills from the slot's policy —
+explicit flag wins, and a direct call with neither **refuses**, because a collect
+with no declared bound is the unbounded ingest the bound exists to prevent.
+`mayCollect` is the same shape one field over and refuses before the door opens.
+
+**What the fourth has to decide** is what a policy change does to a slot that is
+running: the call taken is that the verb restarts that slot's proxy, so a
+tightening bites without a re-assign and one slot's egress drops for the length
+of a restart. It writes the record and re-points the symlink under the same
+`flock` the record already takes, because a record and a symlink that disagree is
+a perimeter nobody can read.

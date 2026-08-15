@@ -71,6 +71,32 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **A policy is selected from a declared set now, and half of that is built.**
+  [Item 36](./ledger/036-a-policy-is-selected-not-named.md) is Plan D D2's
+  run-time half and [item 25](./ledger/025-assignment-is-a-perimeter-verb.md)'s
+  resolution: what a capsule may talk to stopped being named by the project that
+  happens to be in it. `policies.nix` is the host's vocabulary — `build`, the
+  allowlist this repo has always had, and `sealed`, an empty one with
+  `mayCollect` false — and every slot declares an operator-chosen default plus
+  the set an assigner may select within, both refused at eval when they disagree.
+
+  **`perimeter/` lost a value rather than gaining one.** `CAPSULE_ALLOWLIST` is
+  required with no fallback, since a proxy that picks an allowlist because none
+  was named *is* the fleet-wide default being removed. The devshell path resolves
+  it from `capsule-host --policy <name>`, refusing without one exactly as a
+  program refuses without `--capsule`; the module path resolves it from a per-slot
+  symlink that tmpfiles creates at the declared policy with `L`, so the operator's
+  declaration is what an unassigned slot runs and an assigner's selection survives
+  a boot. The proxy binds that symlink and the whole policy directory read-only
+  and **never reads the assignment record** — the front end resolves, which is a
+  front end's latitude and never a program's.
+
+  **Two slices of four, and nothing is switched**, so this host still runs the
+  fleet-wide allowlist. What is left: `collectMaxPackBytes` and `mayCollect`
+  moving out of `target.nix` on `unit`'s precedent, the `capsule <slot> policy
+  <name>` verb that re-points the symlink and restarts that slot's proxy, and the
+  cases. The checklist is in the item.
+
 - **The pool is ten slots, declared and switched onto this host.**
   `capsules.nix` says `a`…`j`, which is [Plan D](./plan-d-fleet.md) D2's first
   half and what [item 30](./ledger/030-a-pool-audits-what-exists.md) was the
