@@ -338,10 +338,21 @@ in
         }
 
         # Fills `ssh_argv` with the argv that reaches a capsule, and returns 1 when
-        # this host has doors but not this capsule's — which means the module path
-        # owns it and this capsule is simply not up. Going direct then reaches for a
-        # `net.guest` whose tap is inside somebody's namespace, and that is a timeout
-        # that reads as a dead guest (NOTES item 20).
+        # nothing here can. Going direct reaches for `net.guest`, which is routable
+        # only where the devshell shape has put a tap in *this* namespace — so that
+        # tap is the question, its own precondition rather than an inference from
+        # what is running. Under the module path every tap is inside somebody's
+        # namespace and the attempt is a timeout that reads as a dead guest (NOTES
+        # item 20).
+        #
+        # Asking instead whether any *other* capsule has a door is what made a status
+        # cost a hundred seconds: a module-path host with every slot stopped has no
+        # doors at all, which read as the devshell path, so each row bought a full
+        # `ConnectTimeout` (10 s, host/guest-ssh.nix) against an address whose packets
+        # leave by the default route and are never answered. The refusal below has
+        # always said "the module path owns this host" and had never once fired.
+        # `/sys/class/net` and not `ip link`: sysfs's net directory is per-namespace,
+        # so it is the same answer with no runtime input and no fork.
         #
         # `human` keeps strict host-key checking and files each capsule's key under
         # its own name, since every guest is at the same address and would otherwise
@@ -360,7 +371,7 @@ in
             return 0
           fi
           doorsOpen
-          [ ''${#doors[@]} -eq 0 ]
+          [ -e /sys/class/net/${net.tap} ]
         }
 
         # Does the guest answer? The one per-capsule fact that is not a unit's
@@ -772,7 +783,14 @@ in
             ssh_argv=()
             door "$name" human || {
               echo "no relay socket for '$name', and the module path owns this host." >&2
-              echo "  capsules with a door: ''${doors[*]}" >&2
+              # An empty list is the common case now that this refusal fires at all
+              # — nothing up is exactly when it used to go direct and time out — so
+              # it gets a sentence rather than a blank one.
+              if [ ''${#doors[@]} -eq 0 ]; then
+                echo "  no capsule has a door: none of them are up." >&2
+              else
+                echo "  capsules with a door: ''${doors[*]}" >&2
+              fi
               echo "  'capsule $name start' if it should be running." >&2
               exit 1
             }

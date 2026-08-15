@@ -1179,6 +1179,29 @@ has now done that: **109 s**, above. So freshness's price is no longer "asserted
 but not priced"; the probe's own 22 assertions simply are not where the price
 comes from, and the two should not be conflated.
 
+## What a fleet status costs
+
+Not a probe — `time` around the front end on this host, before and after
+[item 40](./ledger/040-no-doors-is-not-the-other-shape.md). Kept because the
+figure *is* the finding: a status row was 27 ms of work behind ten seconds of
+one `ConnectTimeout`, and that was invisible in output that was correct.
+
+| | before | after |
+| --- | --- | --- |
+| `capsule c status` (one slot, never created) | 10.061 s | — |
+| `capsule all status` (ten slots, all stopped) | ~10 s × 10 | **0.375 s** |
+| `capsule c ssh true` (stopped slot) | 10 s, then a timeout error | **0.004 s**, a refusal |
+
+The ten-row before-figure is the user's observation of the live program and one
+timed row, not a timed fleet run; the after-figure is measured. Everything but
+the ssh is the 0.375 s — ten rows of `systemctl show`, the record, the
+quarantine's refs and the guard's last journal line — so the per-row cost of
+everything this table is about is under 40 ms.
+
+Both arms of `door` are host state, so no case suite reaches this: the fix is
+evidenced by these timings and by the output being unchanged row for row, and
+the two devshell rows of item 40's table are reasoned rather than re-run.
+
 ## Still unproven
 
 - ~~**Egress under netns.**~~ Proven: `probe-netns-egress`, above. ~~What is

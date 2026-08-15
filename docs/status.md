@@ -6,7 +6,19 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **starting a slot for the first time since item 36
+Last updated 2026-08-15, after **`capsule all status` was found to spend ten
+seconds a row proving that this host is not the shape it is**
+([item 40](./ledger/040-no-doors-is-not-the-other-shape.md), below):
+`host/cli.nix`'s `door` decided which transport reaches a capsule by asking
+whether any *other* slot's relay socket was open, and a module-path host with
+everything stopped has none — so every row took the direct arm and paid a full
+`ConnectTimeout` against an address that is not routable from here. It asks for
+the tap now, which is that arm's actual precondition; a ten-slot status is
+**0.375 s** against 10.06 s for one row before, with the output unchanged. The
+refusal it should have taken instead had never once fired, which is the class
+[HANDOVER](../HANDOVER.md) guessed would come next. **This is a `~/flakes` switch
+short of reaching the host, like item 39 below, and the two land together.**
+Before that, after **starting a slot for the first time since item 36
 was switched found that its proxy unit has never once run**
 ([item 39](./ledger/039-a-bind-is-not-a-traversal.md), below): the allowlist each
 proxy binds sat under `stateDir`, which the proxy's uid cannot traverse, so the
@@ -118,6 +130,33 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A fallback selected by absence, and the ten seconds a status row spent on
+  it.** [Item 40](./ledger/040-no-doors-is-not-the-other-shape.md). `door` in
+  `host/cli.nix` picks the way in to a capsule: its relay socket if it has one,
+  otherwise straight at `net.guest`. Which of those is right depends on the
+  shape this host is running, and it asked *whether any other capsule's socket is
+  open* — a module-path host at rest has none, and neither does a host with no
+  module on it, so the two are one answer. Every `capsule all status` row took
+  the direct arm and spent the whole `ConnectTimeout` on packets that leave by
+  the default route. **10.06 s a row; 0.375 s for ten after**, output unchanged.
+
+  The predicate is `/sys/class/net/vm-capsule` now, which is not a better
+  inference about the shape — it is the direct arm's own precondition, and a
+  test of the precondition cannot be wrong about the case it was guessed from.
+  Both live shapes keep their behaviour, including the devshell shape on a
+  module-installed host, which is what rules out asking whether the module is
+  *installed*.
+
+  **The refusal it should have been taking had never fired.** `no relay socket
+  for '<n>', and the module path owns this host` needed some *other* capsule to
+  be up, so the ordinary case — nothing running — silently took the arm that
+  says the module path does not own this host. That is the class
+  [HANDOVER](../HANDOVER.md) had guessed would turn up next, one under items 37,
+  38 and 39: **a refusal nothing has ever triggered**. Not case-covered, and it
+  cannot be: both arms of `door` are host state, so the evidence is the timings
+  ([probes](./probes.md#what-a-fleet-status-costs)) and the output being
+  identical row for row.
 
 - **A bind is mounted as root and opened as the unit's user, and no capsule proxy
   had ever started.** [Item 39](./ledger/039-a-bind-is-not-a-traversal.md).
@@ -1281,6 +1320,14 @@ It is in flight rather than finished, and one of the two is cheap.
 
 ## Open, and nothing should claim these closed
 
+- **Which of build / run / start / *trigger* does the evidence cover?** Four
+  findings in two days, each green everywhere it was looked at: item 37 found
+  programs nothing built, item 38 an assertion nothing ran, item 39 a unit
+  nothing started, item 40 **a refusal nothing had ever triggered**. The last is
+  the largest remaining seam — a branch can be built, evaluated, shellchecked and
+  shipped while the condition selecting it has never once been true, and nothing
+  in this repo distinguishes that from a branch that works. The list of refusals
+  in that state is further down this section and it is long.
 - **A namespace teardown is instrumented as a *program* and not as a *unit*.**
   `probe/netns-restart.sh` runs `capsule-netns` directly, 33/33
   ([item 37](./ledger/037-a-teardown-that-only-unnames.md)). What is outside it
