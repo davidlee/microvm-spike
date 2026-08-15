@@ -1,6 +1,7 @@
 # NOTES item 51 — the four programs still spell the target, and it is item 20 one level up
 
-*State: **planned, nothing built.** [Plan D](../plan-d-fleet.md) §6.4, which that
+*State: **planned and read twice, nothing built; steps 1-2 ready, 3-6 gated on
+three decisions.** [Plan D](../plan-d-fleet.md) §6.4, which that
 file names as **D7's first task rather than a detail of it** and says is worth
 doing even if flavours never happen. Written up here rather than left as a
 paragraph in a plan because the implementation will not fit one session, and a
@@ -29,9 +30,19 @@ path goes on serving everything.
 | `statePaths`, `stateMaxBytes` | `target` | `host/state-snapshot.nix` — **a script pushed into the guest**, so the text is the interface |
 | `cachePaths`, `volumePath` | `caches`, `volumePath` | `capsule-baseline`'s `measure`, `observe`, `inject`'s payload destinations |
 | `name`, `sizes` | `target` | the record's `profile` and `class` (`host/cli.nix:591`), the motd, `services.nix`'s `repo` default |
+| `statePaths`' `{unit}` hole, as `stateNeedsUnit` | `statePaths` | the front end's **own** text — usage, the status table's `printf` format, its header and its row, and the `unit` verb's parser (`host/cli.nix:111,169,513,519,554,1069-1090`) |
 
 `programVerbs` is the same coupling in its other form: which verbs exist at all
 is decided at build time by which `target.nix` fields are non-null.
+
+`stateNeedsUnit` is that form again and is the harder of the two, which is why it
+has a row of its own rather than a mention. It is twelve `lib.optionalString`
+sites in one file, and eleven of them are not a verb list — they are the shape of
+the text the front end prints. **`capsule all status` prints one table for the
+fleet**: one `printf` format, one header, every slot a row. A predicate that
+becomes per-target makes that one header over two column sets, which is a
+question about the front end rather than about the values, and it is not answered
+below.
 
 ## The finding that changes the scope
 
@@ -49,13 +60,30 @@ assignment-driven — and is a different consequence with a different rebuild
 class. This item is **the host programs only**, and finishing it does not make
 two targets concurrent.
 
+**And the sharp edge inside that limit.** `guestPath` has two producers today and
+they cannot disagree, because one derives the other: `target.nix:30` builds it
+and `vm/capsule.nix`'s seed creates exactly that directory from the same file.
+The moment the host reads it from a document at run time, they *can* — a document
+edited after a slot booted names a checkout the running image never made, and
+every program that reaches for it gets a clean "no such directory" naming a path
+that is plainly correct in the document it came from. Nothing proposed below
+checks the agreement. Either the read is pinned to what the slot was built with
+(which is what `profile_snapshot` is for, below) or something asserts it; a
+document that is merely *later* is the failure this paragraph exists to name.
+
 ## What is already in place, so this is a refactor and not a design
 
 Three things, and they are why the shape is obvious rather than inventive:
 
-- **The record already carries the fields.** `host/cli.nix:591` writes `profile`
-  (the target's name) and `class` (`mem`/`vcpu`) at every provision. They are
-  written and read by nothing — inert fields waiting for this.
+- **The record already carries the fields, including the one for the pin.**
+  `host/cli.nix:591` writes `profile` (the target's name) and `class`
+  (`mem`/`vcpu`) at every provision; both are written and read by nothing — inert
+  fields waiting for this. The third is `profile_snapshot`, written as an
+  explicit `null` by `host/record.nix:128` and already carrying the comment that
+  says what it waits on: *a profile that is a document rather than a build-time
+  literal*. So the pinning bullet below is not new machinery — it is filling a
+  reserved field, and today's pin is the closure, which is stronger than a copied
+  file and unusable by a controller that never runs nix.
 - **`CAPSULE_REPO` is the precedent, already shipped.** `host/git-channel.nix:110`
   is `src="''${CAPSULE_REPO:-${target.path}}"`: a run-time override of a baked
   default, in the two places that read the host checkout. This item generalises
@@ -66,15 +94,49 @@ Three things, and they are why the shape is obvious rather than inventive:
   ([CLAUDE.md](../../CLAUDE.md)) paying for itself in a direction it was not built
   for — the seam a test needed is the seam a run-time value needs.
 
-## The one decision not taken
+## The decisions not taken
 
-**Is the profile document per target, or one for the host?** Per target —
+Three, not one — and two of them gate step 3 rather than being taken during it.
+Steps 1 and 2 need none of them, which is why the order of work starts where it
+does.
+
+**1. Is the profile document per target, or one for the host?** Per target —
 `profileDir/<name>.json`, with the slot's record naming which — is the eventual
 shape and mirrors `policyDir` exactly. One document for the host is less work
 today and is a second thing to migrate later. **Recommended: per target**, on the
 grounds that the interim saves an hour and the migration costs a day, and that
-`policyDir` has already paid for the shape. Not decided; decide it before step 3
-and not during it.
+`policyDir` has already paid for the shape.
+
+**2. Where does the document live, and who validates it?** Step 3 says *checked
+at build for free*, and that is true only while nix is what renders it. The
+precedent it cites cuts the other way: `policyDir` defaults into this checkout
+(`host/services.nix:458`) and every allowlist under it is a plain file
+deliberately outside the store, so that it can change without a rebuild — which
+is exactly the property that means **nobody checks it**. Both halves cannot hold
+at once and the item should not pretend otherwise:
+
+- A **store path** keeps the build-time check and keeps two targets a rebuild
+  apart. That is a smaller step than it sounds — the *programs* stop being a
+  function of the target, which is this item's whole claim — but it does not
+  reach §6.1's controller that never runs `nixos-rebuild`, and that limit belongs
+  beside the guest-image one above rather than discovered at step 4.
+- A **plain file** reaches it, and then a reader has to validate: the fields a
+  program will index into, the `{unit}` hole's boundedness, and the paths' shape.
+  That validator is work this item does not currently list.
+
+**Recommended: render to a store path first and read it through one function**,
+so the plain-file switch is a change of where that function looks rather than a
+change to every caller. Not decided.
+
+**3. What does a fleet-wide status table do with a per-target predicate?**
+`stateNeedsUnit` shapes the front end's printed text, and `capsule all status` is
+one table for every slot. Three answers exist — the union of columns with blanks
+where a target has none, a table per target, or the column always present and
+empty — and they are a front-end decision that outlives this item. It is named
+here because step 6 reads as *one list of verbs* and it is not: the verb list is
+the easy half. Not decided, and it is the only one of the three that could
+reasonably be deferred past step 3, since the predicate can stay build-time while
+every *value* around it has moved.
 
 ## Order of work
 
@@ -83,11 +145,26 @@ Red/green, and the first step is a test that fails:
 1. **Extend `snapshotCases`, `refreshCases` and `briefCases`** to pin the
    argument-taking form of every value each guest-side script currently
    interpolates. Watch them fail against today's text, which is the rule about
-   mutating the behaviour a suite claims to pin.
+   mutating the behaviour a suite claims to pin. Note what these three actually
+   cover: `snapshotFor` takes a checkout and still bakes `statePaths` and
+   `stateMaxBytes` (`host/state-snapshot.nix:90,99`), `refreshFor` already takes
+   both of its values, and `briefRunner`'s guest half already takes its only one —
+   what `brief` bakes is host-side (`guestRepo`, `hostCheckout`). So step 1 is
+   mostly one file's worth of new pinning, not three.
 2. **Move the values into arguments** in `host/state-snapshot.nix`,
    `host/observe.nix`, `host/refresh.nix`, `host/brief.nix`, `host/baseline.nix`.
    Nothing about where the values *come from* changes yet; this step only ends
    interpolation.
+
+   **Step 1 does not cover this list, and the gap is two files.**
+   `host/observe.nix` (`:42-44`) and `host/baseline.nix` (`:73-75`) each
+   interpolate three values and **neither has a case suite at all** — so red/green
+   is red for three of the five and silent for the other two. Either they get
+   suites first, on the seam the other three already have (a function of its
+   subject, exported beside `stateSnapshotFor` and `refreshFor`), or this item
+   says out loud that two of the five move unpinned. The first is the cheaper
+   answer and is the same shape three times over; the second is a choice, not an
+   oversight, and must be written as one.
 3. **Render the profile document.** `target.nix`'s run-time half → JSON, authored
    in nix and checked at build for free, read at run time by a program. §6.1's
    *validated document, not a nix file*, with `perimeter/egress-allow.txt` as the
@@ -100,9 +177,12 @@ Red/green, and the first step is a test that fails:
    [item 39](./039-a-bind-is-not-a-traversal.md)'s class exactly, it is not
    catchable by the cases because a sandbox has one uid, and it is where the last
    bug of this shape came from.
-6. **`programVerbs` last**, since which verbs exist becomes a property of the
-   document rather than of the build, and that is the step most likely to want a
-   decision nobody has made yet.
+6. **`programVerbs` and `stateNeedsUnit` last**, since what exists at all becomes
+   a property of the document rather than of the build, and that is the step most
+   likely to want a decision nobody has made yet — decision 3 above, which is
+   about the *table* and not about the values. The verb list is the easy half and
+   could land alone; the predicate is eleven sites of printed text and should not
+   be started before that decision is taken.
 
 ## What must not drift while this is being built
 
@@ -140,7 +220,19 @@ failure mode this repo has already had once, in `host/refresh.nix`
 
 ## Which verb the evidence covers
 
-**Read**, of `host/programs.nix`, `host/git-channel.nix`, `host/cli.nix` and
-`target.nix`, plus the record-writing site. Nothing is built and no step below
-has been started. The inventory is the read's product and is the part worth
-trusting; the ordering is a judgement.
+**Read**, twice. The first pass took `host/programs.nix`,
+`host/git-channel.nix`, `host/cli.nix` and `target.nix` plus the record-writing
+site, and produced the inventory. The second was a readiness pass over the plan
+this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
+`host/refresh.nix`, `host/brief.nix`, `host/baseline.nix`, `host/observe.nix`,
+`host/services.nix`, the `justfile`'s `cases` recipe and [plan D](../plan-d-fleet.md)
+§6.1 — and it is what added the `stateNeedsUnit` row, `profile_snapshot`,
+decisions 2 and 3, step 1's coverage gap and the `guestPath` edge. Every line
+reference above was checked against the file it names.
+
+Nothing is built and no step has been started. **Steps 1 and 2 are ready** —
+mechanical, scoped, needing no decision, once step 1's two-file gap is closed
+either way. **Steps 3 to 6 are not**, and what they wait on is the three
+decisions above rather than more reading — 1 and 2 before step 3, 3 before step
+6. The inventory is the reads' product and is the part
+worth trusting; the ordering is a judgement.

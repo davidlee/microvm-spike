@@ -780,8 +780,11 @@ only place a repo name appears.
   values, of which L13 is the one with no override at all — and nothing above
   forecloses it. That task is
   [item 51](./ledger/051-the-target-in-four-store-paths.md) now: inventoried,
-  planned, unbuilt, and carrying the one decision it needs before step 3
-  (whether the profile document is per target or one for the host).
+  planned, unbuilt, its first two steps ready to start, and carrying the three
+  decisions the rest of it needs — whether the profile document is per target or
+  one for the host, whether it is a store path checked at build or a plain file
+  with a validator, and what a fleet-wide status table does with a predicate that
+  has become per-target.
 
   **The four programs are the start of the inventory, not the whole of it.** The
   guest image also knows the project's name, its checkout path, its branch, its

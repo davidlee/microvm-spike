@@ -32,13 +32,15 @@ evaluates). `just` (default) runs the build, units, and fmt.
 **There are three kinds of check here, and they are not interchangeable.**
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
-not mention them. `guardCases`, `briefCases`, `snapshotCases` and `policyCases` *run* a host-side
+not mention them. `guardCases`, `briefCases`, `snapshotCases`, `refreshCases` and `policyCases`
+*run* a host-side
 program's own text with a substitute for the one thing tying it to this host
 (`just cases`), and are the answer whenever the interesting branches are ones a
 live host can only reach destructively or expensively — the guard's by unnaming a
 namespace under a running guest, the brief runner's by dirtying one capsule's
 worktree to watch another refuse it, the state snapshot's by driving a real unit
-of work in a checkout that holds several, the front end's by editing the declared
+of work in a checkout that holds several, the refresh's by giving it a target
+command that fails or eats its own stdin, the front end's by editing the declared
 pool and writing the live record of a slot somebody is using. All three kinds are in `just build`, so a failing case is a failing
 build.
 
