@@ -8,8 +8,10 @@ module already runs N namespaced guests, so the question here is not *can it* bu
 Scope: *one microVM on this host, several humans logged into it over ssh from a
 tailnet, no egress, disposable.* The worked example is a DIY chat room — friends
 ssh in and talk to each other through whatever they improvise, a shared tmux
-socket or a file and `tail -f`. The chat mechanism is deliberately out of scope;
-it is userland inside a guest and this document is about the boundary.
+socket or a file and `tail -f`. The mechanism is mostly userland and mostly out
+of scope, with **one exception that is a boundary fact and not a detail**: how
+the room is furnished decides whether the identity ssh established survives past
+the door. That is [below](#5-identity-ends-at-the-door-unless-the-furniture-keeps-it).
 
 **This is a second instance of the machinery, not a second feature of the
 capsule.** The capsule is *one agent, one repo, one unit of work*: a target
@@ -104,11 +106,12 @@ declare a narrow selectable set, not `everything`.
 
 ## What a plan has to settle
 
-**1. `capsule-netns` gains an absence, not a kind.** The program does namespace,
-lo, forwarding off, resolver, veth to the aggregator, default route, and the tap
-guard rule — with `addr` as a separate verb, a `down` that refuses while a VMM is
-in the namespace, and rollback on an aborted `up`. A room wants that minus the
-uplink half.
+### 1. `capsule-netns` gains an absence, not a kind
+
+The program does namespace, lo, forwarding off, resolver, veth to the
+aggregator, default route, and the tap guard rule — with `addr` as a separate
+verb, a `down` that refuses while a VMM is in the namespace, and rollback on an
+aborted `up`. A room wants that minus the uplink half.
 
 A second, smaller program is the trap: the room's namespace would get a version
 that never learned [item 37](./ledger/037-a-teardown-that-only-unnames.md)'s
@@ -118,7 +121,8 @@ that *a namespace may have no uplink* — a value, the same shape as
 `toolsPackage = null` degrading rather than breaking — and never learns what a
 room is. One construction, two callers.
 
-**2. The namespace name is declared and asserted disjoint.**
+### 2. The namespace name is declared and asserted disjoint
+
 `capsules.nix` derives `ns = "cap-<name>"` and rejects names over 11 characters
 or `egress`. A room cannot borrow that prefix without reading as a capsule, and
 cannot pick freely without eventually colliding with a slot declared later —
@@ -129,16 +133,19 @@ notice. So the room declares its own name and an eval-time intersection against
 `capsules.nix`'s namespace set throws, copying `probeFabric`/`borrowed` rather
 than inventing a second answer.
 
-**3. Amnesia is a choice, and it should be made explicitly.** Guest roots are
-tmpfs, so `/home` is guest RAM unless it is put on a volume. No volume means the
-room forgets itself at every reboot and "burn it down" is a restart; a volume
-means scrollback survives and burning down is a delete. Both are defensible and
-the default should be stated rather than inherited.
+### 3. Amnesia is a choice, and it should be made explicitly
 
-**4. Who may knock, and who may sit.** The tailnet is the outer control and it
-lives in someone else's config — same category as the firewall port and the
-forward drop, which [item 7](./ledger/007-host-config.md) already establishes as
-part of the perimeter that is not in this repo. Bind to the tailnet address, open
+Guest roots are tmpfs, so `/home` is guest RAM unless it is put on a volume. No
+volume means the room forgets itself at every reboot and "burn it down" is a
+restart; a volume means scrollback survives and burning down is a delete. Both
+are defensible and the default should be stated rather than inherited.
+
+### 4. Who may knock, and who may sit
+
+The tailnet is the outer control and it lives in someone else's config — same
+category as the firewall port and the forward drop, which
+[item 7](./ledger/007-host-config.md) already establishes as part of the
+perimeter that is not in this repo. Bind to the tailnet address, open
 the port per-interface (`networking.firewall.interfaces.tailscale0`), and treat
 LAN exposure as a separate declared decision with a worse story, never as a
 side effect of binding broadly. Inside, "permissive" should mean *permissive to a
@@ -146,9 +153,75 @@ declared list*: `users.users.<friend>` with `openssh.authorizedKeys.keys`,
 password auth off, no wheel and no sudo. Root stays reachable only by the host's
 key.
 
-**5. One fork bomb should not be a denial of service against the room.** Per-user
-limits, and a decision on `hidepid` — which is probably *off*, since mutual
-visibility is half the point of a shared box.
+### 5. Identity ends at the door unless the furniture keeps it
+
+The obvious furnishing is a shared tmux socket, and it has a property that is
+easy to miss: **the tmux server's uid is the uid every pane runs as.** Clients
+are only terminals; the shells live in the server. So a shared socket is a shared
+identity — attaching to one is equivalent to running commands as whoever owns it.
+It is also a shared *screen*: same characters, same cursor, interleaved input if
+two people type at once. Good for pair-driving one terminal, slapstick as a chat
+medium. (`new-session -t <name>` at least gives each client its own current
+window, against plain `attach`, which shares even that.)
+
+So the sane arrangement is a dedicated unprivileged user owning the server, and
+the consequence is stated rather than discovered: ssh authenticates *alice*, and
+alice's identity ends at the door. Inside, everyone is `room`. For a disposable
+box that is honest and cheap — but it means no per-person accountability in the
+room and no `$USER` worth stamping a message with.
+
+```nix
+users.users.room = { isSystemUser = true; group = "room"; home = "/srv/room"; };
+users.groups.roomies.members = [ "alice" "bob" "carol" ];
+
+systemd.tmpfiles.rules = [ "d /srv/room 2770 room roomies -" ];  # setgid: the socket inherits the group
+
+systemd.services.room-tmux = {
+  wantedBy = [ "multi-user.target" ];
+  serviceConfig = {
+    Type = "forking";
+    User = "room";
+    UMask = "0007";
+    ExecStart = "${pkgs.tmux}/bin/tmux -S /srv/room/sock new-session -d -s chat";
+    ExecStop  = "${pkgs.tmux}/bin/tmux -S /srv/room/sock kill-server";
+  };
+};
+
+users.users.alice.shell = pkgs.writeShellScriptBin "join" ''
+  exec ${pkgs.tmux}/bin/tmux -S /srv/room/sock new-session -t chat
+'';
+```
+
+**Which is the argument for not doing the chat in tmux at all.** The identity
+worth having is the one ssh already established, and the way to keep it is to let
+each person's *own* shell do the writing:
+
+```sh
+say() { printf '%s <%s> %s\n' "$(date +%H:%M)" "$USER" "$*" >> /srv/room/log; }
+tail -f /srv/room/log
+```
+
+`/srv/room/log` at `0660`, group `roomies`. Appends this small are atomic on an
+`O_APPEND` descriptor, so lines do not shred, and `$USER` is the kernel's answer
+rather than a claim — because each person is running as themselves. That is the
+whole of it, and it needs no server at all.
+
+Two variants worth knowing. `write`/`wall` is the same idea with no history and
+no setup, though it wants `mesg y` and a `write` binary setgid `tty`, which on
+NixOS is a `security.wrappers` entry rather than a given. And the properly-built
+version is a socket-activated listener reading `SO_PEERCRED`, so the kernel names
+the speaker and a nickname cannot be spoofed — unnecessary, and obviously the
+correct thing to build.
+
+The two compose rather than compete, which is probably the answer: tmux as the
+shared *screen* — a pane already running `tail -f`, plus a window someone can
+drive live when there is something to show — and the log as the chat. Presence
+and a shared surface from one, identity and scrollback from the other.
+
+### 6. One fork bomb should not be a denial of service against the room
+
+Per-user limits, and a decision on `hidepid` — which is probably *off*, since
+mutual visibility is half the point of a shared box.
 
 ## Two operational costs, known in advance
 
