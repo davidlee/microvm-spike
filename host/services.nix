@@ -540,6 +540,43 @@ in {
       # part of the perimeter you could not casually look at.
       users.groups.capsule-proxy.members = [cfg.owner];
 
+      # The one privilege `capsule <slot> policy <name>` needs, and the reason it
+      # is here rather than in the host's own config: this module declares the
+      # `capsule-proxy-<slot>` units, so it is the only thing that knows their
+      # names, and a rule kept anywhere else would go stale the moment the pool
+      # changed (NOTES item 41).
+      #
+      # **Proportionate, and it is worth saying why it is not a widening.** The
+      # verb is item 36's delegable one: an assigner may select a policy from the
+      # set the *operator* declared for that slot, and may not widen the set. All
+      # this adds is bouncing the proxy that renders the selection — an egress
+      # outage of about a second, fail-closed while it lasts, on a unit the
+      # assigner has just been allowed to reconfigure anyway. Refusing it does not
+      # withhold anything; it only makes the verb fail after the record moved,
+      # which is the fault this closes.
+      #
+      # **One literal command per declared slot, no wildcard.** A `capsule-proxy-*`
+      # would be a rule about a pattern rather than about the ten units this
+      # module made, and sudoers wildcards are a classic way to permit more than
+      # was meant.
+      #
+      # The path is `/run/current-system/sw/bin/systemctl` and **not** a store
+      # path, because sudo resolves the command against its own `secure_path`
+      # before matching: `sudo -n -l systemctl restart capsule-proxy-b` on this
+      # host answers with exactly that path. A rule naming `${pkgs.systemd}` would
+      # be correct-looking and would never match.
+      security.sudo.extraRules = [
+        {
+          users = [cfg.owner];
+          commands =
+            map (c: {
+              command = "/run/current-system/sw/bin/systemctl restart capsule-proxy-${c.name}";
+              options = ["NOPASSWD"];
+            })
+            instances;
+        }
+      ];
+
       # Plain and owner-owned. It was setgid and group-shared when a daemon uid
       # had to write into the same repositories the human read; nothing shares a
       # repository any more, which is the point of item 18.

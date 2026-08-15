@@ -75,6 +75,24 @@
   # is: the one thing tying this program to this host is what a case suite has to
   # substitute, and `policyCases` in flake.nix is what does.
   moduleState ? "/var/lib/capsule",
+  # How this front end asks after, and bounces, a slot's egress proxy — the last
+  # step of `capsule <slot> policy <name>`, and the only one that needs a
+  # privilege this program does not have (NOTES item 41).
+  #
+  # An argument for the same reason `moduleState` is, and a sharper one:
+  # `pkgs.systemd` is in `runtimeInputs`, so `writeShellApplication` prepends it
+  # to `PATH` and a case suite **cannot** stub `systemctl` by putting one in
+  # front of it (CLAUDE.md). The branch this names had never run in the repo's
+  # history — it needs a proxy that is up — and its failure path is the whole of
+  # item 41, so both have to be reachable from a sandbox that has neither systemd
+  # nor root.
+  #
+  # Two functions rather than two command strings, because each call needs a
+  # *result*: whether the proxy is up, and whether the bounce worked.
+  proxyControl ? ''
+    proxyActive() { systemctl is-active --quiet "$1"; }
+    proxyRestart() { sudo systemctl restart "$1"; }
+  '',
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.
   # `unit` only exists where the target's policy has a hole for one (NOTES item
@@ -426,6 +444,8 @@ in
         # quarantine, and a record is written by exactly one.
         recordRoot=${moduleState}
         ${record.fragment}
+
+        ${proxyControl}
 
         # What the guest says about itself: one round trip, one line, the field
         # order defined in host/observe.nix and nowhere else. This *is* the
@@ -921,27 +941,50 @@ in
             # directory so that a proxy can traverse to it without being able to
             # reach the record at all (NOTES item 39, host/services.nix's
             # `allowlistDir`).
+            #
+            # **The restart is in here too, and that is NOTES item 41.** It is
+            # what makes a selection true of the wire, and it is the one step that
+            # can fail for a reason outside this program — it needs root. Left
+            # after the document, its failure writes the record and the link and
+            # leaves the proxy serving the old policy, which is fail-*open* for
+            # the narrowing case that a policy verb mostly exists for. The hook's
+            # contract is exactly the one that fixes it: a hook that fails leaves
+            # nothing moved. So the link is put back by hand on the way out —
+            # nothing else knows what it was — and `recordWrite` returns non-zero
+            # with no document written.
+            #
+            # Everything here prints to **stderr**. The hook runs inside
+            # `gen=$(recordWrite …)`, so a line on stdout is captured as part of
+            # the generation.
             recordAlso() {
-              ln -sfT "$CAPSULE_POLICY_DIR/$(policyFile "$want")" \
-                "$CAPSULE_ALLOWLIST_DIR/$1"
+              local link="$CAPSULE_ALLOWLIST_DIR/$1" prev
+              prev=$(readlink -- "$link" 2> /dev/null || true)
+              ln -sfT "$CAPSULE_POLICY_DIR/$(policyFile "$want")" "$link" || return 1
+              # A proxy that is not running has nothing to reload: it renders its
+              # config at start, so the next start is already the new policy.
+              if ! proxyActive "$proxy"; then
+                echo "  $proxy is not running; it will render $want when it starts" >&2
+                return 0
+              fi
+              echo "  restarting $proxy — egress is down for the length of it" >&2
+              proxyRestart "$proxy" && return 0
+              echo "capsule: $proxy would not restart, so the selection was undone." >&2
+              echo "  It needs a privilege this program does not have; a host that" >&2
+              echo "  has not granted it would otherwise leave '$name' reading" >&2
+              echo "  '$want' everywhere while the proxy still serves" >&2
+              echo "  $(effectivePolicy "$name") (NOTES item 41)." >&2
+              if [ -n "$prev" ]; then ln -sfT "$prev" "$link"; else rm -f "$link"; fi
+              return 1
             }
+            proxy="capsule-proxy-$name"
             # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
             gen=$(recordWrite "$name" '.policy = $p' --arg p "$want") || {
               echo "capsule: '$name' still holds $(effectivePolicy "$name") — the" >&2
-              echo "  record and its allowlist link are written together and" >&2
-              echo "  neither moved." >&2
+              echo "  record, its allowlist link and its proxy move together and" >&2
+              echo "  none of them moved." >&2
               exit 1
             }
             echo "capsule $name: policy $want, generation $gen"
-            # A proxy that is not running has nothing to reload: it renders its
-            # config at start, so the next start is already the new policy.
-            proxy="capsule-proxy-$name"
-            if systemctl is-active --quiet "$proxy"; then
-              echo "  restarting $proxy — egress is down for the length of it"
-              sudo systemctl restart "$proxy"
-            else
-              echo "  $proxy is not running; it will render $want when it starts"
-            fi
             ;;
 
           ${lib.optionalString stateNeedsUnit ''

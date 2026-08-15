@@ -966,6 +966,22 @@
         capsules = fixture;
         inherit (hostPrograms) observe programVerbs stateNeedsUnit;
         moduleState = ''"$CASE_STATE"'';
+        # NOTES item 41's branch and its failure, made reachable from a sandbox
+        # that has neither systemd nor root — which is exactly why the front end
+        # takes this as an argument: `pkgs.systemd` is in its `runtimeInputs`, so
+        # a stub `systemctl` on PATH cannot shadow the real one.
+        #
+        # Two variables rather than two builds, so all three shapes — proxy down,
+        # proxy restarted, proxy refusing to restart — come off one store path.
+        # The restart *logs* as well as returning, because "did not restart" and
+        # "restarted and the message was wrong" are different failures.
+        proxyControl = ''
+          proxyActive() { [ -n "''${CASE_PROXY_UP:-}" ]; }
+          proxyRestart() {
+            echo "restarted $1" >> "$CASE_PROXY_LOG"
+            [ -z "''${CASE_PROXY_FAIL:-}" ]
+          }
+        '';
       };
       buildFile = policies.policies.build.allowlist;
       sealedFile = policies.policies.sealed.allowlist;
@@ -1096,6 +1112,50 @@
         ck "an explicit --policy wins" 0 "$rc"
         ckt "  and is not doubled" \
           saw "collect argv: --capsule both --policy sealed"
+
+        # ------------------------------------------- the proxy, and NOTES item 41
+        #
+        # The selection is only true of the wire once that slot's proxy has been
+        # restarted, and until today no case could reach the branch that does it —
+        # it needs a proxy that is up, and a sandbox has no systemd. So this is a
+        # branch that had never been taken anywhere, which is the class item 41
+        # belongs to.
+        export CASE_PROXY_LOG=$PWD/proxy.log
+        : > "$CASE_PROXY_LOG"
+
+        # `both` is on `build` at generation 1 from the runs above.
+        run both policy sealed
+        ck "a selection with the proxy down is taken" 0 "$rc"
+        ckt "  and says it will be rendered at the next start" \
+          saw "will render sealed when it starts"
+        ckt "  with nothing restarted" test ! -s "$CASE_PROXY_LOG"
+
+        export CASE_PROXY_UP=1
+        run both policy build
+        ck "a selection with the proxy up restarts it" 0 "$rc"
+        ckt "  and says egress is down for the length of it" \
+          saw "restarting capsule-proxy-both"
+        ckt "  and the proxy really was restarted" \
+          grep -qF "restarted capsule-proxy-both" "$CASE_PROXY_LOG"
+
+        # The item itself. A restart that fails must leave *nothing* moved — the
+        # hook's contract (host/record.nix) — because the alternative is a record
+        # and a link that read `sealed` over a proxy still serving `build`, which
+        # is fail-open in the one direction a policy verb exists for.
+        export CASE_PROXY_FAIL=1
+        wasLink=$(readlink "$CAPSULE_ALLOWLIST_DIR/both")
+        wasGen=$(gen both)
+        run both policy sealed
+        ck "a proxy that will not restart undoes the selection" 1 "$rc"
+        ckt "  saying the selection was undone rather than half-done" \
+          saw "would not restart, so the selection was undone"
+        ckt "  and which policy still holds" saw "still holds build"
+        ckt "  the link went back to where it was" \
+          test "$(readlink "$CAPSULE_ALLOWLIST_DIR/both")" = "$wasLink"
+        ckt "  the record did not move" test "$(gen both)" = "$wasGen"
+        ckt "  and still names the old policy" \
+          test "$(jq -r .policy "$CASE_STATE/slot/both/assignment.json")" = build
+        unset CASE_PROXY_UP CASE_PROXY_FAIL
 
         # ------------------------------------------------- the ordering, asserted
         #
@@ -1279,6 +1339,28 @@
           (binds n))
       units;
 
+      # `capsule <slot> policy <name>` ends in `sudo systemctl restart
+      # capsule-proxy-<slot>`, and on a host that does not permit it the verb
+      # cannot finish — it now undoes the selection rather than half-applying it,
+      # but a verb built to be *delegable* that always refuses is not delegable
+      # (NOTES item 41). Both halves are this module's own declarations: the
+      # proxy units it makes, and the rule it installs for them. Fourth instance
+      # of the shape, after the guard's capability (item 30) and the bind's
+      # traversal (item 39) — and this one earns its place twice, because nothing
+      # else here reads `security.sudo.extraRules` at all, so without it a type
+      # error in that rule would surface in a host rebuild.
+      #
+      # The literal path is sudo's, not nix's: sudo resolves the command against
+      # its own `secure_path` before matching, so a rule naming a store path would
+      # look right and never fire (host/services.nix says the same where the rule
+      # is written).
+      sudoCommands =
+        lib.concatMap (r: map (c: c.command or c) r.commands)
+        host.config.security.sudo.extraRules;
+      unrestartable =
+        lib.filter (n: !(lib.elem "/run/current-system/sw/bin/systemctl restart ${n}" sudoCommands))
+        (lib.filter (lib.hasPrefix "capsule-proxy-") units);
+
       # Refused before either derivation is named, so a `nix build` of the
       # programs cannot pass a module whose units are wrong.
       checked = drv:
@@ -1290,6 +1372,8 @@
         then throw "capsule-perimeter: the guard's CapabilityBoundingSet has no CAP_SYS_PTRACE, so `ip netns pids` will silently omit the VMM it is asked about and the guard will refuse a correctly-bound guest (NOTES item 30)."
         else if unreachable != []
         then throw "capsule-perimeter: ${lib.concatStringsSep "; " unreachable} (NOTES item 39)."
+        else if unrestartable != []
+        then throw "capsule-perimeter: no sudoers rule permits restarting ${lib.concatStringsSep ", " unrestartable}, so `capsule <slot> policy <name>` cannot finish a selection for those slots and will undo it instead (NOTES item 41)."
         else drv;
     in {
       units = checked (pkgs.writeText "capsule-units.txt" ''

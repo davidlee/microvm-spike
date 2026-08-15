@@ -17,12 +17,19 @@ every egress figure before today was missing. `b` came back to `200` on `build`.
 `capsule b collect` was refused by `mayCollect`, unreachable on a stopped slot
 and never triggered before. The `policy` verb's restart branch ran six times
 across both slots, and running it found
-[item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md), **open**: that
-branch is `sudo systemctl restart capsule-proxy-<slot>`, this host permits no
-such rule, and it worked today only on a ticket a `just up` left warm — so the
-verb item 36 built to be *delegable* ends in a privilege the assigner has not
-got, and a failed restart leaves the record and link narrowed while the wire
-stays wide. Before that, after **`capsule all status` was found to spend ten
+[item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md): that branch is
+`sudo systemctl restart capsule-proxy-<slot>`, this host permits no such rule,
+and it worked today only on a ticket a `just up` left warm — so the verb item 36
+built to be *delegable* ended in a privilege the assigner has not got, and a
+failed restart left the record and link narrowed while the wire stayed wide.
+**Fixed and asserted the same evening, switch owed**: the restart moved inside
+the record's hook, whose failure is defined to leave nothing moved, so a proxy
+that will not bounce puts the link back and writes no document; the module grants
+exactly that one restart per declared slot; `policyCases` is 32 → 44 with the
+branch and its failure both reachable from a sandbox, and `hostModuleUnits`
+throws when a proxy unit has no rule naming its restart. **A rollback beats a
+check** — authority is not authentication, and a ticket can expire between the
+two. Before that, after **`capsule all status` was found to spend ten
 seconds a row proving that this host is not the shape it is**
 ([item 40](./ledger/040-no-doors-is-not-the-other-shape.md), below):
 `host/cli.nix`'s `door` decided which transport reaches a capsule by asking
@@ -1381,14 +1388,16 @@ It is in flight rather than finished, and one of the two is cheap.
 
 ## Open, and nothing should claim these closed
 
-- **The `policy` verb ends in a privilege the assigner has not got**
-  ([item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md)). `sudo
-  systemctl restart capsule-proxy-<slot>`, with no rule on this host permitting
-  it; it worked the first time it ever ran only because of a warm sudo ticket.
-  A failed restart leaves the record and the link narrowed and the wire wide.
-  Nothing is broken here today — the human has full sudo at a terminal — and the
-  verb is not delegable until it is fixed, which is the thing item 36 built it
-  for. Recommendation in the item; unimplemented.
+- ~~**The `policy` verb ends in a privilege the assigner has not got**~~ —
+  **fixed and asserted, switch owed**
+  ([item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md)). The restart is
+  inside the record's hook now, so a proxy that will not bounce puts the link
+  back and writes no document; the module grants that one restart per declared
+  slot. **Nothing here can tell you it landed** — `policyCases` proves the logic
+  and `hostModuleUnits` proves the rule is declared, and only a slot whose proxy
+  actually restarts under a delegated user proves the rule *matches*. The
+  sudoers path is the one thing in it that a test cannot check, because sudo
+  resolves against `secure_path` at run time.
 - **Which of build / run / start / trigger / *take* does the evidence cover?**
   Five findings in two days, each green everywhere it was looked at: item 37
   found programs nothing built, item 38 an assertion nothing ran, item 39 a unit

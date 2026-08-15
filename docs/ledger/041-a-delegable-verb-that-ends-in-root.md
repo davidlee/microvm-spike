@@ -1,6 +1,14 @@
 # NOTES item 41 — a delegable verb that ends in root, and the half-write when it cannot
 
-*State: **open, found by running the branch for the first time**. `capsule <slot>
+*State: **fixed and asserted, switch owed**. The restart moved inside the
+record's hook, so a proxy that will not bounce undoes the selection instead of
+half-applying it; the module grants exactly that one restart per declared slot;
+and both halves are pinned — `policyCases` is 44 assertions (was 32) with the
+branch and its failure both reachable from a sandbox, and `hostModuleUnits`
+throws when a proxy unit has no rule naming its restart. Needs a `~/flakes`
+switch to reach this host. What follows is the fault as found.*
+
+*`capsule <slot>
 policy <name>` is the verb [item 36](./036-a-policy-is-selected-not-named.md)
 built so that an assigner may select within a slot's declared set, and
 [item 11](./011-host-side-runs-as-you.md) says everything host-side
@@ -62,7 +70,7 @@ reads the record.
 
 A narrowing that half-lands is exactly the case a policy verb exists for.
 
-## Three fixes, and which one is the shape
+## Three fixes considered
 
 **Refuse before writing anything.** The verb can ask whether it will be able to
 restart — `sudo -n` against the exact unit — and refuse the whole selection
@@ -80,6 +88,55 @@ assigner may already select the policy, and the only new power is bouncing a
 proxy, which is a brief fail-closed egress outage. This makes the verb actually
 delegable rather than merely shaped that way.
 
+## What was built
+
+The first two — and the first is better done as a rollback than as the
+refusal-in-advance it was written up as.
+
+**The restart went inside the hook.** `recordWrite`'s `recordAlso` runs under the
+slot's lock and *before* the document, and host/record.nix defines its failure
+as leaving nothing moved — which is the same argument that put the link before
+the record. Extending it one step makes the wire part of that: the hook
+re-points the link, bounces the proxy, and on a failed bounce puts the link back
+by hand (nothing else knows what it was) and returns non-zero, so no document is
+written and the verb's existing refusal is *true* rather than nearly true. Its
+wording moved with it — the record, its link and its proxy move together and
+none of them moved.
+
+Better than the check-first this item first recommended, and the reason is worth
+keeping: **a check for whether root will be available is a
+prediction, and it is racy** — a sudo ticket can expire between the check and the
+use — while a rollback is an observation. `sudo -n -l` also cannot answer the
+question that matters: on this host it reports the restart as *authorised*,
+because the human has blanket `(ALL : ALL) ALL`, and the restart still needs a
+password. Authorisation is not authentication, and only trying finds out.
+
+**The module grants the restart.** `security.sudo.extraRules` in
+`host/services.nix`, one literal `systemctl restart capsule-proxy-<slot>` per
+declared slot, `NOPASSWD`, no wildcard. The path is
+`/run/current-system/sw/bin/systemctl` and not a store path, because sudo
+resolves against its own `secure_path` before matching — a store-path rule reads
+correctly and never fires, which is what the eval check below was watched
+catching.
+
+**Both are pinned.** `host/cli.nix` gained a `proxyControl` argument with a
+default, for the reason `moduleState` has one: `pkgs.systemd` is in
+`runtimeInputs`, so `writeShellApplication` prepends it to `PATH` and a case
+**cannot** stub `systemctl` in front of it. With two environment variables the
+suite reaches all three shapes off one store path — proxy down, proxy
+restarted, proxy refusing — and `policyCases` went 32 → 44. Watched going red on
+a mutation that is plausible live code (the hook tolerating a failed restart):
+four assertions, and the one about the link staying put stays green, which is
+what says the halves are separable.
+
+`hostModuleUnits` pairs the proxy units against the sudoers commands and throws
+when one has no rule. Fourth instance of that shape after item 30's capability
+and item 39's traversal, and it earns its place twice over: nothing else in this
+repo reads `security.sudo.extraRules`, so without it a type error there would
+surface in a host rebuild.
+
+## Not built: the path unit
+
 **Take the human out of it: a path unit.** `systemd.paths` watching
 `allowlistDir` and restarting that slot's proxy would make step (3) systemd's,
 triggered by step (1). Attractive and it is *not* the same claim — it makes the
@@ -88,9 +145,6 @@ asked for, on a directory a human can also edit by hand. It also inverts the
 direction the perimeter is supposed to flow: a control that reacts to a file is a
 control taking instructions from the filesystem, which is a weaker version of
 what item 36 refused when it kept the proxy from reading the assignment record.
-
-Recommendation: the first two together — refuse when it cannot be done, and make
-it possible for the person the verb was built for. Not the third.
 
 ## What this belongs to
 
