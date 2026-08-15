@@ -558,11 +558,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1786802866,
-        "narHash": "sha256-vGDzbhCO/PZTrKVHWGauqRr5PIORI9vJRFr3y5yx8ts=",
+        "lastModified": 1786814435,
+        "narHash": "sha256-yEUEvkGGM15akmWH6SWPO3XZu47+/YHK+7LnamYJ0zM=",
         "ref": "refs/heads/edge",
-        "rev": "0ac0798ac7ea4448fb10364185a87cd5837c920b",
-        "revCount": 6884,
+        "rev": "69c2cf6070278b3d188062812626e16a82f26f66",
+        "revCount": 6893,
         "type": "git",
         "url": "file:///home/david/dev/doctrine"
       },
