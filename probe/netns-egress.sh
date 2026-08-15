@@ -146,9 +146,11 @@ cleanup() {
   egress_down
   ns_down "$NS"
   ns_down "$NSPEER"
-  echo
-  echo "cleaned up.${LOG:+ console log: $LOG}"
-  [ -n "$PROXY_STATE" ] && echo "proxy log: $PROXY_STATE/tinyproxy.log"
+  # As netns-boot: the state directory is the real capsule's, so nothing here is
+  # this probe's to remove and the logs always survive.
+  release_state -- ${LOG:+"$LOG"}
+  [ -n "$PROXY_STATE" ] && echo "  proxy log: $PROXY_STATE/tinyproxy.log"
+  return 0
 }
 trap cleanup EXIT
 

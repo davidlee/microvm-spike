@@ -114,6 +114,45 @@ kill_helpers() {
   done
 }
 
+# The last line of every probe: what was removed, and where the evidence went.
+#
+# It is one verb rather than a line in each cleanup because a probe's console log
+# lives *inside* the state directory that holds it, so a probe that removes the
+# directory has removed the log — and every copy of this message named the log
+# anyway. `two-capsules.sh` printed two paths it had deleted four lines earlier,
+# and `freshness.sh` printed one, while `netns-boot.sh` and `netns-egress.sh`
+# printed a path that survives only because they happen not to delete anything.
+# Four spellings, two of them wrong, and none of them wrong in a way a run
+# reports: the moment anybody reads this line is after a red run, which is
+# exactly when the path is gone.
+#
+# `release_state [<dir>…] -- [<log>…]`: the directories CAPSULE_KEEP governs
+# first, the logs that live in them after. A probe with nothing to remove passes
+# no directories and its logs are named unconditionally, which is the same
+# sentence for the same reason.
+release_state() {
+  local dirs=() logs=() after=no a
+  for a in "$@"; do
+    if [ "$a" = -- ]; then
+      after=yes
+    elif [ "$after" = no ]; then
+      dirs+=("$a")
+    else
+      logs+=("$a")
+    fi
+  done
+  echo
+  if [ "${#dirs[@]}" -eq 0 ] || [ -n "${CAPSULE_KEEP:-}" ]; then
+    echo "cleaned up.${dirs[0]:+ kept: ${dirs[*]}}"
+    [ "${#logs[@]}" -gt 0 ] && echo "  console log: ${logs[*]}"
+  else
+    rm -rf "${dirs[@]}"
+    echo "cleaned up. state removed, and the console log with it —"
+    echo "  CAPSULE_KEEP=1 keeps both, which is what a red run wants."
+  fi
+  return 0
+}
+
 # Listeners take a moment; poll rather than sleep and hope.
 wait_listen() {
   local ns=$1 addr=$2 port=$3

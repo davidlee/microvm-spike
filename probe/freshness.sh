@@ -91,14 +91,7 @@ cleanup() {
   kill_helpers
   ns_down "$NS"
   rm -rf "$SOCKDIR"
-  if [ -n "${CAPSULE_KEEP:-}" ]; then
-    echo
-    echo "kept: $VMDIR"
-  else
-    rm -rf "$VMDIR"
-  fi
-  echo
-  echo "cleaned up.${LOG:+ console log: $LOG}"
+  release_state "$VMDIR" -- ${LOG:+"$LOG"}
 }
 trap cleanup EXIT
 

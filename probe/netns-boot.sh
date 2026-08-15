@@ -92,8 +92,10 @@ cleanup() {
   kill_helpers
   ns_down "$NS"
   [ -n "$SOCKDIR" ] && rm -rf "$SOCKDIR"
-  echo
-  echo "cleaned up.${LOG:+ console log: $LOG}"
+  # No state directory of its own — this probe boots the real capsule's, which
+  # is `.vm/capsule` and is not a probe's to remove — so the log always survives
+  # and `release_state` says so with no directories to govern.
+  release_state -- ${LOG:+"$LOG"}
 }
 trap cleanup EXIT
 

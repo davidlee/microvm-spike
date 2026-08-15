@@ -149,14 +149,7 @@ cleanup() {
   ns_down "$NS_A"
   ns_down "$NS_B"
   rm -rf "$SOCKDIR_A" "$SOCKDIR_B"
-  if [ -n "${CAPSULE_KEEP:-}" ]; then
-    echo
-    echo "kept: $DIR_A $DIR_B $STATE"
-  else
-    rm -rf "$DIR_A" "$DIR_B" "$STATE"
-  fi
-  echo
-  echo "cleaned up. console logs: $LOG_A $LOG_B"
+  release_state "$DIR_A" "$DIR_B" "$STATE" -- "$LOG_A" "$LOG_B"
 }
 trap cleanup EXIT
 

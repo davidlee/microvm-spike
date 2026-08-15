@@ -9,6 +9,15 @@ figures the first time one of them is edited.
 All of them need root, so they are the user's to run. `just build` shellchecks
 them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 
+**`CAPSULE_KEEP=1` is what a red run wants.** A probe that makes its own state
+directory removes it afterwards, and the guest console log lives *inside* it — so
+by the time anybody wants a console log, the ordinary run has deleted it. Every
+probe used to print the log's path on the way out regardless, which named a file
+that was already gone; `two-capsules.sh` named two. The message is
+`probe/harness.sh`'s `release_state` now, one verb for all six, and it says which
+of the two things happened rather than assuming the good one. Set `CAPSULE_KEEP`
+*before* a run you might need to read, not after.
+
 | probe | question | run | last result |
 | --- | --- | --- | --- |
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
