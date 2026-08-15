@@ -1471,6 +1471,31 @@
           exit 1
         fi
 
+        # `capsule-halt` is namespace-relative and takes no transport, by design:
+        # it is always run somewhere ${net.guest} is directly routable — the unit
+        # from inside the capsule's own namespace, this program from the root one
+        # where the devshell path's tap lives. So it is not that a transport was
+        # forgotten here; it is that *this* copy is only correct on a host whose
+        # taps are in the root namespace, and the module path's are not.
+        #
+        # Which makes this `direct`'s second refusal (host/guest-ssh.nix), owed by
+        # a program that never selects a capsule because its argv is the name
+        # already. Without it the ssh times out at ${net.guest}, `capsule-halt`
+        # reports "no guest answering" — naming the wrong cause, since the guest
+        # answers fine through its relay — and then `own_vms` correctly finds no
+        # VMM of *this* namespace and the fall-through prints `is down` over a
+        # capsule still running. Two true-in-scope sentences that compose into a
+        # false one, which is the `pkill -f` trap one level up: the scoping is
+        # right and the claim it licenses is not.
+        sock=${socketOf ''"$name"''}
+        if [ -S "$sock" ]; then
+          echo "capsule '$name' is on the module path here ($sock exists), and this" >&2
+          echo "  is the devshell's stop: it would ask a guest that is not routable" >&2
+          echo "  from this namespace, then report a VMM it cannot see as down." >&2
+          echo "    /run/current-system/sw/bin/capsule $name stop" >&2
+          exit 1
+        fi
+
         # One link, one guest: the devshell path runs a single capsule at
         # ${net.guest}, and every name below is that same guest — the image under
         # its own name, and each declared slot, which are one value in this flake.

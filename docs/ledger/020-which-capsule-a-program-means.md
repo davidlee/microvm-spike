@@ -184,3 +184,37 @@ bounded lie is still a lie, and the honest state of a stopped capsule is no
 socket. Note which of the two symptoms is the dangerous one — the refusal is
 loud and names the copy to run, so it was the *hang* that cost the time, from
 the copy the refusal recommends.
+
+**Second correction: the refusal was rolled out by flag, and `vm-stop` has no
+flag.** The set of programs that got the devshell copy's refusal was drawn as
+*the ones that take `--capsule`* — which is `host/guest-ssh.nix`'s `direct`, and
+therefore the four. `vm-stop` takes its name positionally and consumes no
+`transport` at all, so it fell outside a boundary that was never the right one:
+the property that matters is **whether a program ssh's at `net.guest`**, and it
+does, through `capsule-halt`.
+
+`capsule-halt` looked like it needed nothing, and the reasoning was sound as far
+as it went (`host/halt.nix`): it is *namespace-relative*, and both its callers
+run it where the guest is directly routable — the unit from inside the capsule's
+own namespace via `NetworkNamespacePath`, this program from the root namespace
+where the devshell path's tap lives. So it takes an `--identity` and no
+transport. What that misses is that `vm-stop` is the caller which can be invoked
+on the wrong host shape, and it carries `capsule-halt` there with it.
+
+The failure is worth reading as a composition, because every part of it is
+individually correct. The ssh times out at `net.guest`; `capsule-halt` reports
+`no guest answering` — the wrong cause, since the guest answers fine through its
+relay; `own_vms` then finds no VMM in this shell's namespace, which is right and
+is deliberately right, since a bare `pkill -f` on `microvm@capsule` is a power
+cut for every namespaced sibling; and the fall-through prints `is down` over a
+capsule that is still running. **Two true-in-scope sentences composing into a
+false one** — the `pkill -f` trap one level up, where the scoping is correct and
+the claim it licenses is not. It reads as a clean teardown, which is the same
+thing the scoping exists to prevent.
+
+The fix is `direct`'s second refusal, owed by a program that never selects a
+capsule because its argv is the name already: `[ -S "$(socketOf "$name")" ]`,
+naming `capsule <name> stop`. Note it is not exercised by anything — it fires
+only while a module-path VM is up, and the stubbed cases cannot reach it, since
+the socket path is baked and creating one is root's. That places it beside the
+privilege class in CLAUDE.md rather than beside the case suites.
