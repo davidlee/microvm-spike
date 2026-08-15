@@ -333,6 +333,21 @@ which shape nearly every decision here:
   choosing — a program that can try both transports has both baked in (NOTES
   item 20). `just provision | inject | baseline | collect | setup <name>` picks
   the reachable copy, which is a recipe's latitude and not a program's.
+- **The module's programs on `PATH` are wrappers, so reading one answers about
+  the wrapper.** `host/services.nix`'s `wrap` builds a package under the *same
+  name* whose whole text is `CAPSULE_STATE`/`CAPSULE_REPO` and `exec <inner>` —
+  the five that keep host state (`capsule`, `capsule-collect`,
+  `capsule-provision`, `capsule-adopt`, `capsule-brief`) are three lines each in
+  `/run/current-system/sw/bin`. So grepping one for a flag reports a program that
+  does not have it, and every generation shares the wrapper's store path whenever
+  nothing it embeds moved — which reads as *this host never rebuilt*. Both
+  readings are wrong in the same direction and they corroborate each other: an
+  interactive `PATH` here can also hold a third, staler `capsule` that really is
+  behind, so a verb list taken from `which capsule` agrees with the bad grep and
+  nothing contradicts either. **Ask the program, don't read it** —
+  `/run/current-system/sw/bin/capsule all status`, or follow the `exec` line to
+  the inner store path. Cost a session, concluding the host was a version behind
+  when it was current.
 - **`microvm -c … -f <flake>` takes no fragment, and omitting `-f` is worse than
   forgetting it.** The CLI appends
   `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
