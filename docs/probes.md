@@ -13,7 +13,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | --- | --- | --- | --- |
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
-| `netns-egress.sh` | does the *perimeter* survive the move into one? | `sudo probe-netns-egress` | 27/27 green, run 1. The real capsule with the real proxy joined to its namespace; allowed **and** denied both asserted |
+| `netns-egress.sh` | does the *perimeter* survive the move into one? | `sudo probe-netns-egress` | **33/33 green, run 3** — 27/27 for the perimeter, plus stage 2b's six, which is the first time a *selected* policy has reached a wire. The real capsule with the real proxy joined to its namespace; allowed **and** denied both asserted, in both rounds |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
 | `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, twice (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
@@ -108,6 +108,47 @@ Two things it settled that were not the question:
     so the re-run after that rebuild opened with `NOTE the host's own resolver
     answers on 10.101.0.1 — the capsule keeps its DoT chain`. That closes the
     half of the perimeter the first 27/27 could not claim.
+
+### Run 3 — a selected policy reaches the wire
+
+**33/33**, the six new assertions being stage 2b. This is the claim
+[item 36](./ledger/036-a-policy-is-selected-not-named.md) was built on and could
+not make: `policyCases` proves the front end's decisions and `capsule-host`'s
+refusals, and nothing anywhere proved that the allowlist a slot *resolves to* is
+the one a guest actually meets. The count is itself part of the evidence — the
+round skips when `ALLOW` holds no plain hostname, and a skip lands at 27, so 33
+says it ran rather than passed vacuously.
+
+The shape is the same guest, the same host, two declared policies, and the
+answer changing:
+
+```
+NOTE  allowlisted host api.anthropic.com: HTTP/1.1 200 Connection established
+NOTE  under sealed, api.anthropic.com:    HTTP/1.1 403 Filtered
+NOTE  build again, api.anthropic.com:     HTTP/1.1 200 Connection established
+```
+
+**Both directions, because a denial after a restart is ambiguous** — a proxy
+that simply stopped working denies exactly as convincingly as a sealed
+allowlist, so the round only counts if the same host comes back. It goes through
+a stop and a start of the real unit rather than a probe-only shortcut, which is
+also what the `policy` verb costs a running capsule.
+
+**`sealed`'s refusal is byte-identical to an off-allowlist refusal under
+`build`** — `403 Filtered` either way, the same string stage 2 gets for a host
+that was never on the list. That is right rather than a weakness: an empty
+allowlist means every host is off it, so there is one refusal here and not two,
+and a proxy that distinguished them would be leaking which policy a capsule is
+under to the confined side. It is also why the round is defined by the
+*restoration* rather than by the denial's text.
+
+**`sealed` has served something now**, for the first time: it had been a
+declared policy with an empty allowlist that no slot had ever been put on.
+
+What it does **not** show, and the gap is named in the probe rather than implied:
+two capsules differing *at the same time*. That needs two guests and is
+`probe/two-capsules.sh`'s shape. This proves a selection reaches the wire; it
+does not prove two selections coexist.
 
 Like `netns-boot.sh` it borrows the live tap, /30 and volume, for the same
 reason: the guest image has `net.nix` in it, so the real capsule is the subject.
@@ -899,12 +940,22 @@ comes from, and the two should not be conflated.
 
 ## Still unproven
 
-- ~~**Egress under netns.**~~ Proven: `probe-netns-egress`, 27/27, above. What
-  is *not* proven is the same perimeter assembled out of systemd units rather
-  than out of a probe's `ip` and `nft` commands — the shape is settled, the
-  wiring is not.
-- **DNS through the host's own chain, under netns.** The probe fell back to a
-  public resolver because this host has no stub on the capsule-facing address.
-  Until that edit lands in `~/flakes`, the claim "guest lookups inherit the
-  host's DoT chain" is true of the tap shape and unproven of the netns one.
+- ~~**Egress under netns.**~~ Proven: `probe-netns-egress`, above. ~~What is
+  *not* proven is the same perimeter assembled out of systemd units rather than
+  out of a probe's `ip` and `nft` commands — the shape is settled, the wiring is
+  not.~~ The units are wired (`host/netns.nix`, `host/services.nix`) and have run
+  at N=1 and N=2 on this host, and the guard has held two namespaces across a
+  pool widened to ten.
+- **Two policies at once.** Run 3 proves a *selected* allowlist reaches the wire
+  (33/33, above), by putting one guest through two policies in sequence. Two
+  capsules on two policies **at the same time** has no instrument — only a shape,
+  `probe/two-capsules.sh`. Sequential selection and coexisting selections are
+  different claims and only the first one is evidence.
+- ~~**DNS through the host's own chain, under netns.**~~ Proven from run 2 on,
+  once the host module grew both halves — the stub on the capsule-facing address
+  and the input allow for port 53 on that link. Runs 2 and 3 both open with
+  `NOTE the host's own resolver answers on 10.101.0.1 — the capsule keeps its DoT
+  chain`, which is the probe reporting that it did *not* need its public-resolver
+  fallback. The fallback stays, because it is what makes the difference legible
+  rather than silent.
 - Throughput over the unix socket. The tap did ~100 MiB/s each way.

@@ -6,7 +6,14 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **the pool — `capsules.nix` declares `a`…`j`,
+Last updated 2026-08-15, after **item 36 was switched onto this host and its one
+owed claim was run: a selected policy reaches the wire**, `sudo
+probe-netns-egress` 33/33 (below). One guest, two policies in sequence, the
+answer changing and coming back. Two capsules on two policies *at once* is still
+uninstrumented. It also cost one real bug in `vm-stop`, which reported a
+module-path capsule as down while it ran
+([item 20](./ledger/020-which-capsule-a-program-means.md)) — fixed, unexercised.
+Before that, the same day, after **the pool — `capsules.nix` declares `a`…`j`,
 which is [Plan D](./plan-d-fleet.md) D2's declaration half** (below): built,
 switched, and costing 3% of an eval and one page of PID 1 at rest — with the
 guard reading `2 of 10 declared` and both running slots undisturbed. The run-time
@@ -109,11 +116,21 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   **Checked by `policyCases`**, 28 of them: the front end's own text against
   three slots `capsules.nix` would itself refuse, watched going red on two
   mutations. What no case can say is that any of it reaches the wire —
-  `probe/netns-egress.sh` has a two-policy round for that now, **written and
-  unrun**, and even that will not show two capsules differing at the same time.
+  `probe/netns-egress.sh` has a two-policy round for that.
 
-  **Nothing is switched**, so this host still runs the fleet-wide allowlist; the
-  switch is also what materialises the per-slot symlinks.
+  **Switched, and the wire claim is made.** tmpfiles materialised the per-slot
+  symlinks at each slot's declared policy, so `/var/lib/capsule/slot/{a,b}/allowlist`
+  point at `build`'s file with nothing assigned, and `capsule all status` grew its
+  `policy` column. Then `sudo probe-netns-egress` came back **33/33** — the
+  perimeter's 27 plus stage 2b's six: one guest, one host, allowed under `build`,
+  refused under `sealed`, allowed again once the policy was put back, through a
+  real stop and start of the unit. Both directions because a denial after a
+  restart is ambiguous, and the *count* is what says the round ran at all, since
+  a skip lands at 27
+  ([probes](./probes.md#run-3--a-selected-policy-reaches-the-wire)). **`sealed`
+  has served something** for the first time. Still open, and named in the probe
+  rather than implied: two capsules differing *at the same time*, which needs two
+  guests and is `probe/two-capsules.sh`'s shape.
 
 - **The pool is ten slots, declared and switched onto this host.**
   `capsules.nix` says `a`…`j`, which is [Plan D](./plan-d-fleet.md) D2's first

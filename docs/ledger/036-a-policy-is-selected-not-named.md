@@ -1,11 +1,14 @@
 # NOTES item 36 — a policy is selected from a declared set, never named by a project
 
-*State: **built and green, unswitched**. The vocabulary and each slot's set are
-declared, all three limbs have moved out of `target.nix`, `capsule <slot> policy
-<name>` selects within a slot's set, and 28 cases pin it. Nothing is switched, so
-this host still runs the fleet-wide allowlist — the switch is also what
-materialises the per-slot symlinks. The one claim still owed is the live one, and
-`probe/netns-egress.sh`'s two-policy round is written and unrun. This is
+*State: **built, switched, and proven at the wire**. The vocabulary and each
+slot's set are declared, all three limbs have moved out of `target.nix`, `capsule
+<slot> policy <name>` selects within a slot's set, and 28 cases pin it. Switched
+on this host, which is also what materialised the per-slot symlinks: `a` and `b`
+both resolve `build`, and `capsule all status` has a `policy` column. The claim
+the cases could not make is made — `probe/netns-egress.sh` **33/33**, stage 2b's
+six included, so a selected allowlist is what a guest meets and `sealed` has
+served something. What remains open is two capsules differing *at the same time*,
+which is another probe's shape. This is
 [item 25](./025-assignment-is-a-perimeter-verb.md)'s
 resolution shape turned into a mechanism, and it is the run-time half of
 [Plan D](../plan-d-fleet.md) D2 — the declaration half is
@@ -129,11 +132,18 @@ rule that probe was written under.
 | the allowlist moves — `perimeter/` loses its value, both call sites resolve a policy | **built**, three `capsule-host` refusals exercised |
 | `collectMaxPackBytes` and `mayCollect` move | **built**, four `capsule-collect` refusals exercised |
 | `capsule <slot> policy <name>`, the status column, and the cases | **built**, 28 cases green, two mutations watched red |
-| the live claim — the same guest under two policies | **written, unrun**: `probe/netns-egress.sh` stage 2b, and it needs root |
+| the live claim — the same guest under two policies | **run**: `probe/netns-egress.sh` 33/33, stage 2b green ([probes](../probes.md#run-3--a-selected-policy-reaches-the-wire)) |
 
-**Nothing is switched**, so this host still runs the fleet-wide allowlist. The
-switch is also what materialises the per-slot symlinks, since tmpfiles is what
-creates them at each slot's declared policy.
+**Switched.** tmpfiles created the per-slot symlinks at each slot's declared
+policy, so `/var/lib/capsule/slot/{a,b}/allowlist` point at `build`'s file and
+the `policy` column reads `build` for every declared slot. Nothing had to be
+assigned for that: an operator's declaration is what an unassigned slot runs, and
+that is the whole reason the link is tmpfiles' rather than the verb's.
+
+**The count is part of the evidence.** Stage 2b skips when `ALLOW` holds no plain
+hostname, and a skip lands the run at 27 — the number the first two runs scored —
+so 33 is what says the round ran rather than passed vacuously. A probe with a
+conditional round needs its total read, not just its colour.
 
 **How the ingestion limbs moved**, on `unit`'s precedent exactly
 ([item 32](./032-the-sideband-channel.md)): `capsule-collect --policy <name>`,
@@ -173,7 +183,9 @@ that was never applied.
 `probe/netns-egress.sh`'s stage 2b — the same guest, the proxy restarted under
 `sealed`, the host that was allowed refused, and allowed again when the policy is
 put back, because a denial after a restart could be a proxy that simply stopped
-working. It is written and needs root, so it is unrun.
+working. **Run, 33/33.** So the selection reaches the wire, and `sealed` — a
+declared policy with an empty allowlist that no slot had ever been put on — has
+now served something.
 
 **And what that probe still will not say** is that two capsules differ *at the
 same time*. That needs two guests, which is `probe/two-capsules.sh`'s shape and
