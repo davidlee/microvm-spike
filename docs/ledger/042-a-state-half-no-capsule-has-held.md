@@ -325,9 +325,19 @@ and an agent pointed at it produced the **same tree twice**.
 
 **What no run has reached.** Everything past the snapshot: the push, the guest's
 layout, and `briefDeliver`'s exhibit refusals against a host-authored tree. The
-`code-oid` mismatch is reachable today and is worth taking deliberately — `c` is
-at `de32c856b` and the checkout at `f49314de8` — but it now lands on the **host**
-precheck rather than in the guest, which writes nothing and is the point of
-having it. The guest's own `code-oid` refusal stays unreached from this origin,
+`code-oid` mismatch is reachable today and is worth taking deliberately — ~~`c` is
+at `de32c856b` and the checkout at `f49314de8`~~ **not on `c`, which is working;
+see [item 45](./045-a-brief-is-an-origin-not-a-top-up.md)** — but it now lands on
+the **host** precheck rather than in the guest, which writes nothing and is the
+point of having it.
+
+**And the case arrived before the delivery did**
+([item 45](./045-a-brief-is-an-origin-not-a-top-up.md)). `c` needed exactly this
+state half and was two hours into the unit by the time anyone noticed, at which
+point four refusals stand between the verb and the capsule and each of them is
+correct. The window in which a brief is possible is the window before the agent
+starts, which is the argument for `capsule-provision --state-from-host` that the
+section above declined to make in advance — a step of a sequence that is easy to
+forget and impossible to take late wants to be part of the step before it. The guest's own `code-oid` refusal stays unreached from this origin,
 and can only be reached by HEAD moving mid-flight; that is the honest reading of
 what the precheck cost, and it is worth the retry it stops poisoning.
