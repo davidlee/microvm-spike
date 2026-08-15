@@ -478,7 +478,8 @@ one was a precondition for both D3 and D7):
   `install-microvm-<name>` runs on **every rebuild** and re-points `current` at
   the declaration, so the day `~/flakes` declares a `microvm.vms.<slot>` a host
   rebuild silently reverts a composed slot. `toplevel` does not defend against
-  that; only the absence of the declaration does.
+  that; only the absence of the declaration does, and that is an assertion in
+  `capsule-perimeter` now rather than a comment in another repo.
 
 ## 6. The shape this suggests
 
@@ -630,6 +631,18 @@ Three consequences to accept before any of it is built:
    happen, because it is the same coupling the repo has already decided against
    once.
 
+   **Scoped, inventoried and planned in
+   [item 51](./ledger/051-the-target-in-four-store-paths.md)**, which is where it
+   is tracked and which carries two things this paragraph does not: the read is
+   wider than "the four programs" — `statePaths` and `stateMaxBytes` are
+   interpolated into a script that is *pushed into the guest*, so the text is the
+   interface — and **detargeting subsumes D7's "checkout at a generic path"
+   bullet below**, at none of its cost, since a path arriving at run time is not
+   in the closure either while relocating one strands every existing volume's
+   checkout. What it does *not* do is get the name out of the guest image; that
+   is consequence 2's seed, and so finishing this does not make two targets
+   concurrent.
+
 **Identity falls out of the same payload.** A refresh-always `/work/.capsule`,
 sourced by the guest's `interactiveShellInit` exactly as `.env` already is, lets
 the prompt read `agent@delta:doctrine@a1b2c3`. Per-slot identity, one image,
@@ -765,7 +778,10 @@ only place a repo name appears.
   now waits on is wanting two of them **at once**; a switch is already a branch.
   Its first task is §6's consequence 4 — the four programs' target-shaped
   values, of which L13 is the one with no override at all — and nothing above
-  forecloses it.
+  forecloses it. That task is
+  [item 51](./ledger/051-the-target-in-four-store-paths.md) now: inventoried,
+  planned, unbuilt, and carrying the one decision it needs before step 3
+  (whether the profile document is per target or one for the host).
 
   **The four programs are the start of the inventory, not the whole of it.** The
   guest image also knows the project's name, its checkout path, its branch, its
@@ -774,10 +790,15 @@ only place a repo name appears.
   generalisations make most of the rest disappear rather than become
   parameters, which is the cheaper move and is worth doing even before flavours:
 
-  - **the checkout goes at a generic path**, not `<volumePath>/<name>` —
-    `target.guestPath`'s derivation from `name` is a courtesy that costs a
-    project name in the closure, and the display name belongs in the identity
-    payload where the prompt already wants it;
+  - ~~**the checkout goes at a generic path**, not `<volumePath>/<name>`~~ —
+    **superseded for the host programs by
+    [item 51](./ledger/051-the-target-in-four-store-paths.md)**: this bullet
+    exists to get a project's name out of the closure, and a path that arrives at
+    run time is not in the closure either, while relocating one strands every
+    existing volume's checkout. What survives is the second half of the sentence
+    — `target.guestPath`'s derivation from `name` is a courtesy, and the display
+    name belongs in the identity payload where the prompt already wants it — plus
+    the *guest image's* copy of it, which is consequence 2's seed and not this;
   - **caches go at a derived path keyed by the env var**, so `caches` becomes a
     list of names rather than a map to directories. Strictly fewer degrees of
     freedom for the same capability, and `cachePaths` still derives;
@@ -917,7 +938,10 @@ step 6 is ungated) and
 8. **D7 + D2's dynamic half, flavours and targets as data.** Once two projects
    are wanted **at once** — one at a time already works, and the port cost is a
    diff rather than an argument (L1, NOTES item 23). It starts with the four
-   programs' target-shaped values (§6.4) — ~~and L13~~, **whose half of the
+   programs' target-shaped values (§6.4), which are
+   [item 51](./ledger/051-the-target-in-four-store-paths.md) — inventoried and
+   planned, and the one part of step 8 that needs no second target to be worth
+   building — ~~and L13~~, **whose half of the
    precondition is met**: no program spells the branch any more. §6.4 is the
    remaining half, and it is worth doing even if flavours never happen, because
    it is [item 20](./ledger/020-which-capsule-a-program-means.md)'s coupling one

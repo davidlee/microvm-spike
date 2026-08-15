@@ -6,7 +6,37 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **[item 42](./ledger/042-a-state-half-no-capsule-has-held.md)
+Last updated 2026-08-16, after **[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s
+read was taken and the reading under it was half wrong**. Two assignments to slot
+`e`, one quarantine: the code half behaves as the item predicted — forced,
+non-fast-forward, the first assignment's commit left `unreachable` — and the
+state half **fast-forwards**, because it was never forced at all. The guest
+parents each snapshot on its own `refs/capsule/state/<stage>`, which lives on the
+volume and which a provision does not touch, so the chain crosses the reprovision
+and is rooted in a commit *this host* wrote. **A refspec's `+` says what a fetch
+may do, never what it did.** And `capsule <slot> fetch` is **unforced** where the
+collect is forced, so the second fetch is rejected for code and accepted for
+state: `~/dev/doctrine` now holds **assignment 1's code beside assignment 2's
+state**, under two names that say they belong together, from a verb that exited 1
+without naming either half
+([probes](./probes.md#two-assignments-one-quarantine)). Nothing was built or
+changed; `c`'s quarantine was deliberately left unspent and `e` was already
+finished with. Before that, the same day, after **a capsule six hours into a unit
+of work was handed whole to another slot, in four commands and without root** —
+the c→d migration, and the first run of the composite's *other* origin,
+`capsule-provision --state <capsule>`. `capsule c collect` (1.162 s; 31 files,
+678701 bytes at unit `251`), `capsule c fetch`, `capsule d provision
+refs/capsule/c/heads/work --state c` (9.618 s), cold baseline green in 120 s
+([probes](./probes.md#a-capsule-handed-to-another-slot--what---state-capsule-costs)).
+`d` holds `c`'s HEAD `18e35c2e5`, its `research/` and `phases/`, and its one
+uncommitted worktree edit still uncommitted. **The composite is what made it one
+step**: the sequence written down in HANDOVER was `setup` then `capsule d brief
+c`, which is exactly [item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)'s
+window — a brief taken after a provision refuses on a target whose refresh writes
+tracked files, and that is what left slot `e` at `0ab546b6c`. Two untracked paths
+in `c` sat outside `statePaths` and were committed there first; `$HOME` did not
+travel and cannot. Before that, the same day, after
+**[item 42](./ledger/042-a-state-half-no-capsule-has-held.md)
 was delivered — and getting there found that the third step of every provision
 this repo has ever run was being eaten off stdin**
 ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)).
@@ -329,6 +359,98 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A capsule was handed to another slot, and the sequence written down for it
+  was the wrong one.** The c→d migration, and the first run of
+  `capsule-provision --state <capsule>` — the composite's quarantine origin,
+  against the host origin
+  [item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)
+  delivered on `e`. Four commands, no root, no hand-rolling
+  ([probes](./probes.md#a-capsule-handed-to-another-slot--what---state-capsule-costs)).
+
+  **The recorded sequence was `setup` then `capsule d brief c`**, which is item
+  47's window and would have refused: on a target whose refresh writes tracked
+  files there is no *after* a provision, and the proof of that is `e`, still
+  sitting at a refresh commit its own brief then refused. The composite puts the
+  brief between the push and the refresh, which is the only moment both
+  preconditions hold. `d`'s HEAD afterwards is the commit it was provisioned at,
+  and `c`'s uncommitted `notes.md` arrived still uncommitted — a worktree edit
+  travelling as a worktree edit, which is what `statePaths` is for.
+
+  **What a scoped exhibit costs a human, stated once.** Two untracked paths in
+  `c` — a `.doctrine/memory` item and `.doctrine/workflows/drive-slice.js` — sat
+  outside `statePaths`, so neither half would have carried them; they were
+  committed in `c` first. That is [item 32](./ledger/032-the-sideband-channel.md)
+  working as declared and it is also the standing price of it: **the narrower the
+  exhibit, the more there is that only a person notices.** `$HOME` is the other
+  half and is not fixable at all — `/work/home` is per-volume and firecracker
+  shares no filesystem.
+
+  **It made [item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s
+  read cheap, and the read has since been taken** — on `e` rather than `c`, so
+  the migration's own quarantine stays intact. Next bullet.
+
+- **Two assignments to one slot, and the two halves of a result fail in opposite
+  directions.** [Item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s
+  read, on slot `e`: collect, reprovision at a non-descendant, collect again,
+  fetch again ([probes](./probes.md#two-assignments-one-quarantine)).
+
+  **The code half is what the item predicted.** `+ 0ab546b6c...592168676 (forced
+  update)`, and `git fsck` in the quarantine then reports the first assignment's
+  commit `unreachable` — object alive, no name reaching it.
+
+  **The state half is not, and the mistake is worth more than the finding.** The
+  item read `+refs/capsule/state/*` in the refspec and concluded *overwrite*; the
+  fetch was a **fast-forward**, because the guest parents each snapshot on its
+  own `refs/capsule/state/<stage>`, which is on the volume and which a forced
+  push to `work` does not touch. **A refspec's `+` is a permission, not an
+  account of what happened** — the same class as
+  [item 43](./ledger/043-a-grant-that-was-present-and-inert.md)'s `sudo -n -l`,
+  which answers *some rule permits this* and never *which line won*.
+
+  **So the chain crosses assignments, and its root is a commit this host wrote.**
+  `527596740` at `+1000` is `capsule e provision --state-from-host`; the two
+  collects above it are `+0000`, the guest's. Item 42 dropped `--from-host`'s ref
+  either side of a delivery precisely so an accidental chain would not become an
+  archive nobody decided to keep — and one exists anyway, on the volume, where no
+  key in `host/quarantine.nix` reaches it. The timezone is a free authorship tell
+  and the only one there is.
+
+  **And the two ends of the channel disagree by construction.**
+  `capsule <slot> fetch`'s refspec is `refs/capsule/*:refs/capsule/*`
+  (`host/cli.nix:798`) — **unforced**, where every collect refspec is forced, and
+  neither file mentions the other. The second fetch is therefore `! [rejected]`
+  for code and a fast-forward for state, so `~/dev/doctrine` holds **one
+  assignment's code beside another's state** under names that say otherwise. The
+  verb exits 1 having half-succeeded, says nothing of its own, and the `fetch)`
+  loop does not read that status — so `capsule all fetch` would carry on. That is
+  [item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md)'s shape: two
+  things that must move together, and no definition of what a failure leaves.
+
+  **Nothing was built.** Three things not to conflate now instead of two, and the
+  new one — the state ref's lifetime is the *volume's* — is the only one that
+  cannot be decided by naming a quarantine differently.
+
+- **The read that gated volume verbs is taken, and it inverted what it was
+  afraid of.** [Item 49](./ledger/049-who-owns-a-state-directory.md), so
+  [Plan D §9](./plan-d-fleet.md#9-order-of-work) step 6 — D3 and D4, the volume
+  verbs, one of which is currently a hand-typed `rm -rf` — is **ungated**.
+  Nothing in microvm.nix reconciles state directories: the only walk of
+  `/var/lib/microvms/*` is a read-only activation `echo`, and `microvms.target`
+  wants only declared VMs, of which this host has none. So a directory of ours
+  owes the units `current/bin/*`, `booted/` and its ownership and nothing else.
+
+  **What is there instead is the mirror image**, and it is why the constraint
+  outlived the read: `install-microvm-<name>` carries no `ConditionPathExists`
+  unless `updateFlake` is set, so it runs on every rebuild and `ln -sTf`s
+  `current` back to the declaration — a slot's chosen runner reverted and
+  restarted silently, which is D7's failure arriving by activation. Upstream's
+  `toplevel` marker does not cover it; only `~/flakes` declaring no
+  `microvm.vms` does, and that line was a comment two repos away holding for an
+  unrelated reason. It is an assertion in `capsule-perimeter` now — vacuous in
+  `hostModuleUnits`' standalone eval, watched failing in a throwaway eval
+  carrying both modules, switched. **Switched is not witnessed here**: an
+  assertion that holds renders nothing.
 
 - **A host-authored state half is in a capsule, and the third step of a provision
   had never finished.** [Item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md),

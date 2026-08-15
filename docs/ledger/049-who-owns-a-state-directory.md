@@ -2,7 +2,7 @@
 
 *State: **both reads taken, the failure they found is not the one this item was
 written about, and the constraint that replaces it is asserted rather than
-asked for — built, unswitched.** Nothing reconciles, so the feared loss of a
+asked for — built and switched.** Nothing reconciles, so the feared loss of a
 volume does not exist in the pinned microvm.nix; what does exist is an
 **overwrite at activation**, and the `toplevel` marker this item was reaching for
 does not defend against it. D3 and D7 are ungated.*
@@ -161,8 +161,17 @@ microvm.nix's host module and its `microvm` command, in full, at the revision th
 host has locked. Confirmed on the host: `microvms.target` wants nothing, no
 `install-microvm-*` unit exists, and `/var/lib/microvms/a` holds what the first
 read predicts. Built and watched failing: the assertion above, green through
-`just check`, `just units` and `just build` — **and unswitched**, since it lives
-in a module `~/flakes` takes and only a host rebuild renders it.
+`just check`, `just units` and `just build`, **and switched** — it lives in a
+module `~/flakes` takes at committed HEAD, so it reached this host as commit
+`2cc81f4` and a `nixos-rebuild switch` one minute later.
+
+**Switched is not witnessed, and here it cannot be.** An assertion that holds
+renders nothing: `microvm.vms` is empty on this host, so the switch passing is
+what a switch without the assertion also looks like. What the switch establishes
+is that the module still evaluates on a real host — the hole
+[CLAUDE.md](../../CLAUDE.md) names about `hostModuleUnits` — and the refusal
+itself stays evidenced by the throwaway eval above rather than by anything this
+machine did.
 
 **Nothing else was written**: no `toplevel` exists on this machine and no program
 of ours owns a `current`. The claim about upstream is therefore about what it

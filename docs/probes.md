@@ -1270,6 +1270,100 @@ a provision refuses — and the remedy the message names, re-provision at
 step (2) of a provision rather than a command anyone takes afterwards, and it is
 observed here rather than argued.
 
+## A capsule handed to another slot — what `--state <capsule>` costs
+
+The composite's **other origin**, and the first time it has run: slot `c`, six
+hours into doctrine's `SL-251`, handed whole to slot `d`. `--state-from-host`
+above reads this host's checkout; this reads a *quarantine*, which is the
+direction [items 32–35](./ledger/035-briefing-a-capsule-with-state.md) built and
+[item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md) moved
+inside a provision. Four commands, none of them needing root:
+
+```
+capsule c collect
+capsule c fetch
+capsule d provision refs/capsule/c/heads/work --state c
+capsule d baseline
+```
+
+| | |
+| --- | --- |
+| `collect`, both halves, one atomic fetch | **1.162 s** |
+| state half at unit `251` | **31 files, 678701 bytes**, commit `4a54b89f7` |
+| code half | `18e35c2e5` → `refs/capsule/c/heads/work` |
+| `fetch`, quarantine → `~/dev/doctrine` | **0.042 s** |
+| `provision … --state c`, whole composite | **9.618 s** |
+| `inject` | 0.120 s, both payloads already present and skipped |
+| cold `baseline` on `d`'s fresh volume | `0	120	18e35c2e5	131	1272	just web-build test` |
+
+**The composite was not broken down and that is a gap, not a figure.** The
+`--state-from-host` run above could time its refresh alone straight afterwards
+because nothing else had moved; here the refresh's own `doctrine install` reran a
+skill copy, and no second timing was taken. What the 9.618 s does establish is
+the shape — the same order of magnitude as the host-origin composite against a
+target command that does more — and the state half is not separately priced from
+this origin.
+
+**What it settles about ordering.** `d`'s HEAD afterwards is `18e35c2e5`, the
+commit it was provisioned at, with **no refresh commit on top** — so this run
+does not reproduce `e`'s. The refresh wrote nothing tracked this time, which is
+the *lucky* half; the composite is what makes it not matter, since the brief
+landed between the push and the refresh either way. And `notes.md` arrived
+**still modified**, uncommitted in `c` and uncommitted in `d`, which is the state
+half carrying a worktree edit rather than a commit.
+
+**What did not travel, by construction.** Two untracked paths in `c` sat outside
+`target.nix`'s `statePaths` — a `.doctrine/memory` item and
+`.doctrine/workflows/drive-slice.js` — so neither half would have carried them;
+they were committed in `c` first and rode the code half. `$HOME` did not travel
+and cannot: `/work/home` is on each slot's own volume and firecracker shares no
+filesystem, so `~/.claude`'s session history stayed on `c`. **The scoped exhibit
+is doing exactly what item 32 built it to do, and the cost of that is a list of
+things a human has to notice.**
+
+## Two assignments, one quarantine
+
+[Item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s read, taken on
+slot **`e`** — spent, so nothing was consumed by taking it. Collect, reprovision
+at a commit that is not a descendant, collect again, fetch again:
+
+| | |
+| --- | --- |
+| `capsule e collect`, assignment 1 | **1.209 s** — `work` `0ab546b6c`, state `5225687a0`, 30 files / 566960 bytes at unit `251` |
+| `capsule e provision 582300f14 --force` | **5.321 s**, refresh committed `592168676` — a **sibling** of `0ab546b6c` |
+| `capsule e collect`, assignment 2 | **0.230 s** — state `8b62ae0cb`, the same 30 files / 566960 bytes |
+| `capsule e fetch`, assignment 2 | **exit 1**, having landed one of the two halves |
+
+**The second collect is 5× the first's speed and it is the same work.** 0.230 s
+against 1.209 s, same file count and same byte count, because the code half is
+almost entirely already in the quarantine — which is what a mirror keyed on a
+slot buys, and is also the thing the item is about.
+
+**What the two collects did to the refs**, which is the finding rather than the
+figure:
+
+```
++ 0ab546b6c...592168676 work -> refs/capsule/e/heads/work  (forced update)
+  5225687a0..8b62ae0cb  refs/capsule/state/implementation -> refs/capsule/e/state/implementation
+```
+
+Code forced and non-fast-forward, so `git fsck` in the quarantine afterwards
+reports `unreachable commit 0ab546b6c…`. State **fast-forwarded** — never forced,
+because the guest parents each snapshot on its own `refs/capsule/state/<stage>`,
+which is on the volume and which a provision does not touch. The chain is three
+deep and its dates say who wrote each: `527596740` at `+1000` is this host's
+`--state-from-host` root, `5225687a0` and `8b62ae0cb` at `+0000` are the guest's.
+
+And the fetch, whose refspec is unforced where the collect's is forced:
+
+```
+! [rejected]           refs/capsule/e/heads/work -> …  (non-fast-forward)
+  5225687a0..8b62ae0cb refs/capsule/e/state/implementation -> …
+```
+
+So `~/dev/doctrine` ends with **assignment 1's code beside assignment 2's state**,
+under two names that say they belong together.
+
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the
