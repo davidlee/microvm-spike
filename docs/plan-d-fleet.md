@@ -117,9 +117,11 @@ cost:
    step 2 — and by `nix flake update target` — which needs a *commit in the
    target repo* first (`git+file:` reads committed HEAD).
 3. **Host rebuild.** Anything in `host/`, `setup.nix` declarations, and
-   `capsules.nix`. Until the §0 override, also a push: `~/flakes` took the
-   module from GitHub, so declaring a capsule meant commit → push → `nix flake
-   update oubliette` → `nixos-rebuild switch`.
+   `capsules.nix`. ~~Until the §0 override, also a push~~ — **the override is
+   taken** (L11), so this is commit → switch: `~/flakes` used to take the module
+   from GitHub, and declaring a capsule then meant commit → push → `nix flake
+   update oubliette` → `nixos-rebuild switch`. It reads **committed HEAD** at the
+   overridden path, so the commit is not optional.
 4. **Create / update the instance.** `just up <name>` (`microvm -c`) needs *this
    checkout*, because the instance name resolves as a flake attribute (NOTES
    item 21); `microvm -u <name>` after every class-2 change.
@@ -150,16 +152,23 @@ base commits, different slices. *today:* works, and is measured — two capsules
 two base commits, both cold-baselined green
 ([probes](./probes.md#two-cold-builds-at-once)). Collected refs are namespaced
 `refs/capsule/<name>/*`, so `capsule all fetch` lands both in one repo without
-collision. The gaps are elsewhere: nothing records which slice a capsule holds
-(L5), and neither prompt nor motd can say which capsule you are in (NOTES item
-21).
+collision — *between slots*, which is the case this story is about; a slot's own
+successive assignments share that namespace and are
+[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md). The gap this
+entry named is closed: `unit` and `purpose` are record fields and status columns
+(D1), so which slice a capsule holds is answerable from the host. What remains is
+the other half of L5 — neither prompt nor motd can say which capsule you are in
+(NOTES item 21).
 
 **S3 — rebase a capsule onto a newer base.** The branch moved; move the capsule
 without losing its work. *today:* `capsule <n> collect` then `capsule <n>
 provision <ref>`. Refused if the guest's worktree is dirty (`updateInstead`),
 refused if it would discard guest commits; `--force` insists and discards them.
-Right defaults. Missing: anything that shows the divergence before you decide
-(L6), so the safe sequence is two commands and a habit.
+Right defaults, and **the deciding half is answerable now** that L6 is closed:
+head, dirty and the collected refs are columns, and `capsule <n> branches` reads
+what a quarantine holds. What is still missing is the *divergence* as one
+reading — ahead/behind against the ref you are about to provision at — so the
+safe sequence is two commands and a habit.
 
 **S4 — throw one away and start clean.** This capsule is wedged; a fresh one
 under the same name.
@@ -179,11 +188,12 @@ copies a volume either way. (L8)
 
 **S6 — what is running?** Which capsules are up, what each is working on, is
 anything stuck.
-*today:* `capsule all status` answers created / VM / proxy / relay / door /
-answers / collected refs, plus the guard as the witness for what is inside a
-namespace. It does not answer *what commit*, *dirty or not*, *how full the
-volume is* — the binding constraint — *did the baseline pass*, or *is an agent
-running in there*. Each needs an ssh round trip and none is a column. (L6)
+*today:* **answered by D5**, which is what closed L6. `capsule all status` adds
+head, dirty, baseline verdict and age, `df /work`, current-versus-peak memory,
+collected refs, generation, policy, unit and purpose to the host-side columns it
+always had, plus the guard as the witness for what is inside a namespace. The
+one question in the original list still outside it is *is an agent running in
+there*, which is L9's shape rather than a column's — see D6.
 
 **S7 — reset just `$HOME`.** The agent's own state is confused; keep the
 checkout and the caches. *today:* not possible short of destroying the volume.
@@ -204,26 +214,40 @@ it.
 cannot be said through the CLI: `capsule <n> ssh` passes trailing arguments as
 the *remote command*, so the ProxyCommand has to be reconstructed by hand. No
 verb, no record of which capsule owns which host port, nothing stopping two
-capsules from claiming the same one. (L10)
+capsules from claiming the same one. (L10, and now
+[item 48](./ledger/048-a-forwarded-port-is-host-state.md), which is where it is
+tracked — the reach exists and the **allocation** is what is missing.)
 
 **S10 — retire a capsule.** Done with it; give the host its resources back.
 *today:* stop, delete the state dir by hand, remove the name from
 `capsules.nix`, take the class-3 chain to make the units go away. Its quarantine
-at `/var/lib/capsule/collect/<n>.git` is left behind and nothing reaps it
-(retention is open — [status](./status.md)). Deleting the *name* is at least
-safe by design: indices are declared, so neighbours do not renumber.
+at `/var/lib/capsule/collect/<n>.git` is left behind and nothing reaps it —
+[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md), which is where
+retention is tracked and which found the sharper half underneath it: the ref
+namespace is the **slot's** and not the assignment's, so a slot's successive
+assignments share one quarantine and the collect refspecs are forced. Deleting
+the *name* is at least safe by design: indices are declared, so neighbours do
+not renumber.
 
 **S11 — a secret rotated.** The token on this host changed; running capsules
 hold stale copies. *today:* `capsule <n> inject <payload> --force` per capsule,
 and the force discards whatever the guest wrote there. Deliberate (NOTES item
 22) — but an N-times ritual with no way to ask which capsules are stale.
-Injection *at start* would make the ritual a restart, and it is written but
-**unshipped on this host** until `~/flakes` relocks ([status](./status.md)).
+Injection *at start* would make the ritual a restart, and it is built: `capsule
+<name> start` waits for the guest to answer and injects the whole declared list,
+which is only safe because every payload is write-if-absent (item 22). That
+makes the *fresh* capsule cheap and leaves rotation exactly where item 22 left
+it — deliberately manual, because refreshing at every start would silently
+discard what the guest wrote N times.
 
 **S12 — two projects with different dependency hosts.** One needs crates.io, the
 other npm.
-*today:* one allowlist for every capsule on the host, so the union — a real
-widening of each capsule's perimeter for the other's benefit. Cheap to fix (L3).
+*today:* **solved by L3's closure** ([item
+36](./ledger/036-a-policy-is-selected-not-named.md)). It used to be one allowlist
+for every capsule on the host, so the union — a real widening of each capsule's
+perimeter for the other's benefit. A policy is selected per slot now, so the two
+projects take different ones and neither is widened for the other. What is left
+is S1's problem and not this one: both capsules still run one target.
 
 ## 4. Limitations
 
@@ -255,23 +279,39 @@ bought something else.
   `guestConfig`, so per-slot vCPU is a 3.0 GiB image and a `microvm -u` per slot
   ([item 27](./ledger/027-a-class-is-not-always-a-kilobyte.md)). Volume size is
   fixed at first boot and is the volume's, not a class's.
-- **L3 — one allowlist per host, not per capsule.** The proxy already takes
-  `CAPSULE_ALLOWLIST` per unit and the units are already per capsule; only the
-  module option is singular. A per-capsule allowlist is a field and a bind
-  mount, not a mechanism. The *naming* half is already decided and in use:
+- ~~**L3 — one allowlist per host, not per capsule.**~~ **Closed** ([item
+  36](./ledger/036-a-policy-is-selected-not-named.md)), and by the shape §6
+  predicted rather than the one this entry did. The prediction here was a
+  per-capsule allowlist *field*; what landed is a **policy selected from a
+  declared set** — the host declares the vocabulary and each slot declares which
+  of it an assigner may pick, so the project never names its own perimeter (NOTES
+  item 25). The module option is not singular any more and is not plural either:
+  a `policyDir` holding every declared policy's file, and an `allowlistDir` of
+  one symlink per slot which the proxy binds. Where that symlink *lives* was a
+  second finding ([item 39](./ledger/039-a-bind-is-not-a-traversal.md)). The
+  *naming* half this entry recorded is still in use:
   `perimeter/egress-allow-<target>.txt`, one file per target, with doctrine's
   plain `egress-allow.txt` grandfathered (NOTES item 23).
 - **L4 — the volume has no verbs.** Created by microvm.nix, destroyed by
   `rm -rf`. Reset, clone, snapshot and size are all out-of-band operations on a
   path under `/var/lib/microvms`, where a typo is expensive.
-- **L5 — a capsule has no purpose, and cannot say its own name.** Nothing
-  records what a capsule was assigned to, and one image means every guest greets
-  you as `agent@capsule` (NOTES item 21, knowingly paid). At N=2 that was
-  already why two probe results were indistinguishable by prompt.
-- **L6 — status stops at the door.** Every column is a host-side fact or a
-  liveness ping. The facts a human steers by — commit, dirty, disk, baseline
-  verdict, is an agent running — live inside the guest and are reachable only by
-  hand.
+- **L5 — a capsule has no purpose, and cannot say its own name.** **Half
+  closed.** The purpose half is D1's: the assignment record carries `purpose`
+  and `unit`, and both are status columns ([item
+  29](./ledger/029-the-record-is-front-end-written.md)) — so what a capsule was
+  assigned to is answerable from the host. The *name* half is untouched: one
+  image means every guest still greets you as `agent@capsule` (NOTES item 21,
+  knowingly paid), which at N=2 was already why two probe results were
+  indistinguishable by prompt. §6's identity payload is where that half goes,
+  and it is the cheaper half — a refresh-always `/work/.capsule`, not a second
+  image.
+- ~~**L6 — status stops at the door.**~~ **Closed by D5**, which is the one
+  direction here built *before* the record it reads from, deliberately: the guest
+  round trip is what settles where `base.oid` comes from. Every fact this entry
+  named — commit, dirty, disk, baseline verdict and its age — is a column fed by
+  the round trip `answers` already paid for, plus current-versus-peak memory,
+  which the ratchet makes a steering number rather than a curiosity. *Is an agent
+  running* is the exception and is not a column's problem: it is L9.
 - **L7 — the volume's contents are one axis.** Checkout, `$HOME`, caches and
   `target/` share a lifetime because they share a disk, so freshness is
   all-or-nothing and "reset the agent's state" and "start over" are one
@@ -296,13 +336,23 @@ bought something else.
   detach pattern exists (`host/baseline.nix`) but only for a non-interactive
   command.
 - **L10 — no port forwarding as a first-class thing.** Possible by hand through
-  the existing door; unmanaged, so nothing allocates or records host ports.
-- **L11 — declaring a capsule is a git push.** Class 3, plus the GitHub round
-  trip. Fixed by §0's local input, which is why that is step one.
+  the existing door; unmanaged, so nothing allocates or records host ports. **The
+  only limitation here with no direction covering it**, which is why it is now
+  [item 48](./ledger/048-a-forwarded-port-is-host-state.md) rather than a line in
+  a table: the reach exists and the missing thing is allocation, which is
+  host-side, belongs in the record, and is never the guest's to choose.
+- ~~**L11 — declaring a capsule is a git push.**~~ **Closed** by §0's local
+  input, which is why that was step one. Class 3 is commit → switch now; the
+  GitHub round trip remains only so darwin can evaluate the flake, and reading
+  **committed HEAD** at the overridden path is what replaced the push.
 - ~~**L12 — one broken slot denies the whole host, and the chain that does it is
   not obvious.**~~ **Closed** ([item
-  30](./ledger/030-a-pool-audits-what-exists.md)), which leaves the pool itself as
-  D2's only remaining content. The chain was: nothing in `host/services.nix` is
+  30](./ledger/030-a-pool-audits-what-exists.md)), which left the pool itself as
+  D2's only remaining content — and **both halves of D2 have since landed**, the
+  declaration
+  ([30](./ledger/030-a-pool-audits-what-exists.md)) and the run-time selection
+  ([36](./ledger/036-a-policy-is-selected-not-named.md)). The chain was: nothing
+  in `host/services.nix` is
   `wantedBy` anything, so a start of `microvm@<name>` wants its proxy, the proxy
   `BindsTo` the guard — and the guard used to `requires` **every** declared
   namespace unit while auditing all of them every 10 s. A ten-slot pool therefore
@@ -318,17 +368,23 @@ bought something else.
   saying every running capsule's VMM is inside its own namespace, which is what
   makes skipping an absent one sound. No new state, no mode, and a *broken*
   namespace is still fleet-wide.
-- **L13 — `defaultBranch` has no run-time override, and it is the odd one out.**
-  Every other host-side target value either belongs to the guest (`sizes`,
-  `caches`, `guestConfig`) or has one — `path` has `CAPSULE_REPO` and the
-  module's `repo` option, `allowlist` has `CAPSULE_ALLOWLIST` and its own
-  option. `defaultBranch` is interpolated straight into `capsule-provision`, so
-  a target switch is a rebuild for that field alone, and
-  until it is one the module path's copy refuses a provision of the new
-  target's branch — correctly, and with a clear message (NOTES item 23).
-  Recorded rather than fixed at the time, because switching targets was a
-  rebuild anyway. §6.2 is where it stops being harmless: target as run-time
-  state cannot ship while a program spells the branch.
+- ~~**L13 — `defaultBranch` has no run-time override, and it is the odd one
+  out.**~~ **Closed by deletion, and built** — `workBranch` is a constant in
+  `flake.nix` threaded like any other value, so there is no field to override and
+  §9 step 8's precondition ("neither flavours nor run-time assignment can ship
+  while a program spells the branch") is met. The entry is kept because the
+  *form* of the closure is the value — it is the only limitation here answered by
+  removing a field rather than by adding a mechanism. What it was:
+  every other host-side target value either belonged to the guest (`sizes`,
+  `caches`, `guestConfig`) or had an override — `path` has `CAPSULE_REPO` and the
+  module's `repo` option, `allowlist` had `CAPSULE_ALLOWLIST` and its own
+  option. `defaultBranch` was interpolated straight into `capsule-provision`, so
+  a target switch was a rebuild for that field alone, and until it was taken the
+  module path's copy refused a provision of the new target's branch — correctly,
+  and with a clear message (NOTES item 23). Recorded rather than fixed at the
+  time, because switching targets was a rebuild anyway. §6.2 is where it stopped
+  being harmless: target as run-time state cannot ship while a program spells the
+  branch.
 
   **Decided: deletion, and nothing replaces it.** The guest's branch becomes the
   constant `work`. Two consumers allow it — the guest's seed, and
@@ -407,17 +463,22 @@ ours owning `current` can write `toplevel` too, and upstream's `-u` then refuses
 rather than silently rebuilding `nixosConfigurations.<slot>`, which by that
 point would be the wrong attribute.
 
-Two things to check before leaning on that, and the second is the one that could
-bite hard:
+Two things were to be checked before leaning on that, and **both have been read**
+([item 49](./ledger/049-who-owns-a-state-directory.md), which is where the detail
+lives — a caveat inside a costing section is not a thing anyone tracks, and this
+one was a precondition for both D3 and D7):
 
-- what the declarative path actually writes into the directory, and whether the
-  `microvm@` unit or its tap sibling needs anything from it beyond
-  `current/bin/*` and `booted/`;
-- **whether anything reconciles declaratively-managed VMs.** `toplevel` is how
-  microvm.nix marks a VM as owned by `microvm.vms.<name>`, and `~/flakes`
-  declares none — so a host-side reconciler that sees a marked state directory
-  with no matching declaration is a plausible way to lose a volume. Read the
-  host module's units before writing that symlink, not after.
+- what the declarative path writes: four lines, and the units want
+  `current/bin/*`, `booted/` and the right ownership and nothing else, so a
+  directory of ours owes them nothing further;
+- **whether anything reconciles declaratively-managed VMs: nothing does**, at
+  this lock. The feared shape — a reconciler finding a marked directory with no
+  matching declaration and taking a volume with it — is not there. What is there
+  is the mirror image, and it is why the constraint survives the read:
+  `install-microvm-<name>` runs on **every rebuild** and re-points `current` at
+  the declaration, so the day `~/flakes` declares a `microvm.vms.<slot>` a host
+  rebuild silently reverts a composed slot. `toplevel` does not defend against
+  that; only the absence of the declaration does.
 
 ## 6. The shape this suggests
 
@@ -452,8 +513,14 @@ grants it, is a reservation rather than a deletion
 The field-by-field version of all of this, and the ownership rule it rests on,
 is [contract-assignment.md](./contract-assignment.md); where a flavour's tools
 come from and how they compose is
-[contract-flavour.md](./contract-flavour.md). Both are unbuilt and both were
-written before D1, deliberately — see §9.
+[contract-flavour.md](./contract-flavour.md). Both were written before D1,
+deliberately — see §9 step 4 — and both have since been drawn on rather than left
+on paper: the assignment contract's ownership split is what D1's record and
+[item 36](./ledger/036-a-policy-is-selected-not-named.md)'s policy field are, and
+the flavour contract's **composition** half is built (`fragments.nix`,
+[item 31](./ledger/031-the-fragment-vocabulary.md)). What is unbuilt in each is
+*selection*: an assignment that names a profile, and a per-slot flavour. Both are
+D7.
 
 **Only the tool set has to be in the image.** Decomposing what is target-shaped
 in the closure today: `toolsPackage` and `extraTools` are genuinely closure
@@ -640,10 +707,12 @@ only place a repo name appears.
   of them. **The declaration has landed and is switched**: `capsules.nix` says
   `a`…`j`, and it costs 3% of a module eval and one page of PID 1 at rest
   ([probes](./probes.md#what-ten-declared-slots-cost)) — so "the cost is not idle
-  namespaces" above is now measured rather than argued. What is left of D2 is the
-  run-time half — `policy` as a field
-  an assignment selects from a declared set, rather than one allowlist for the
-  fleet.
+  namespaces" above is now measured rather than argued. **And the run-time half
+  has landed too** ([item 36](./ledger/036-a-policy-is-selected-not-named.md)):
+  `policy` is a field an assignment selects from the set its slot declares, which
+  closes L3 and S12 as well. **D2 is done**, and what §9 step 8 still pairs it
+  with is D7's dynamic half — a *target* as run-time state — which is a different
+  field and a different rebuild class.
 - **D3 — volume verbs.** `capsule <slot> volume {df,reset,reset-home,clone-from
   <m>}`, host-side, refusing while the VM runs. `reset` is S4 without the `rm
   -rf`; `clone-from` is S5, and on ext4 it is a sparse copy of ~1.1 GiB —
@@ -763,16 +832,31 @@ Not answerable from doctrine, and worth asking before the first one arrives:
 
 ## 9. Order of work
 
-1. **§0's local flake input.** One line at the rebuild, and it takes the push
-   out of class 3 — which every step below churns.
-2. **Settle §5's inference, before anything is built on it.** One eval, already
+**Steps 1–5 are taken and 6–8 are not.** Which is *not* this file's to say — the
+present tense is [status.md](./status.md)'s — but the ordering argument only
+reads correctly if you know which end of it you are standing at, so each step
+below is annotated in place with what closed it, as L12 and L13 are. The three
+things this plan named and nothing tracked are in the ledger now:
+[48](./ledger/048-a-forwarded-port-is-host-state.md) (L10),
+[49](./ledger/049-who-owns-a-state-directory.md) (§5's precondition, **read**, so
+step 6 is ungated) and
+[50](./ledger/050-a-quarantine-outlives-its-assignment.md) (S10).
+
+1. **§0's local flake input. Taken** — L11. One line at the rebuild, and it takes
+   the push out of class 3, which every step below churns.
+2. **Settle §5's inference, before anything is built on it. Settled, and it
+   settled less than it was asked to** ([item
+   27](./ledger/027-a-class-is-not-always-a-kilobyte.md)). The eval was the one
    written out in §5, comparing `toplevel.drvPath` with and without a changed
-   `microvm.mem`. Identical paths means the mem drop below is free of the image
-   and a class costs a kilobyte; different paths means the drop is a 3.0 GiB
-   rebuild plus `microvm -u` per slot, and §6's table is wrong about where
-   `class` lives. It is the cheapest step here and the one the two after it
-   depend on.
-3. **Rename to slots**, and drop `sizes.mem` to 6144 in the same breath, since
+   `microvm.mem`: identical paths would mean the mem drop below is free of the
+   image and a class costs a kilobyte, different paths that the drop is a 3.0 GiB
+   rebuild plus `microvm -u` per slot and §6's table is wrong about where `class`
+   lives. **Identical** — for `mem`. `vcpu` had to be read from source instead,
+   because forcing the *option* leaves `target.sizes.vcpu` untouched and the same
+   eval would have returned identical paths for a coupling that is real. It was
+   the cheapest step here and the one the two after it depended on.
+3. **Rename to slots. Deployed**, and drop `sizes.mem` to 6144 in the same
+   breath, since
    both need the same rebuild. The two existing capsules are expendable, so
    recreate rather than migrate — a `mv` of the state directory would also want
    its two gcroot symlinks re-pointed, and the volumes are worth less than the
@@ -797,7 +881,10 @@ Not answerable from doctrine, and worth asking before the first one arrives:
      whether the default becomes "the only running capsule, else refuse" —
      better for a fleet, but it makes a program's target depend on host state,
      which is the kind of thing this repo has refused before (NOTES item 20).
-4. **Fix the contracts, before D1 writes a record.** The artifacts are
+4. **Fix the contracts, before D1 writes a record. Written**, and the ordering
+   paid: `policy` is a field an assignment selects rather than one a project
+   names, which is the fusion this step existed to prevent and which D2's
+   run-time half then built. The artifacts are
    [contract-assignment.md](./contract-assignment.md) and
    [contract-flavour.md](./contract-flavour.md), plus the ownership column in
    [contract-target.md](./contract-target.md). The reason for the ordering is
@@ -807,15 +894,32 @@ Not answerable from doctrine, and worth asking before the first one arrives:
    with its perimeter (NOTES item 25). Design cost only — no build, no
    mechanism, and it deliberately stops short of an execution contract, which is
    [contract-doctrine.md](./contract-doctrine.md) Role 3's to say why.
-5. **D1 + D5, the record and the columns.** Cheapest useful pair, and a fleet
-   has to be legible before it can be administered.
+5. **D1 + D5, the record and the columns. Built and run** ([item
+   29](./ledger/029-the-record-is-front-end-written.md), and D5 closed L6).
+   Cheapest useful pair, and a fleet has to be legible before it can be
+   administered — which it now is, and which is why the sideband arc (items
+   32–35, 42, 45, 47) could be built on top of a record rather than beside one.
 6. **D3 + D4, volume verbs and clone semantics.** S4 and S5 are the two most
    frequent administrative actions and one of them is currently a hand-typed
-   `rm -rf`.
+   `rm -rf`. ~~Gated on [item
+   49](./ledger/049-who-owns-a-state-directory.md)~~ — **ungated**: both reads
+   are taken, nothing reconciles, and a directory of ours owes the units
+   `current/bin/*`, `booted/` and its ownership and nothing else. What the read
+   leaves behind is a standing constraint rather than a gate — `~/flakes`
+   declares no `microvm.vms`, and that line is now load-bearing for a second
+   reason.
 7. **D6, detached sessions.** When N > 2 stops being a probe and starts being a
-   Tuesday.
+   Tuesday. Independent of everything above, and it carries two other things:
+   L9, and the *is an agent running* column L6 could not close. It is also
+   [item 46](./ledger/046-bash-until-the-record-stops-being-flat.md)'s nearest
+   trigger, since `generation`'s refusal half turns a whole-file write into a
+   read-compare-write.
 8. **D7 + D2's dynamic half, flavours and targets as data.** Once two projects
    are wanted **at once** — one at a time already works, and the port cost is a
    diff rather than an argument (L1, NOTES item 23). It starts with the four
-   programs' target-shaped values (§6.4) and L13, since neither flavours nor
-   run-time assignment can ship while a program spells the branch.
+   programs' target-shaped values (§6.4) — ~~and L13~~, **whose half of the
+   precondition is met**: no program spells the branch any more. §6.4 is the
+   remaining half, and it is worth doing even if flavours never happen, because
+   it is [item 20](./ledger/020-which-capsule-a-program-means.md)'s coupling one
+   level up — a value baked into a store path that should arrive at run time —
+   and this repo has already decided against that shape once.

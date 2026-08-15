@@ -369,6 +369,9 @@
   # deliberately not `microvm.vms.<name>`: declaring it would make the host's
   # config evaluate the guest closure, and `~/flakes` is fetchable from a
   # machine the target repo does not exist on (README, "The module path").
+  # There is a second reason now, and it is about the slot rather than about
+  # this repo — a declared VM's `current` is re-pointed at the declaration on
+  # every rebuild, silently. Asserted above; NOTES item 49.
   vmDropins =
     perInstance (c: {
       name = "microvm-tap-interfaces@${c.name}";
@@ -526,6 +529,35 @@ in {
           assertion = instances != [];
           message = "services.capsule-perimeter is enabled but capsules.nix declares no capsules.";
         }
+        # **A slot's state directory is ours, and one line in another repo is
+        # what keeps it that way** (NOTES item 49). `vmDropins` below says why
+        # `microvm.vms.<name>` goes undeclared — the host's config would
+        # evaluate the guest closure — and that reason is about *this* repo's
+        # portability. The second reason is about the slot: microvm.nix's
+        # `install-microvm-<name>` carries no `ConditionPathExists` unless
+        # `updateFlake` is set, so it runs on **every rebuild** and its second
+        # line is `ln -sTf <runner> current`. A slot whose `current` is a
+        # composition somebody chose (Plan D D7) is therefore reverted to the
+        # declaration by an unrelated `nixos-rebuild`, and restarted, with no
+        # error and no diff — a slot running something other than what its
+        # record says it was assigned, which is item 41's shape.
+        #
+        # Upstream's own marker does not cover it: `[ -e toplevel ]` is tested
+        # only in the `microvm` command's `build()`, so it refuses a human's
+        # `microvm -u` and never sees the declarative path. The absence of the
+        # declaration is the whole control, which is why it is asserted rather
+        # than left in a comment two repos away.
+        #
+        # Vacuous where the option is undefined, which is `hostModuleUnits`'
+        # standalone eval — it does not import microvm.nix's host module — and
+        # fires at the switch, where both modules meet. Same shape and same
+        # honest placement as the sudoers precedence check below.
+        (let
+          declared = lib.attrNames (lib.attrByPath ["microvm" "vms"] {} config);
+        in {
+          assertion = declared == [];
+          message = "services.capsule-perimeter: microvm.vms declares ${toString (lib.length declared)} VM(s) (${lib.concatStringsSep ", " declared}), and a capsule's state directory cannot be shared. install-microvm-<name> re-points `current` at the declaration on every rebuild, so a slot's chosen runner is reverted and restarted silently, and a `toplevel` marker does not stop it — only the `microvm` command reads that. Create capsules imperatively (`just up <name>`) and leave microvm.vms empty (NOTES item 49).";
+        })
         # **A rule is granted by being in the file and effective by being the
         # last line that matches** (NOTES item 43), and every instrument this
         # repo had answered the first question. `hostModuleUnits` asserts the

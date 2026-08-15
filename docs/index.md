@@ -9,7 +9,7 @@ architecture invariants and the gotchas that have already cost time, is
 | where is this up to, what is next, what is still open? | [status.md](./status.md) |
 | why is it built like this? | [design.md](./design.md) |
 | what must a repo be, for this to confine it? | [contract-target.md](./contract-target.md) |
-| what is a slot assigned, and who may say so? | [contract-assignment.md](./contract-assignment.md) — unbuilt |
+| what is a slot assigned, and who may say so? | [contract-assignment.md](./contract-assignment.md) — record and policy built, selection of a profile unbuilt |
 | where does a guest's tool set come from, and how does it compose? | [contract-flavour.md](./contract-flavour.md) — composition built (`fragments.nix`), selection unbuilt |
 | what does doctrine ask of this, and supply to it? | [contract-doctrine.md](./contract-doctrine.md) |
 | what does the confinement actually claim? | [threat-model.md](./threat-model.md) |
@@ -40,7 +40,7 @@ architecture invariants and the gotchas that have already cost time, is
   rather than by where a value happens to live: what a repo owes
   (`-target`), what the guest can do (`-flavour`), what a slot is assigned and
   who may say so (`-assignment`), and doctrine's two roles (`-doctrine`). Two of
-  them describe a shape that is not built and say so at the top; a design
+  them describe a shape that is only partly built and say so at the top; a design
   artifact carries no state, so what exists is still status.md's to say.
 - There is no changelog. `git log` is the record, and the ledger's resolved
   items carry the reasoning a changelog would lose.
