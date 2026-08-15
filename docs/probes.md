@@ -1216,8 +1216,59 @@ no change to anything — which is the price item 42 chose over passing the
 provisioned commit in as `code-oid` and making the control pass on the false case
 too. **Provision at the commit the checkout is on, then brief.**
 
-Not measured, because it needs a live guest: the push, the guest's layout, and
-what the whole verb costs end to end.
+~~Not measured, because it needs a live guest: the push, the guest's layout, and
+what the whole verb costs end to end.~~ **Measured, below.**
+
+## The delivery, and what a provision that carries its own state costs
+
+The other end of the same item, on slot **`e`** — declared, never created before
+today, provisioned at the commit `~/dev/doctrine` was on, unit **251**. This is
+the first time anything downstream of the snapshot has run: the push of a
+host-authored state ref, the guest's layout of it, and `briefDeliver`'s exhibit
+checks against a tree no capsule wrote.
+
+It ran as **one command**, because two commands turned out not to be expressible
+on this target ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)):
+
+```
+capsule e provision 582300f142daf1f19166a8ad7e6dc0b128ef5ee5 --state-from-host
+```
+
+| | |
+| --- | --- |
+| whole composite, end to end | **5.204 s** |
+| of which the refresh (`doctrine install`) | **4.553 s**, timed alone straight after |
+| so the push **and** the state half | **≈0.65 s** |
+| landed in the guest | `.doctrine/slice/251/research/`, `.doctrine/state/slice/251/{design.toml,design-journal.toml}`, `phases/` |
+| guest worktree afterwards | clean, HEAD `0ab546b6c` on `582300f14` |
+
+**The dominant term is the target's own command and not this repo's channel.**
+The state half — snapshot, push, layout, validation — is under a fifth of the
+refresh it makes way for, which is the ratio that makes the composite worth
+having rather than merely convenient: the step that is easy to forget costs
+almost nothing beside the step nobody forgets.
+
+**Two firsts in that one line, and neither is the delivery.**
+`capsule-refresh: committed 0ab546b6c — 'doctrine install …' writes tracked files`
+is the commit branch of `host/refresh.nix` running for the first time in that
+file's life; everything below the target's command had been eaten off stdin on
+every provision before it. And the host-side `code-oid` precheck fired for the
+first time earlier the same session, on the deliberate mismatch — `e` at
+`de32c856b` against the checkout's `582300f14`, `Nothing was taken and nothing
+was pushed`, one round trip and no push.
+
+**And the refusal that proves the ordering, taken immediately after:**
+
+```
+capsule e brief --from-host
+  → this checkout is at 582300f14… and e is at 0ab546b6c…
+```
+
+The refresh's own commit is what moved the guest's HEAD, so a brief taken *after*
+a provision refuses — and the remedy the message names, re-provision at
+`582300f14`, ends in another refresh commit. That loop is why the state half is
+step (2) of a provision rather than a command anyone takes afterwards, and it is
+observed here rather than argued.
 
 ## What freshness.sh explicitly does not measure
 

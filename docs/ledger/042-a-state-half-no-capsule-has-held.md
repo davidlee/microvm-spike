@@ -1,6 +1,15 @@
 # NOTES item 42 — a state half no capsule has ever held
 
-*State: **decided and built; unrun against a guest.** `capsule-brief --from-host`
+*State: **delivered.** On slot `e`, 2026-08-16, as step (2) of one provision —
+`capsule e provision 582300f14 --state-from-host`, 5.204 s end to end, the state
+half ≈0.65 s of it
+([probes](../probes.md#the-delivery-and-what-a-provision-that-carries-its-own-state-costs)).
+The host-side `code-oid` precheck fired first, deliberately, and wrote nothing.
+Getting there cost [item 47](./047-a-script-on-stdin-and-the-command-that-eats-it.md),
+which is why the verb is a flag on a provision rather than the second of two
+commands this item expected.*
+
+*Before that: **decided and built; unrun against a guest.** `capsule-brief --from-host`
 takes the state out of `target.path` with the same text a capsule runs and pushes
 it in over the door a brief already had. The two decisions this item refused to
 make on its own are made and are below. Measured on doctrine's live checkout for
@@ -256,14 +265,23 @@ own.
   own text via `briefSpecChecker`). Both watched going red on a mutation — the
   sweep made unconditional, and the slot check made vacuous.
 
-## What is not built, deliberately
+## ~~What is not built, deliberately~~ — built, and the reason was wrong
 
-`capsule-provision --state-from-host`, the symmetry with `--state <capsule>`.
+~~`capsule-provision --state-from-host`, the symmetry with `--state <capsule>`.
 The sequencing is expressible as two commands today and each is separately
 retryable, which is what a step of a sequence wants (`host/refresh.nix`'s own
-reason). The seam is there — `briefHostState` is in the fragment
-`capsule-provision` already splices — so it is an argument parse when somebody
-wants it, and not a shape to decide in advance.
+reason).~~ **Built** ([item 47](./047-a-script-on-stdin-and-the-command-that-eats-it.md)),
+and the premise that deferred it is false on this target: the sequencing is *not*
+expressible as two commands, because there is no moment after a provision when the
+second one can land. The refresh either commits — moving HEAD off the commit
+`code-oid` compares against — or leaves the worktree dirty, which the brief
+refuses. Between the push and the refresh is the only window, and it is one no
+separate command can name.
+
+The seam was where this said it was — `briefHostState` is in the fragment
+`capsule-provision` already splices — so it was an argument parse, as predicted.
+What was not predicted is that waiting for somebody to want it meant waiting for
+a run that could not happen.
 
 ## Considered and rejected
 

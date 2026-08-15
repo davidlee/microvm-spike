@@ -1,6 +1,16 @@
 # NOTES item 45 — a brief is an origin, not a top-up
 
-*State: **open, and hit before the verb it belongs to had ever run.** Capsule `c`
+*State: **half answered.** The composite this item argued for is built and has run
+— `capsule-provision --state-from-host`, delivered on slot `e` on 2026-08-16
+([item 47](./047-a-script-on-stdin-and-the-command-that-eats-it.md),
+[probes](../probes.md#the-delivery-and-what-a-provision-that-carries-its-own-state-costs))
+— and item 47 supplied a second, sharper reason for it than this item's: on a
+target whose refresh writes tracked files there is no moment *after* a provision
+when a brief can land at all. **Still open: whether a top-up is a scoped additive
+verb or a refusal**, which the delivery does not settle either way, since it
+removes the window rather than serving a capsule already inside it.*
+
+*Originally: **open, and hit before the verb it belongs to had ever run.** Capsule `c`
 was two hours into doctrine's `SL-251` when the state half
 [item 42](./042-a-state-half-no-capsule-has-held.md) exists to deliver turned out
 to be missing from it. `capsule-brief --from-host` could not deliver it, for four

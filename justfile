@@ -88,7 +88,8 @@ build:
     '.#capsule-baseline' '.#capsule-refresh' '.#capsule-adopt' \
     '.#capsule-brief' \
     '.#hostModuleUnits' '.#hostModulePrograms' \
-    '.#guardCases' '.#policyCases' '.#briefCases' '.#snapshotCases'
+    '.#guardCases' '.#policyCases' '.#briefCases' '.#snapshotCases' \
+    '.#refreshCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has
@@ -97,16 +98,18 @@ units:
 
 # what a host-side program's logic decides, against a substitute for the one
 # thing tying it to this host: the guard against a stubbed kernel, the brief
-# runner and the state snapshot against a throwaway checkout. All three are
+# runner and the state snapshot against a throwaway checkout, and the refresh
+# against command lines no target can be asked to supply. All of them are
 # verdicts a live host can only produce destructively or expensively — by
 # unnaming a namespace under a running guest, by dirtying one capsule's worktree
-# to watch another refuse it, or by driving a real unit of work in a checkout
-# that holds several.
+# to watch another refuse it, by driving a real unit of work in a checkout that
+# holds several, or by having the target's own regeneration fail on demand.
 cases:
   @cat "$(nix build --no-link --print-out-paths '.#guardCases')"
   @cat "$(nix build --no-link --print-out-paths '.#policyCases')"
   @cat "$(nix build --no-link --print-out-paths '.#briefCases')"
   @cat "$(nix build --no-link --print-out-paths '.#snapshotCases')"
+  @cat "$(nix build --no-link --print-out-paths '.#refreshCases')"
 
 # the guest closure and its runner — the slow one
 build-vm:

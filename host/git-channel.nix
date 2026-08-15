@@ -105,12 +105,17 @@
       ${gitSsh}
       ${lib.optionalString (brief != null) brief.fragment}
       usage() {
-        echo "usage: capsule-provision [--capsule <name>] <ref> [--force]${lib.optionalString (brief != null) " [--state <capsule>[:<stage>]]"}" >&2
+        echo "usage: capsule-provision [--capsule <name>] <ref> [--force]${lib.optionalString (brief != null) " [--state <capsule>[:<stage>] | --state-from-host [--stage <name>] [--unit <token>]]"}" >&2
       }
       src="''${CAPSULE_REPO:-${target.path}}"
       ref=""
       force=""
-      ${lib.optionalString (brief != null) ''stateSpec=""''}
+      ${lib.optionalString (brief != null) ''
+        stateSpec=""
+        stateFromHost=""
+        stateStage=""
+        stateUnit=""
+      ''}
       # A loop rather than positional tests, so `--force` may go either side of
       # the ref and an unrecognised flag is refused rather than taken for a ref.
       while [ "$#" -gt 0 ]; do
@@ -126,6 +131,41 @@
           stateSpec="$1"
           ;;
         --state=*) stateSpec="''${1#--state=}" ;;
+        # The composite [item 42](../docs/ledger/042-a-state-half-no-capsule-has-held.md)
+        # declined to build until somebody wanted it, and
+        # [items 45](../docs/ledger/045-a-brief-is-an-origin-not-a-top-up.md)
+        # and 47 both do, for different reasons that meet here. 45: the window in
+        # which a capsule can be briefed is the window before its agent starts,
+        # and a step of a sequence that is easy to forget and impossible to take
+        # late wants to be part of the step before it. 47: on a target whose
+        # refresh writes tracked files there is no such thing as *after* a
+        # provision — the refresh either commits, moving HEAD off the commit
+        # `code-oid` compares against, or leaves the tree dirty, which the brief
+        # refuses. Between the push and the refresh is the only moment both
+        # preconditions hold, and it is a moment no separate command can name.
+        --state-from-host) stateFromHost=yes ;;
+        # `briefHostState`'s two arguments, and they belong to this origin alone
+        # for the reason `capsule-brief` refuses them beside a source: a capsule's
+        # stage rides its name and its unit is whatever its exhibit was collected
+        # under, both readings of a quarantine rather than choices.
+        --stage)
+          shift
+          [ "$#" -gt 0 ] || {
+            echo "--stage needs <name>" >&2
+            exit 1
+          }
+          stateStage="$1"
+          ;;
+        --stage=*) stateStage="''${1#--stage=}" ;;
+        --unit)
+          shift
+          [ "$#" -gt 0 ] || {
+            echo "--unit needs <token>" >&2
+            exit 1
+          }
+          stateUnit="$1"
+          ;;
+        --unit=*) stateUnit="''${1#--unit=}" ;;
       ''}
           -*)
             usage
@@ -143,6 +183,22 @@
         # program made worse (host/brief.nix).
         if [ -n "$stateSpec" ]; then
           briefCheckSpec "$stateSpec" --state || exit 1
+        fi
+        # Two origins, and naming both says nothing about which one wins. Refused
+        # rather than ordered, on `capsule-brief`'s own rule for the same pair.
+        if [ -n "$stateSpec" ] && [ -n "$stateFromHost" ]; then
+          echo "capsule-provision: --state names a capsule to take state from and" >&2
+          echo "  --state-from-host takes it from this host's checkout. Pick one." >&2
+          exit 1
+        fi
+        # The flags of an origin that was not selected are an argument error and
+        # not a no-op, for `capsule-brief --from-host`'s reason: a stage or a unit
+        # silently ignored is a scoping the caller believes they asked for.
+        if [ -z "$stateFromHost" ] && { [ -n "$stateStage" ] || [ -n "$stateUnit" ]; }; then
+          echo "capsule-provision: --stage and --unit scope the state taken from" >&2
+          echo "  this host, so they need --state-from-host. A brief from a capsule" >&2
+          echo "  is scoped by the exhibit it reads." >&2
+          exit 1
         fi
       ''}
       # Required, and there is nothing left to default it to: `<ref>` is a ref in
@@ -227,6 +283,24 @@
             echo "  The checkout is at $commit with none of $stateSpec's state in" >&2
             echo "  it. Fix the cause, then 'capsule-brief --capsule $capsule" >&2
             echo "  $stateSpec'." >&2
+            exit 1
+          fi
+        fi
+        # The same step from the other origin, at the same point in the sequence
+        # and for one more reason than the paragraph above gives: this is the only
+        # moment the guest's HEAD is the commit this host's checkout is on *and*
+        # its worktree is clean, which are `briefHostState`'s two preconditions
+        # and are exactly what the refresh below is about to end (NOTES item 47).
+        #
+        # The remedy in the failure message is deliberately not "run it again":
+        # after the refresh there may be no way to, which is the whole reason this
+        # flag exists rather than two commands.
+        if [ -n "$stateFromHost" ]; then
+          if ! briefHostState "$stateStage" "$stateUnit"; then
+            echo "capsule-provision: the code landed and the state did not." >&2
+            echo "  The checkout is at $commit with none of this host's state for" >&2
+            echo "  it. Fix the cause and provision again — the refresh below may" >&2
+            echo "  leave no later moment a brief can land in." >&2
             exit 1
           fi
         fi

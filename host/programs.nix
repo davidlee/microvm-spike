@@ -282,6 +282,14 @@ in {
     then null
     else refreshHook.program;
 
+  # And the same export for the same reason `stateSnapshotFor` has one: the branch
+  # a case must reach is chosen by the *target's* command line, so the command is
+  # what a suite substitutes (NOTES item 47).
+  refreshFor =
+    if refreshHook == null
+    then null
+    else refreshHook.refreshFor;
+
   # The non-git half of provisioning: credentials, secrets and anything else a
   # fresh capsule needs that no repository carries. The list is ./setup.nix,
   # which is handed the volume's mount point — a payload's destination is in the

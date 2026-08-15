@@ -203,6 +203,16 @@ rec {
   # ahead of what the host pushed, so re-provisioning it wants `--force`. That is
   # the same override re-provisioning over an agent's commits already wants, and
   # `capsule-provision`'s refusal already names it.
+  #
+  # **And the half of that cost this paragraph stopped one step short of**
+  # (NOTES item 47): a branch ahead of what the host pushed is also a HEAD that
+  # `capsule-brief`'s `code-oid` refuses, so on a target like this one there is no
+  # moment *after* a provision when a brief can land — the refresh has either
+  # moved HEAD or left the tree dirty. That is why the state half is step (2) of a
+  # provision (`--state-from-host`) rather than a command taken afterwards. None
+  # of it had ever been observed, because the commit above had never run: the
+  # command is a TUI, it ate the script it was running inside, and everything past
+  # it was skipped in silence.
   refresh = "doctrine install --agent claude --agent pi -y";
 
   # The guest is sized for this target's build, not for the host.

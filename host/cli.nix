@@ -843,7 +843,35 @@ in
           # because provisioning is the one verb that changes what a slot *is* and
           # so the one that has something to record.
           provision)
-            work "$name" provision ''${1+"$@"}
+            provArgs=(''${1+"$@"})
+            ${lib.optionalString stateNeedsUnit ''
+          # The same interception as `collect` and `brief --from-host`, for the
+          # same one reason: state taken from this host's checkout is scoped by
+          # a unit the program may not read (NOTES items 20, 42). It reaches
+          # provision because the brief moved inside it (NOTES item 47), so the
+          # scoping had to follow — a flag whose value the front end fills in
+          # one place and not the other is a scope that silently never applies.
+          fromHost=no
+          unitGiven=no
+          for a in ''${1+"$@"}; do
+            case "$a" in
+              --state-from-host) fromHost=yes ;;
+              --unit | --unit=*) unitGiven=yes ;;
+            esac
+          done
+          if [ "$fromHost" = yes ] && [ "$unitGiven" = no ]; then
+            recordedUnit=$(recordField "$name" unit)
+            if [ "$recordedUnit" != - ]; then
+              provArgs=(--unit "$recordedUnit" ''${provArgs[@]+"''${provArgs[@]}"})
+            fi
+          fi
+        ''}
+            work "$name" provision ''${provArgs[@]+"''${provArgs[@]}"}
+            # The *original* argv, and the array above exists so it stays that
+            # way: this reads `$2` as the ref that was asked for, so anything
+            # this front end prepends for the program's benefit would be recorded
+            # as the base a slot is pinned to. Two readers of one argv, and only
+            # one of them wanted the addition.
             recordProvisioned "$name" ''${1+"$@"}
             ;;
 

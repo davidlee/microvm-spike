@@ -70,5 +70,20 @@
   # of which exists at eval — so it spells its own and cites the same item. This
   # is where the rule lives; that is a second instance of it, not a second
   # decision.
+  #
+  # **And the rule that comes with it, learned the expensive way
+  # ([item 47](../docs/ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)):
+  # the script is the guest shell's stdin, so anything in it that reads stdin
+  # reads the rest of the script.** bash then has nothing left to execute and
+  # exits 0, silently, with every line below the offending command skipped — a
+  # truncation that looks exactly like a clean run and that shellcheck cannot see,
+  # because the text is fine and it is the *channel* that is shared. So a
+  # host-authored guest script must redirect stdin away from any command it did
+  # not write, which in practice means the target's own command lines:
+  # `host/refresh.nix` does it with `</dev/null` on that one line.
+  # `host/baseline.nix` is safe for a different reason worth knowing rather than
+  # relying on — it stages the script to a file and detaches the run with
+  # `</dev/null` already — so this is one rule with one enforced instance, not a
+  # pattern to assume.
   loginRun = "bash -l -c 'bash -s'";
 }

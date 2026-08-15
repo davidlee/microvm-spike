@@ -6,7 +6,57 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **[item 42](./ledger/042-a-state-half-no-capsule-has-held.md)'s
+Last updated 2026-08-16, after **[item 42](./ledger/042-a-state-half-no-capsule-has-held.md)
+was delivered — and getting there found that the third step of every provision
+this repo has ever run was being eaten off stdin**
+([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)).
+Slot `e`, declared and never created before today, took the state half for
+doctrine's `SL-251` in **one command**: `capsule e provision 582300f14
+--state-from-host`, **5.204 s** end to end, of which the target's own refresh is
+4.553 s — so the push and the whole state half are **≈0.65 s**, under a fifth of
+the step they make way for
+([probes](./probes.md#the-delivery-and-what-a-provision-that-carries-its-own-state-costs)).
+`research/`, `design.toml`, `design-journal.toml` and `phases/` are in the guest,
+the worktree is clean, and everything downstream of the snapshot has now run.
+
+**Three things fired for the first time in that session and only one is the
+delivery.** The host-side `code-oid` precheck, taken deliberately against a slot
+provisioned one commit behind — one round trip, `Nothing was taken and nothing
+was pushed`. `host/refresh.nix`'s **commit branch**, which had never executed in
+that file's life. And the push, layout and exhibit checks against a
+host-authored tree.
+
+**What blocked it is the finding.** `host/guest-exec.nix`'s `loginRun` is
+`bash -l -c 'bash -s'`, so a host-authored guest script *is* the guest shell's
+stdin — and doctrine's refresh is a TUI, which drained it and took the rest of the
+script with it. Everything below `( ${command} )` in `host/refresh.nix` had never
+run: the status check, the `after` snapshot, the commit, all five messages. A
+refresh whose command failed reported success, which is exactly the trap that
+file's header names as the thing to avoid. Found not by reading but by a **fresh**
+capsule's push being refused `Working directory has unstaged changes` ten minutes
+after it was provisioned. `</dev/null` on the target's command is the fix; the
+suite written to pin it found a **second** defect underneath — `before`/`after`
+were `--porcelain` status lines, which name *files* and not *contents*, so a
+refresh rewriting an already-modified file read as no change and the dirty-tree
+refusal was unreachable in precisely the case it is about. `git diff HEAD` now.
+`refreshCases` is 14 cases and the fifth instance of the third kind of check, with
+its invocation load-bearing: it runs the script **on stdin** the way a guest does,
+because `bash <script>` passes against the broken text.
+
+**And the ordering neither defect causes is settled.** With a refresh that writes
+tracked files there is no *after* a provision: it either commits — moving HEAD off
+the commit `code-oid` compares against — or leaves the worktree dirty, which the
+brief refuses. So the brief moved **inside** the provision at step (2):
+`capsule-provision --state-from-host [--stage] [--unit]`, which is the composite
+[item 45](./ledger/045-a-brief-is-an-origin-not-a-top-up.md) asked for and item 42
+declined to build until somebody wanted it. Observed rather than argued: a
+`capsule e brief --from-host` taken straight after the delivery refuses, and the
+remedy it names would end in another refresh commit. Item 45's *hit* is a
+*deliver* now; its own open question — whether a top-up is a scoped additive verb
+or a refusal — is untouched, because this removes the window rather than serving a
+capsule already inside it.
+
+Before that, 2026-08-15, after **[item 42](./ledger/042-a-state-half-no-capsule-has-held.md)'s
 case arrived in the wild and the verb built for it could not serve it** —
 [item 45](./ledger/045-a-brief-is-an-origin-not-a-top-up.md). Slot `c` was two
 hours into doctrine's `SL-251` when the out-of-band state half turned out to be
@@ -279,6 +329,42 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A host-authored state half is in a capsule, and the third step of a provision
+  had never finished.** [Item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md),
+  and it closes [item 42](./ledger/042-a-state-half-no-capsule-has-held.md).
+  A guest script pushed on stdin is the guest shell's stdin, so the target's own
+  command read the rest of it and bash exited 0 with every check below skipped —
+  silently, on every provision, for the life of `host/refresh.nix`.
+
+  **It was found by a symptom nothing was looking at.** A capsule created ten
+  minutes earlier and never entered refused its next push with `Working directory
+  has unstaged changes`. Reading that backwards reached a program whose commit
+  branch, whose failure branch and whose five messages were all unreachable —
+  and whose own header names the resulting trap in the abstract while describing
+  what the program did in practice.
+
+  **Two fixes and a decision.** `</dev/null` on the target's command, at the one
+  line this repo did not write, with the rule recorded beside `loginRun` where it
+  belongs. `git diff HEAD` instead of `--porcelain` for the before/after pair,
+  because a status line names a file and the question is what changed — the second
+  defect, found by the case suite the first one needed and invisible while the
+  first one was hiding it. And the brief moved inside the provision, because a
+  refresh that writes tracked files leaves no moment afterwards when one can land.
+
+  **Delivered in one command**, `capsule e provision 582300f14
+  --state-from-host`, 5.204 s of which the state half is ≈0.65 s
+  ([probes](./probes.md#the-delivery-and-what-a-provision-that-carries-its-own-state-costs)).
+  Three first-ever fires in that session: the host `code-oid` precheck, the
+  refresh's commit, and everything past the snapshot.
+
+  **`refreshCases`, and the thing to copy from it.** Fourteen cases against
+  command lines no target can be asked to supply, run **on stdin** the way a guest
+  runs them — because a suite that invoked `bash <script>` would have passed
+  against the broken text, which is item 38's vacuous pass in a new place. There
+  is a control case beside the discriminating one so a suite failing everywhere
+  cannot be read as this finding, and both halves of the fix were watched red
+  separately.
 
 - **The window in which a capsule can be briefed closes when its agent starts
   working.** [Item 45](./ledger/045-a-brief-is-an-origin-not-a-top-up.md).
