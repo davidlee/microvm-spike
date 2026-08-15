@@ -526,6 +526,59 @@ in {
           assertion = instances != [];
           message = "services.capsule-perimeter is enabled but capsules.nix declares no capsules.";
         }
+        # **A rule is granted by being in the file and effective by being the
+        # last line that matches** (NOTES item 42), and every instrument this
+        # repo had answered the first question. `hostModuleUnits` asserts the
+        # rule is declared; `sudo -n -l <cmd>` answers whether the command is
+        # *permitted*, never which of the matching lines won, so it printed the
+        # rule's own path back while a later `%wheel ALL=(ALL:ALL) ALL` — same
+        # command, no tag — was the one taking effect. `mkAfter` where the rule
+        # is written is the fix; this is the thing that says the fix still holds,
+        # because precedence is a property of the whole rendered file and only a
+        # host has one. It is therefore vacuous in `hostModuleUnits`' standalone
+        # eval and fires at the switch, which is the honest place for it: the
+        # shadowing rule belongs to a config this repo does not own.
+        (let
+          rendered =
+            lib.optionals config.security.sudo.enable
+            (lib.splitString "\n" (lib.attrByPath ["security" "sudo" "configFile"] "" config));
+          indexed = lib.imap0 (i: line: {inherit i line;}) rendered;
+          words = line: lib.filter (s: s != "") (lib.splitString " " line);
+          # The principals that cover `owner`: the user by name, or a group the
+          # host's own declaration puts them in. Read rather than assumed, the
+          # same way the bind check reads group membership (item 39).
+          ownerGroups = (config.users.users.${cfg.owner} or {}).extraGroups or [];
+          covers = line: let
+            w = words line;
+          in
+            w
+            != []
+            && (
+              lib.head w
+              == cfg.owner
+              || (
+                lib.hasPrefix "%" (lib.head w)
+                && lib.elem (lib.removePrefix "%" (lib.head w)) ownerGroups
+              )
+            );
+          # `ALL` as the command spec with no tag keeping it passwordless: the one
+          # shape that matches this rule's command and outranks it.
+          blanket = line: lib.hasSuffix "ALL" line && !(lib.hasInfix "NOPASSWD" line);
+          lastGrant =
+            lib.foldl'
+            (acc: e:
+              if lib.hasInfix "restart capsule-proxy-" e.line
+              then e.i
+              else acc)
+            (-1)
+            indexed;
+          shadows =
+            lib.filter (e: e.i > lastGrant && covers e.line && blanket e.line) indexed;
+        in {
+          # No grant at all is `unrestartable`'s finding, not this one.
+          assertion = lastGrant == -1 || shadows == [];
+          message = "services.capsule-perimeter: the sudoers rule permitting `capsule <slot> policy <name>` to restart its proxy is shadowed — sudoers is last-match-wins and ${toString (lib.length shadows)} later line(s) match the same command untagged, so the grant is present and inert and the verb will undo every selection it is asked for: ${lib.concatMapStringsSep "; " (e: lib.concatStringsSep " " (words e.line)) shadows}. Order that rule before this one, or drop it if the NixOS sudo module's own `%wheel ALL=(ALL:ALL) ALL` (mkOrder 600) already covers it (NOTES item 42).";
+        })
       ];
 
       users.users.capsule-proxy = {
@@ -565,7 +618,17 @@ in {
       # before matching: `sudo -n -l systemctl restart capsule-proxy-b` on this
       # host answers with exactly that path. A rule naming `${pkgs.systemd}` would
       # be correct-looking and would never match.
-      security.sudo.extraRules = [
+      #
+      # **`mkAfter`, and it is the whole difference between granted and
+      # effective** (NOTES item 42). sudoers is last-match-wins, so a narrow
+      # NOPASSWD rule only holds while nothing broader follows it — and a plain
+      # definition here lands at priority 1000 alongside every other module's,
+      # where *merge order* decides. On this host `~/flakes` contributes its own
+      # `%wheel ALL=(ALL:ALL) ALL` at that priority; it rendered after this rule,
+      # matched the same command, carried no tag, and took it. The declaration was
+      # present, correct and inert. `mkAfter` says what is actually meant: this
+      # grant is narrower than any blanket and outranks one.
+      security.sudo.extraRules = lib.mkAfter [
         {
           users = [cfg.owner];
           commands =
