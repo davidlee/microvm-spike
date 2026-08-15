@@ -1267,6 +1267,14 @@
           + builtins.readFile script;
       };
 
+    # This flake's copy of the namespace layer. `host/services.nix` builds its
+    # own from the module's `pkgs`, which is a different nixpkgs and therefore a
+    # different store path — one *file*, two instantiations, exactly as
+    # `guardCases` already instantiates it against a fixture. What must not
+    # happen is a second file: a probe that reimplemented `up` and `down` would
+    # assert that its own shell agrees with itself.
+    netns = import ./host/netns.nix {inherit pkgs lib net capsules;};
+
     # Does a network namespace per capsule hold up (docs/plan-c-multi-capsule.md, "Netns per
     # capsule")? Models two capsules with identical addressing and no VM, on
     # addressing deliberately unlike the live capsule's.
@@ -1290,6 +1298,28 @@
     # firecracker come up with its tap inside a namespace (docs/plan-c-multi-capsule.md, "The one
     # thing still unverified")? Boots the real capsule, so it takes the real
     # values — and refuses to run beside the devshell shape.
+    # Does a capsule's namespace survive being torn down and rebuilt (NOTES item
+    # 37)? Drives the **real** `capsule-netns` through the seam it already has —
+    # every per-capsule value comes from its unit's `Environment=`, so a probe
+    # supplies a whole capsule's worth of addressing that is nobody's capsule.
+    # No VM, no tap, no guest, and nothing in the root namespace.
+    probe-netns-restart = probe {
+      name = "probe-netns-restart";
+      script = ./probe/netns-restart.sh;
+      # The program, not its text. Same store path `host/services.nix` puts in
+      # an ExecStart, up to the nixpkgs each was built from.
+      prelude = ''
+        CAPSULE_NETNS="${lib.getExe netns.programs.capsule}"
+      '';
+      runtimeInputs = [
+        pkgs.iproute2
+        pkgs.procps
+        pkgs.coreutils
+        pkgs.gnugrep
+        pkgs.gawk # `since`, in the harness
+      ];
+    };
+
     probe-netns-boot = probe {
       name = "probe-netns-boot";
       script = ./probe/netns-boot.sh;
@@ -1607,7 +1637,7 @@
         # guard decides, and which policy a slot resolves to.
         inherit hostModuleUnits hostModulePrograms guardCases policyCases;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
-        inherit probe-netns probe-netns-boot probe-netns-egress;
+        inherit probe-netns probe-netns-restart probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;
         default = self.packages.${system}.capsule;
       };

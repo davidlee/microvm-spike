@@ -82,7 +82,7 @@ fmt-check:
 build:
   nix build --no-link '.#capsule-cli' \
     '.#capsule-host' '.#capsule-net' '.#vm-stop' '.#capsule-halt' \
-    '.#probe-netns' '.#probe-netns-boot' '.#probe-freshness' \
+    '.#probe-netns' '.#probe-netns-restart' '.#probe-netns-boot' '.#probe-freshness' \
     '.#probe-two-capsules' \
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
     '.#capsule-baseline' '.#capsule-refresh' '.#capsule-adopt' \
