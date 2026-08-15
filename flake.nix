@@ -370,7 +370,7 @@
     # relay socket instead — one construction, two transports, which is the only
     # thing that differs (host/programs.nix).
     hostPrograms = import ./host/programs.nix {
-      inherit pkgs lib net target workBranch;
+      inherit pkgs lib net target policies workBranch;
       # The same socket expression the units inject, for the opposite purpose:
       # there it is the way in, here its existence is what says this copy is the
       # wrong one (host/guest-ssh.nix).
@@ -424,7 +424,7 @@
     # because a thing built at each of this file's two call sites is a thing one
     # of them can be missing.
     capsule-cli = import ./host/cli.nix {
-      inherit pkgs lib net target capsules guestSsh;
+      inherit pkgs lib net target capsules policies guestSsh;
       inherit (hostPrograms) observe programVerbs stateNeedsUnit;
     };
 
@@ -914,6 +914,189 @@
         cat $out
       '';
 
+    # `capsule`'s two policy limbs, run against a declaration that is not this
+    # host's: the verb that selects one, and the collect that is filled from it.
+    #
+    # The third kind of check (CLAUDE.md), and its fourth instance. The branches
+    # worth pinning are refusals a live host reaches expensively or destructively
+    # — a slot declaring an empty set, an assigner naming a policy outside its
+    # slot's set, and a re-point that cannot be written — and the one success that
+    # matters is that the record and the allowlist link move *together*. Reaching
+    # any of them here would mean editing `capsules.nix`, rebuilding the host, and
+    # writing the live record of a slot that is actually assigned.
+    #
+    # Two seams, both already the ones the rule asks for: `capsules` is
+    # substituted the way `guardCases` substitutes it, and `moduleState` — the one
+    # thing tying this program to this host — is `host/cli.nix`'s argument, so the
+    # record lands in the sandbox. Every real call site takes its default, so the
+    # two shipped copies are still one store path.
+    policyCases = let
+      # Three slots, none of them this host's, each one a shape `capsules.nix`
+      # itself would refuse: a set of one, a slot with no set at all, and a slot
+      # whose declared default is not the first thing an assigner would pick.
+      # That last is what makes "the record beats the declaration" assertable
+      # rather than indistinguishable.
+      fixture =
+        capsules
+        // {
+          instances = capsules.instancesOf {
+            one = {
+              index = 0;
+              policy = "build";
+              policies = ["build"];
+            };
+            none = {index = 1;};
+            both = {
+              index = 2;
+              policy = "sealed";
+              policies = ["build" "sealed"];
+            };
+          };
+        };
+      cli = import ./host/cli.nix {
+        inherit pkgs lib net target policies guestSsh;
+        capsules = fixture;
+        inherit (hostPrograms) observe programVerbs stateNeedsUnit;
+        moduleState = ''"$CASE_STATE"'';
+      };
+      buildFile = policies.policies.build.allowlist;
+      sealedFile = policies.policies.sealed.allowlist;
+    in
+      pkgs.runCommand "capsule-policy-cases" {nativeBuildInputs = [pkgs.jq];} ''
+        export CASE_STATE=$PWD/state
+        mkdir -p "$CASE_STATE" stub policies
+        touch policies/${buildFile} policies/${sealedFile}
+
+        # What `work` execs once the front end has filled the flags in.
+        # `capsule-collect` is deliberately *not* one of the front end's
+        # `runtimeInputs` — it picks between two copies of it on PATH — so a stub
+        # on PATH is what it finds, and this is the one place a case can watch
+        # what the front end decided rather than what it said.
+        cat > stub/capsule-collect <<'EOF'
+        #!/bin/sh
+        echo "collect argv: $*"
+        EOF
+        chmod +x stub/capsule-collect
+        export PATH=$PWD/stub:$PATH
+
+        capsule=${lib.getExe cli}
+        log=$PWD/log
+        : > "$log"
+        fail=0
+        run() {
+          rc=0
+          "$capsule" "$@" > out 2>&1 || rc=$?
+        }
+        ck() {
+          if [ "$2" = "$3" ]; then
+            echo "ok   $1" >> "$log"
+          else
+            echo "FAIL $1: exit $3, wanted $2" >&2
+            sed 's/^/    /' out >&2
+            fail=1
+          fi
+        }
+        ckt() {
+          if "''${@:2}"; then
+            echo "ok   $1" >> "$log"
+          else
+            echo "FAIL $1" >&2
+            sed 's/^/    /' out >&2
+            fail=1
+          fi
+        }
+        saw() { grep -qF -- "$1" out; }
+        gen() { jq -r .generation "$CASE_STATE/slot/$1/assignment.json"; }
+
+        # ------------------------------------- what an unassigned slot resolves to
+        #
+        # The operator's declaration, in both readers. `sealed` rather than the
+        # first name in the vocabulary, so a reader that returned a constant would
+        # be caught.
+        run both policy
+        ck "an unassigned slot reads its declared policy" 0 "$rc"
+        ckt "  which is the operator's, not the vocabulary's first" saw sealed
+        run both collect
+        ck "and a collect on one is filled from the same declaration" 0 "$rc"
+        ckt "  as --policy, before the program sees it" \
+          saw "collect argv: --capsule both --policy sealed"
+
+        # ------------------------------------------------------- the two refusals
+        #
+        # A declaration nobody can satisfy is not the same fault as an argument
+        # outside a set, and a refusal for the wrong reason is a different program
+        # passing — so each names its own half.
+        run none policy build
+        ck "a slot with no declared set refuses" 1 "$rc"
+        ckt "  and names the declaration rather than the argument" \
+          saw "declares no policies"
+        run one policy sealed
+        ck "a policy outside the slot's set refuses" 1 "$rc"
+        ckt "  and names the argument rather than the declaration" \
+          saw "may not take policy 'sealed'"
+        ckt "  pointing at who may widen it" saw "capsules.nix"
+        ckt "  and nothing was written" test ! -e "$CASE_STATE/slot/one/assignment.json"
+
+        # The perimeter half is the module path's, and this copy has no policy
+        # directory yet — which is also the proof that the selection above was
+        # accepted, since this refusal is the next one after it.
+        run one policy build
+        ck "a selection with nowhere to point refuses" 1 "$rc"
+        ckt "  naming the copy that can" saw "no policy directory"
+
+        export CAPSULE_POLICY_DIR=$PWD/policies
+
+        # ------------------------------------------ the record and the link, once
+        run one policy build
+        ck "a declared selection is taken" 0 "$rc"
+        ckt "  the record says so" \
+          test "$(jq -r .policy "$CASE_STATE/slot/one/assignment.json")" = build
+        ckt "  the link beside it points at that policy's file" \
+          test "$(readlink "$CASE_STATE/slot/one/allowlist")" = "$CAPSULE_POLICY_DIR/${buildFile}"
+        ckt "  and the generation moved once" test "$(gen one)" = 1
+
+        # A record that disagrees with the declaration is the whole point of there
+        # being a record: an assigner selected, and that is what the slot runs.
+        run both policy build
+        ck "a slot may be moved off its declared default" 0 "$rc"
+        ckt "  the link follows the record" \
+          test "$(readlink "$CASE_STATE/slot/both/allowlist")" = "$CAPSULE_POLICY_DIR/${buildFile}"
+        run both policy
+        ck "and the record is what it reads back" 0 "$rc"
+        ckt "  not the declaration" saw build
+        run both collect
+        ck "a collect is filled from the record once there is one" 0 "$rc"
+        ckt "  and not from the declaration" \
+          saw "collect argv: --capsule both --policy build"
+        run both collect --policy sealed
+        ck "an explicit --policy wins" 0 "$rc"
+        ckt "  and is not doubled" \
+          saw "collect argv: --capsule both --policy sealed"
+
+        # ------------------------------------------------- the ordering, asserted
+        #
+        # The link is written inside the record's lock and *before* the document
+        # (host/record.nix's `recordAlso`), so the only failure either can have
+        # leaves both as they were. A directory where the link should be is how a
+        # sandbox reaches that; on a live host it is a disk or a permission.
+        rm "$CASE_STATE/slot/one/allowlist"
+        mkdir "$CASE_STATE/slot/one/allowlist"
+        touch "$CASE_STATE/slot/one/allowlist/occupied"
+        # `build` again rather than another name, because `one` declares a set of
+        # one: this has to fail at the link and not at the selection, which is
+        # what the run before it already proved is checked first.
+        run one policy build
+        ck "a link that cannot be re-pointed refuses" 1 "$rc"
+        ckt "  and says which policy still holds" saw "still holds build"
+        ckt "  the record did not move" test "$(gen one)" = 1
+        ckt "  and still names the old policy" \
+          test "$(jq -r .policy "$CASE_STATE/slot/one/assignment.json")" = build
+
+        [ "$fail" = 0 ] || exit 1
+        cp "$log" $out
+        cat $out
+      '';
+
     # The host module has no build of its own — it is a NixOS module, and this
     # repo cannot rebuild someone's host to try it. So *evaluate* it: a text
     # file naming the units it generates drags the whole module through the
@@ -1137,6 +1320,10 @@
         # the one that has to admit an allowlisted host, since the round asserts
         # a 200 as well as a 403.
         ALLOWLIST="${policies.dir}/${policies.policies.build.allowlist}"
+        # The other one, for the round that asserts a policy is selected rather
+        # than shared: the same guest, restarted under this, refuses the host the
+        # first one allowed — and is allowed again when it is put back.
+        SEALED_ALLOWLIST="${policies.dir}/${policies.policies.sealed.allowlist}"
       '';
       runtimeInputs = [
         pkgs.iproute2
@@ -1176,7 +1363,7 @@
     # a run-time argument now. `socat` is bare here: a probe has it in
     # `runtimeInputs`, where a unit has no PATH to trust.
     nsPrograms = import ./host/programs.nix {
-      inherit pkgs lib net target workBranch;
+      inherit pkgs lib net target policies workBranch;
       access = guestSsh.viaSocket {
         socat = "socat";
         socket = socketOf ''"$capsule"'';
@@ -1240,6 +1427,13 @@
         SOCKDIR_B="${builtins.dirOf (socketOf pairB)}"
         PROVISION="${nsPrograms.provision}/bin/capsule-provision"
         COLLECT="${nsPrograms.collect}/bin/capsule-collect"
+        # What a slot's record and the operator's declaration would supply, for
+        # two capsules that are neither (NOTES item 36, item 32). The unit half
+        # is present only where this target's state paths have a hole for one,
+        # since a flag that scopes nothing is refused.
+        COLLECT_ARGS=(--policy build${
+          lib.optionalString nsPrograms.stateNeedsUnit " --unit probe"
+        })
         GUEST_PATH="${target.guestPath}"
         TARGET_PATH="${target.path}"
         WORK_BRANCH="${workBranch}"
@@ -1361,9 +1555,9 @@
       // lib.optionalAttrs (hostPrograms.stateSnapshotFor != null) {inherit snapshotCases;}
       // {
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
-        # The two checks that need no root and no host: what the module says, and
-        # what the guard decides.
-        inherit hostModuleUnits guardCases;
+        # The checks that need no root and no host: what the module says, what the
+        # guard decides, and which policy a slot resolves to.
+        inherit hostModuleUnits guardCases policyCases;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;

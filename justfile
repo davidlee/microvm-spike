@@ -36,6 +36,10 @@ _net key:
 _target key:
   @nix eval --json --file target.nix {{key}} | tr -d '"'
 
+# and for the host's controls, which are not the target's — policies.nix
+_policy key:
+  @nix eval --json --file policies.nix {{key}} | tr -d '"'
+
 # the proxy's log, wherever this host keeps it. A capsule is a *directory* under
 # the module's proxy state — one proxy per capsule since the units went
 # per-namespace — so this takes the name; the devshell path has one proxy and one
@@ -83,7 +87,7 @@ build:
     '.#capsule-provision' '.#capsule-collect' '.#capsule-inject' \
     '.#capsule-baseline' '.#capsule-refresh' '.#capsule-adopt' \
     '.#capsule-brief' \
-    '.#hostModuleUnits' '.#guardCases' '.#briefCases' '.#snapshotCases'
+    '.#hostModuleUnits' '.#guardCases' '.#policyCases' '.#briefCases' '.#snapshotCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has
@@ -99,6 +103,7 @@ units:
 # that holds several.
 cases:
   @cat "$(nix build --no-link --print-out-paths '.#guardCases')"
+  @cat "$(nix build --no-link --print-out-paths '.#policyCases')"
   @cat "$(nix build --no-link --print-out-paths '.#briefCases')"
   @cat "$(nix build --no-link --print-out-paths '.#snapshotCases')"
 
@@ -414,9 +419,11 @@ load +names:
 proxy-log name:
   tail -f "$(just _proxy-log {{name}})"
 
-# hostnames the proxy will resolve — a destination control, not an exfil one
-allowed:
-  @cat "${CAPSULE_ALLOWLIST:-$(just _target allowlist)}"
+# hostnames a policy's proxy will resolve — a destination control, not an exfil
+# one. Named, never defaulted: there is no fleet-wide allowlist any more, and
+# `capsule <slot> policy` says which one a slot is on (NOTES item 36).
+allowed policy:
+  @cat "$(just _policy dir)/$(just _policy policies.{{policy}}.allowlist)"
 
 # A trailing command reaches the guest as one word, via `quote`, and the reason
 # is stronger than tidiness. just hands a recipe its arguments by *interpolation*

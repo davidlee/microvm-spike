@@ -76,7 +76,8 @@
 #
 # `probe/harness.sh` is concatenated ahead of this by flake.nix, along with the
 # values it takes from net.nix and target.nix: TAP, HOST_ADDR, GUEST_ADDR,
-# PREFIX, VM, PROXY_PORT, PROXY and ALLOWLIST are set there, not here.
+# PREFIX, VM, PROXY_PORT, PROXY, ALLOWLIST and SEALED_ALLOWLIST are set there,
+# not here.
 
 # Deliberately no errexit: several of these tests are supposed to fail.
 
@@ -113,6 +114,9 @@ human_from_sudo "$PROG"
 ROOT=${CAPSULE_ROOT:-$PWD}
 VMDIR="$ROOT/.vm/$VM"
 ALLOW="$ROOT/$ALLOWLIST"
+# The other policy's file, for stage 2b. Named in the builder like the first, so
+# a probe states which policies it is asserting under and never spells a filename.
+SEALED="$ROOT/$SEALED_ALLOWLIST"
 
 # ------------------------------------------------------------------- refusals
 
@@ -324,12 +328,39 @@ capsule_boot "$NS" "$RUNNER" "$VMDIR" "$LOG" || exit 1
 # host/services.nix runs as a unit and `capsule-host` runs as a child. Its state
 # goes beside the console log rather than in .vm/host, so a probe run cannot
 # leave the devshell path pointing at a config it did not write.
+#
+# Started and stopped by policy rather than once, because a policy is *selected*
+# and the perimeter follows the selection (NOTES item 36): stage 2b runs the same
+# guest under the other one. A restart is what a policy change costs a running
+# capsule — the proxy renders its config at start — so this is the mechanism the
+# `policy` verb uses and not a probe-only shortcut.
+#
+# Stopping is `pkill -f` on the rendered config path, which is `capsule-host`'s
+# own reaper and safe here for the reason it is safe there: that path is this
+# run's, under `$VMDIR`, so it cannot match anything else on the host. (The
+# CLAUDE.md warning about `pkill -f` is about the VMM, whose name every capsule
+# shares.)
+proxy_up() {
+  helper_as_human "$NS" \
+    "CAPSULE_ROOT=$ROOT" \
+    "CAPSULE_PROXY_STATE=$PROXY_STATE" \
+    "CAPSULE_ALLOWLIST=$1" \
+    "$PROXY"
+  wait_listen "$NS" "$HOST_ADDR" "$PROXY_PORT"
+}
+
+proxy_down() {
+  pkill -f -- "tinyproxy -d -c $PROXY_STATE/tinyproxy.conf" || true
+  for _ in $(seq 20); do
+    ip netns exec "$NS" ss -lnt 2>/dev/null \
+      | grep -qF "$HOST_ADDR:$PROXY_PORT" || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
 echo "== capsule-proxy, joined to $NS =="
-helper_as_human "$NS" \
-  "CAPSULE_ROOT=$ROOT" \
-  "CAPSULE_PROXY_STATE=$PROXY_STATE" \
-  "CAPSULE_ALLOWLIST=$ALLOW" \
-  "$PROXY"
+proxy_up "$ALLOW"
 
 # ------------------------------------------------------------------- the guest
 #
@@ -402,6 +433,36 @@ check "a host off the allowlist is refused" deny is_200 "$denied_line"
 # the name gives a 403, and resolving it first would give something else. The
 # claim is that the guest does not get there.
 RESULTS+=("NOTE  off-allowlist host: $denied_line")
+
+echo "== stage 2b: the same guest, under the other policy =="
+#
+# What a policy being *selected* rather than shared has to mean at the wire: the
+# same guest, the same host, a different declared allowlist, and the answer
+# changes. Both directions, which is this file's rule — a denial after a restart
+# could be a proxy that simply stopped working, so the round only counts if the
+# same host is allowed again when the policy is put back.
+#
+# What it does **not** prove, and the gap is worth naming rather than implying:
+# two capsules differing *at the same time*. That needs two guests, which is
+# `probe/two-capsules.sh`'s shape and not this one's. This proves the selection
+# reaches the wire; it does not prove two selections coexist.
+if [ -n "$ALLOWED_HOST" ]; then
+  check "the proxy can be stopped" ok proxy_down
+  check "and comes back under the sealed policy" ok proxy_up "$SEALED"
+  sealed_line=$(guest_connect "$ALLOWED_HOST" 2>&1 | tr -d '\r' | tail -1)
+  check "a host the build policy allows is refused under sealed" deny \
+    is_200 "$sealed_line"
+  RESULTS+=("NOTE  under sealed, $ALLOWED_HOST: $sealed_line")
+
+  check "the proxy can be stopped again" ok proxy_down
+  check "and comes back under the build policy" ok proxy_up "$ALLOW"
+  restored_line=$(guest_connect "$ALLOWED_HOST" 2>&1 | tr -d '\r' | tail -1)
+  check "and the same host is allowed once the policy is put back" ok \
+    is_200 "$restored_line"
+  RESULTS+=("NOTE  build again, $ALLOWED_HOST: $restored_line")
+else
+  RESULTS+=("NOTE  no plain hostname in $ALLOW — the two-policy round was skipped")
+fi
 
 echo "== stage 3: and cannot get out any other way =="
 

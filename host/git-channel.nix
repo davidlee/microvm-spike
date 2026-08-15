@@ -24,9 +24,18 @@
 # whole difference, and it is at the call site.
 {
   pkgs,
-  # Which repo is confined: `path` to push from, `collectMaxBytes` as the
-  # ceiling on what a fetch may write.
+  # Which repo is confined: `path` is what `capsule-provision` pushes from, and
+  # that is now the whole of what this file wants from a target. What a fetch may
+  # write is not the project's to say (NOTES item 36) — see `policies` below.
   target,
+  # The host's policy vocabulary (policies.nix): each entry's `collectMaxPackBytes`
+  # and `mayCollect` are the two ingestion limbs, and a collect selects one by
+  # name at run time. Baked as a case rather than taken as a byte count, for the
+  # reason the whole item exists: a caller selects from a declared set and does
+  # not author a bound, so `--policy sealed` is a choice and `--max-bytes 10G`
+  # would be an authority. `capsule-host` resolves its allowlist the same way
+  # (flake.nix).
+  policies,
   # Where to ssh, e.g. `agent@10.99.0.2` — for the *state* half of a collect
   # only, which is a script pushed at the guest rather than a question git can
   # answer (`snapshot` below). The code half still knows only a URL.
@@ -71,13 +80,23 @@
 }: let
   inherit (pkgs) lib;
 
-  # `ulimit -f` counts 512-byte blocks. RLIMIT_FSIZE, so this bounds the size of
-  # any *one* file the fetch writes — the packfile — and nothing else. It is a
-  # backstop, not a bound on the transfer: a pack of a million small objects
-  # never trips it and still fills the disk, and a delta bomb never trips it and
-  # still eats index-pack's memory. Do not read this as the ceiling the design
-  # needs; NOTES item 18 lists what a real one costs.
-  maxBlocks = target.collectMaxPackBytes / 512;
+  # The vocabulary as a shell case: a policy name in, its two ingestion limbs
+  # out. Generated rather than spelled, so adding a policy is one entry in
+  # `policies.nix` and nothing here.
+  policyCase = lib.concatMapStringsSep "\n" (n: let
+    p = policies.policies.${n};
+  in ''
+    ${n})
+      maxBytes=${toString p.collectMaxPackBytes}
+      may=${
+      if p.mayCollect
+      then "yes"
+      else "no"
+    }
+      ;;'')
+  policies.everything;
+
+  policyNames = lib.concatStringsSep " " policies.everything;
 
   provision = pkgs.writeShellApplication {
     name = "capsule-provision";
@@ -252,6 +271,11 @@
       # two stages of one story, and overwriting one ref with the other would
       # lose the half that says what was seen (NOTES item 32).
       stage=implementation
+      # Which policy this collect ingests under, and there is no default: the two
+      # limbs it resolves are *whether* anything may come back and *how much*, and
+      # both used to be the target's (NOTES item 36). A name rather than a number,
+      # so a caller selects from what this host declared and cannot author a bound.
+      policy=""
       ${lib.optionalString (snapshot != null) ''
         # `--unit` names the work this capsule was assigned, and it is the scope
         # of the exhibit rather than a label on it: the target's state paths are
@@ -271,6 +295,15 @@
             stage="$1"
             ;;
           --stage=*) stage="''${1#--stage=}" ;;
+          --policy)
+            shift
+            [ "$#" -gt 0 ] || {
+              echo "--policy needs a name" >&2
+              exit 1
+            }
+            policy="$1"
+            ;;
+          --policy=*) policy="''${1#--policy=}" ;;
           ${lib.optionalString (snapshot != null) ''
         --unit)
           shift
@@ -283,7 +316,7 @@
         --unit=*) unit="''${1#--unit=}" ;;
       ''}
           *)
-            echo "usage: capsule-collect [--capsule <name>] [--stage <name>]${lib.optionalString (snapshot != null) " [--unit <token>]"}" >&2
+            echo "usage: capsule-collect [--capsule <name>] --policy <name> [--stage <name>]${lib.optionalString (snapshot != null) " [--unit <token>]"}" >&2
             echo "  the capsule names its own quarantine — refs/capsule/<name>/*." >&2
             exit 1
             ;;
@@ -291,6 +324,45 @@
         shift
       done
       ${quarantine.checkStage}
+
+      # Both ingestion limbs, resolved before the door is opened — which is the
+      # whole of what "refuses before" buys: a capsule that may not send anything
+      # back is not asked to build a snapshot first.
+      #
+      # No policy is a refusal and never a fallback, for `--unit`'s reason at the
+      # sharper end (item 28): the value a missing bound would fall back to is the
+      # unbounded ingest the bound exists to prevent, so the worst possible default
+      # is the old behaviour under the new name.
+      if [ -z "$policy" ]; then
+        echo "capsule-collect: no policy, so no ingestion bound and nothing that" >&2
+        echo "  says this capsule may send anything back at all. What comes out of" >&2
+        echo "  a capsule is host policy, not the project's (NOTES item 36)." >&2
+        echo "  'capsule $capsule collect' fills it from the slot, or --policy" >&2
+        echo "  <name> for this collect alone. Declared: ${policyNames}." >&2
+        exit 1
+      fi
+      case "$policy" in
+      ${policyCase}
+        *)
+          echo "capsule-collect: no policy named '$policy'." >&2
+          echo "  declared: ${policyNames}" >&2
+          exit 1
+          ;;
+      esac
+      if [ "$may" != yes ]; then
+        echo "capsule-collect: policy '$policy' does not permit collecting, so" >&2
+        echo "  nothing leaves this capsule. That is the policy holding rather" >&2
+        echo "  than a failure — 'capsule $capsule policy <name>' selects another" >&2
+        echo "  from the set the slot declares." >&2
+        exit 1
+      fi
+      # `ulimit -f` counts 512-byte blocks. RLIMIT_FSIZE, so this bounds the size
+      # of any *one* file the fetch writes — the packfile — and nothing else. It
+      # is a backstop, not a bound on the transfer: a pack of a million small
+      # objects never trips it and still fills the disk, and a delta bomb never
+      # trips it and still eats index-pack's memory. Do not read it as the ceiling
+      # the design needs; NOTES item 18 lists what a real one costs.
+      maxBlocks=$((maxBytes / 512))
       ${lib.optionalString (snapshot != null) (
         if snapshot.needsUnit
         then ''
@@ -372,7 +444,10 @@
           echo "capsule-collect: the state snapshot failed — collecting code only." >&2
         fi
       ''}
-      echo "capsule-collect: ${guestRepo} -> $quarantine"
+      # The policy on the line for the reason the unit's scope is: a byte count
+      # that trips means nothing without the bound it tripped against, and a
+      # collect that succeeded says which perimeter let it.
+      echo "capsule-collect: policy $policy — ${guestRepo} -> $quarantine"
       # --no-tags is load-bearing, not tidiness: tag auto-following writes
       # refs/tags/* outside the namespace this refspec names, which is the one
       # way the guest could otherwise choose where its refs land. The second
@@ -398,12 +473,12 @@
       # The ulimit is the byte ceiling: no config knob bounds a fetch, so bound
       # the file it writes.
       (
-        ulimit -f ${toString maxBlocks}
+        ulimit -f "$maxBlocks"
         git -C "$quarantine" -c transfer.fsckObjects=true \
           fetch --no-tags --atomic "${guestRepo}" "''${refspecs[@]}"
       ) || {
         echo "capsule-collect: fetch failed — a malformed object, or a packfile" >&2
-        echo "  over ${toString target.collectMaxPackBytes} bytes (target.nix collectMaxPackBytes)." >&2
+        echo "  over $maxBytes bytes (policy $policy's collectMaxPackBytes)." >&2
         exit 1
       }
 

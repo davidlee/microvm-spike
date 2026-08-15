@@ -45,12 +45,14 @@ rec {
   # them. nixpkgs attr names, resolved against the guest's pkgs.
   extraTools = ["pkg-config" "openssl"];
 
-  # No `allowlist` field, and nothing replaces it. What a capsule may talk to is
-  # a **control**, and a control chosen by whoever names the project is a control
+  # No `allowlist` field, and no `collectMaxPackBytes` either. Nothing replaces
+  # them: what a capsule may talk to, and what may come back out of it, are
+  # **controls**, and a control chosen by whoever names the project is a control
   # the naming authority holds (NOTES item 25) — invisible while one target was a
   # build-time literal, and an authority hole the moment assigning a project is a
-  # run-time verb. It is a policy now, declared in `policies.nix`, selected per
-  # slot, and the same is true of `collectMaxPackBytes` below (NOTES item 36).
+  # run-time verb. Both are policies now, declared in `policies.nix` beside
+  # `mayCollect`, selected per slot and resolved by name at run time (NOTES item
+  # 36).
 
   # Toolchain-shaped rather than repo-shaped, which is why they are here: caches
   # that must live on the volume instead of in guest RAM. Env var -> directory
@@ -142,10 +144,14 @@ rec {
     ".doctrine/slice/{unit}" # research/ (ignored) and uncommitted authored edits
   ];
 
-  # Ceiling on one snapshot, in bytes. Not the same backstop as
-  # `collectMaxPackBytes` and not in the same place: this one is checked in the
-  # guest *before* the commit is made, because the fetch is atomic and a
-  # too-large state half must skip rather than take the code refs down with it.
+  # Ceiling on one snapshot, in bytes. Not the same backstop as the policy's
+  # `collectMaxPackBytes`, and not in the same place or the same hands: this one
+  # is checked in the guest *before* the commit is made, because the fetch is
+  # atomic and a too-large state half must skip rather than take the code refs
+  # down with it. It stays here because it bounds what this target's own declared
+  # paths may grow to — a smell detector over `statePaths`, which is the field
+  # above — while the ingestion bound is about what the host will accept from any
+  # capsule at all.
   #
   # 64 MiB against a target whole history of 32 MiB. The number is a smell
   # detector rather than a budget: this repo's own `.doctrine/state` on the
@@ -153,12 +159,6 @@ rec {
   # that catches one of those should fail loudly on the first collect rather than
   # quietly move a gigabyte per run.
   stateMaxBytes = 67108864;
-
-  # Largest packfile one `capsule-collect` may write, as `ulimit -f`. A backstop
-  # on the file, not a bound on the transfer — many small objects or a delta bomb
-  # go straight past it (NOTES item 18). 512 MiB against a 32 MiB repo leaves
-  # room for a working history.
-  collectMaxPackBytes = 536870912;
 
   # Shown in the motd: the target's own entrypoints, so the agent need not guess.
   commands = "just test / just web-build";

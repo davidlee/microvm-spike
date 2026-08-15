@@ -29,6 +29,12 @@
   lib,
   net,
   target,
+  # The host's policy vocabulary (policies.nix). Only the git channel reads it —
+  # `capsule-collect` selects an ingestion bound and a permission by name — but it
+  # is threaded here for `target`'s reason: three call sites build this set, and a
+  # value each of them looks up separately is a value one of them can look up
+  # differently.
+  policies,
   # The guest's branch, a constant threaded from `flake.nix` rather than a
   # target's field: only the git channel reads it, but both this file's callers
   # have to hand it the same one the guest was built with.
@@ -151,7 +157,7 @@
       };
 
   gitChannel = import ./git-channel.nix {
-    inherit pkgs target workBranch guestRepo guestHost gitSsh quarantine;
+    inherit pkgs target policies workBranch guestRepo guestHost gitSsh quarantine;
     brief = briefHook;
     snapshot = stateSnapshot;
     # The command line, not the module: the git channel runs a refresh and has no

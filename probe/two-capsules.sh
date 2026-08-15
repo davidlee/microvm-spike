@@ -296,10 +296,16 @@ measure "volume, capsule B" "$(vol_mib "$DIR_B/capsule-work.img")" MiB
 # a verifier's verdict cannot be told from the worker's claim. One program, one
 # argument, both directions — the asymmetry this probe found (provision baked its
 # transport, collect took a bare directory name) is what closed into `--capsule`.
+#
+# `COLLECT_ARGS` is the scope and the bound, named in the builder rather than
+# inherited: a probe's capsules are not slots, so there is no record and no
+# declared default to fill either from (NOTES item 36, item 32). Naming them is
+# what the front end would have done, and a probe that had to invent a slot to
+# collect would be exercising the front end instead of the program.
 check "capsule A collects into its own quarantine" ok \
-  as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_A"
+  as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_A" "${COLLECT_ARGS[@]}"
 check "capsule B collects into its own quarantine" ok \
-  as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_B"
+  as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_B" "${COLLECT_ARGS[@]}"
 
 q_a=$(as_human git -C "$STATE/collect/$NAME_A.git" \
   rev-parse "refs/capsule/$NAME_A/$WORK_BRANCH" 2>/dev/null)

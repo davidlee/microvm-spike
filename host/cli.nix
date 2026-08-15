@@ -33,6 +33,12 @@
   net,
   target,
   capsules,
+  # The host's policy vocabulary (policies.nix). Read for two things a program
+  # may not do: validate a selection against the set the *slot* declares, and
+  # name the file that slot's allowlist symlink must point at. Both copies of this
+  # front end get the same declaration, so this adds no reason for them to be two
+  # store paths.
+  policies,
   # The host->guest ssh relaxation, for the *reachability probe* only
   # (host/guest-ssh.nix). The human's own door keeps the strict default, because a
   # human is there to read the warning; a probe asking "is anything listening"
@@ -52,6 +58,21 @@
   # (host/observe.nix). A path and not a set of guest paths, deliberately: this
   # file asks a capsule what is true and does not know what `/work` is.
   observe,
+  # Where the module keeps its state: quarantines, and the assignment records and
+  # allowlist links beside them. On the module path this is not a guess at all —
+  # that copy is wrapped with `CAPSULE_STATE` and `CAPSULE_REPO` from the host's
+  # own options (host/services.nix), and `CAPSULE_STATE` is the first thing
+  # `quarantineOf` tries. The literal is the *devshell* copy's guess at where the
+  # module put things, and the record's root on both.
+  #
+  # **An argument with a default, and every real call site takes the default** —
+  # so both copies are still one store path, and no run-time value can move a
+  # record (CLAUDE.md: `CAPSULE_STATE` moves the quarantine and not the record,
+  # deliberately, since a record for a devshell capsule would describe a slot that
+  # does not exist). It is an argument for the reason `host/guard.nix`'s `tools`
+  # is: the one thing tying this program to this host is what a case suite has to
+  # substitute, and `policyCases` in flake.nix is what does.
+  moduleState ? "/var/lib/capsule",
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.
   # `unit` only exists where the target's policy has a hole for one (NOTES item
@@ -59,7 +80,7 @@
   # way `provision` is, to do the one thing a front end may do and a program may
   # not: read this host's record.
   ownVerbs =
-    ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose"]
+    ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose" "policy"]
     ++ lib.optional stateNeedsUnit "unit";
 
   # Verbs `all` may be applied to. A question aggregates: N answers on one screen,
@@ -85,15 +106,6 @@
   # and without asking, a start fails as a dependency error naming neither unit.
   # The justfile used to spell this; it asks `capsule <name> created` now.
   microvms = "/var/lib/microvms";
-
-  # Where the module keeps quarantines. On the module path this is not a guess at
-  # all — that copy is wrapped with `CAPSULE_STATE` and `CAPSULE_REPO` from the
-  # host's own options (host/services.nix), the same wrapper the two stateful
-  # programs get, and `CAPSULE_STATE` is the first thing tried below. This is the
-  # *devshell* copy's guess at where the module put things, which is the case that
-  # actually needs one: inside the repo, asked about a capsule the units own. The
-  # convention itself has one definition (host/git-channel.nix's `statePaths`).
-  moduleState = "/var/lib/capsule";
 
   # A capsule's identity and its way in are the same thing (NOTES item 17), and
   # the path is a pure function of a name known only at run time — so these are
@@ -127,7 +139,7 @@ in
           echo "  capsules:  ''${declared[*]}   (omitted: the one that is up)"
           echo "  lifecycle: start | stop | created       (start injects too)"
           echo "  ask:       status | branches | fetch     (these take 'all')"
-          echo "  assigned:  record | purpose [text…]${lib.optionalString stateNeedsUnit " | unit [<token>]"}"
+          echo "  assigned:  record | purpose [text…] | policy [<name>]${lib.optionalString stateNeedsUnit " | unit [<token>]"}"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
         }
@@ -190,6 +202,52 @@ in
         sockOf() { printf '%s' ${sockOfArg}; }
         unitOf() { printf 'microvm@%s' "$1"; }
         created() { [ -x "${microvms}/$1/current/bin/tap-up" ]; }
+
+        # The host operator's declared choice for a slot nobody has assigned
+        # (capsules.nix). Every declared slot has one — `capsules.nix` refuses at
+        # eval otherwise — so there is no unmatched branch to write, and a slot
+        # that is not declared never reaches here.
+        slotPolicy() {
+          case "$1" in
+        ${lib.concatMapStringsSep "\n" (c: "    ${c.name}) echo ${
+            if c.policy == null
+            then "-"
+            else c.policy
+          } ;;")
+          (builtins.attrValues capsules.instances)}
+          esac
+        }
+
+        # The set an assigner may select within, per slot. The host operator's
+        # other declaration, and the one that makes the verb below delegable: the
+        # authority to say which project a slot holds stops short of saying what
+        # it may talk to (NOTES item 36, item 25).
+        slotPolicies() {
+          case "$1" in
+        ${lib.concatMapStringsSep "\n" (c: "    ${c.name}) echo ${lib.escapeShellArg (lib.concatStringsSep " " c.policies)} ;;")
+          (builtins.attrValues capsules.instances)}
+          esac
+        }
+
+        # A policy's allowlist *filename* (policies.nix). A filename and never a
+        # path, so what the symlink below can be made to point at stays inside the
+        # one directory the proxy has bound.
+        policyFile() {
+          case "$1" in
+        ${lib.concatMapStringsSep "\n" (n: "    ${n}) echo ${lib.escapeShellArg policies.policies.${n}.allowlist} ;;")
+          policies.everything}
+          esac
+        }
+
+        # What this slot is actually running: its record when something has
+        # assigned one, the operator's declaration when nothing has. The same two
+        # steps the module's tmpfiles takes for the allowlist symlink, and the same
+        # two `collect` fills its `--policy` from — one rule, three readers.
+        effectivePolicy() {
+          local p
+          p=$(recordField "$1" policy)
+          if [ "$p" = - ]; then slotPolicy "$1"; else echo "$p"; fi
+        }
 
         # A unit's state in one word: `SubState` while it is active, since `running`
         # and `auto-restart` are the difference between a capsule and a crash loop,
@@ -412,13 +470,13 @@ in
           echo "$cur/$peak"
         }
 
-        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s ${lib.optionalString stateNeedsUnit "%-6s "}%s\n'
+        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %-7s ${lib.optionalString stateNeedsUnit "%-6s "}%s\n'
 
         statusHeader() {
           # shellcheck disable=SC2059
           printf "$statusFmt" \
             capsule created vm proxy relay door answers \
-            head dirty baseline age disk 'mem cur/peak' refs gen ${lib.optionalString stateNeedsUnit "unit "}purpose
+            head dirty baseline age disk 'mem cur/peak' refs gen policy ${lib.optionalString stateNeedsUnit "unit "}purpose
         }
 
         yesno() { if "$@"; then echo yes; else echo no; fi; }
@@ -452,7 +510,8 @@ in
             "''${head:0:9}" "$dirty" "$baseline" "$(ageOf "$stamp")" "$disk" \
             "$(memOf "$n")" \
             "$refs" \
-            "$(recordField "$n" generation)" ${lib.optionalString stateNeedsUnit ''"$(recordField "$n" unit)"''} \
+            "$(recordField "$n" generation)" \
+            "$(effectivePolicy "$n")" ${lib.optionalString stateNeedsUnit ''"$(recordField "$n" unit)"''} \
             "$(recordField "$n" purpose)"
         }
 
@@ -762,6 +821,97 @@ in
             fi
             ;;
 
+          # What this slot may talk to, and what may come back out of it — the one
+          # assigner-owned field that is a **control** rather than a label, which
+          # is why it is a selection from a declared set and never a name an
+          # assigner authors (NOTES item 36, item 25). Two writes and a restart:
+          #
+          #   - the record, so the slot says what it was told to be;
+          #   - the allowlist symlink beside it, so the proxy serves it without
+          #     ever reading the record — the front end resolves, which is a front
+          #     end's latitude and never a program's;
+          #   - a restart of that slot's proxy, because the proxy renders its
+          #     config at start. The cost is stated rather than avoided: that
+          #     slot's egress drops for the length of a restart, and a tightening
+          #     nobody applied is not a control.
+          #
+          # The first two go under one `flock` (host/record.nix's `recordAlso`),
+          # because a record and a perimeter that disagree is a perimeter nobody
+          # can read.
+          policy)
+            if [ "$#" -eq 0 ]; then
+              effectivePolicy "$name"
+              exit 0
+            fi
+            [ "$#" -eq 1 ] || {
+              echo "capsule: policy takes one name — it selects from the set this" >&2
+              echo "  slot declares: $(slotPolicies "$name")" >&2
+              exit 1
+            }
+            want="$1"
+            allowed=no
+            read -ra declaredSet <<<"$(slotPolicies "$name")"
+            # A distinct refusal, not a special case of the one below: a slot with
+            # an empty set is a declaration nobody can satisfy, and reporting the
+            # name as not in an empty list would blame the argument for a fault
+            # in the declaration.
+            if [ "''${#declaredSet[@]}" -eq 0 ]; then
+              echo "capsule: '$name' declares no policies, so there is nothing for" >&2
+              echo "  an assigner to select. A slot's set is the host operator's," >&2
+              echo "  in capsules.nix (NOTES item 36)." >&2
+              exit 1
+            fi
+            for p in "''${declaredSet[@]}"; do
+              [ "$want" = "$p" ] && allowed=yes
+            done
+            if [ "$allowed" = no ]; then
+              echo "capsule: '$name' may not take policy '$want'." >&2
+              echo "  Its declared set is: $(slotPolicies "$name")" >&2
+              echo "  Widening that set is the host operator's, in capsules.nix —" >&2
+              echo "  which is the whole point of the set existing (NOTES item 36)." >&2
+              exit 1
+            fi
+            # The module path's, and only there: the record already is
+            # (`recordRoot` above), and the symlink is a `stateDir` path the units
+            # bind. The devshell shape names its policy per run, on
+            # `capsule-host --policy <name>`, which is the same selection with no
+            # state to keep.
+            if [ -z "''${CAPSULE_POLICY_DIR:-}" ]; then
+              echo "capsule: no policy directory, so this copy cannot re-point a" >&2
+              echo "  slot's allowlist. The verb is the module path's — run" >&2
+              echo "  /run/current-system/sw/bin/capsule $name policy $want." >&2
+              echo "  On the devshell path a policy is named per run instead:" >&2
+              echo "  capsule-host --policy $want." >&2
+              exit 1
+            fi
+            # Inside the record's lock, before the document is written, so a
+            # failure here leaves both halves as they were (host/record.nix).
+            # `-T`, not just `-n`: without it a link name that is somehow a real
+            # directory means `ln` writes *inside* it and reports success, which
+            # is a re-point that never happened and a proxy still on the old
+            # policy.
+            recordAlso() {
+              ln -sfT "$CAPSULE_POLICY_DIR/$(policyFile "$want")" "$2/allowlist"
+            }
+            # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
+            gen=$(recordWrite "$name" '.policy = $p' --arg p "$want") || {
+              echo "capsule: '$name' still holds $(effectivePolicy "$name") — the" >&2
+              echo "  record and its allowlist link are written together and" >&2
+              echo "  neither moved." >&2
+              exit 1
+            }
+            echo "capsule $name: policy $want, generation $gen"
+            # A proxy that is not running has nothing to reload: it renders its
+            # config at start, so the next start is already the new policy.
+            proxy="capsule-proxy-$name"
+            if systemctl is-active --quiet "$proxy"; then
+              echo "  restarting $proxy — egress is down for the length of it"
+              sudo systemctl restart "$proxy"
+            else
+              echo "  $proxy is not running; it will render $want when it starts"
+            fi
+            ;;
+
           ${lib.optionalString stateNeedsUnit ''
           # Which unit of work this slot is driving, and the only assigner-owned
           # field here that is *not* free text: it fills the hole in the target's
@@ -790,31 +940,42 @@ in
             fi
             ;;
 
-          # Intercepted for exactly one thing, and it is the thing item 20 keeps
-          # out of a program: the record is host state, so the program refuses
-          # without a unit and this is what usually supplies one. An explicit
-          # `--unit` on the command line wins — a one-off collect of some other
-          # unit's state is a human's call, and re-recording the slot's
-          # assignment as a side effect of reading it would be this front end
-          # deciding something nobody asked it to.
+        ''}
+
+          # Intercepted for exactly one kind of thing, and it is the thing item 20
+          # keeps out of a program: a collect is scoped and bounded by host state,
+          # the program refuses without either, and reading this host's state is a
+          # front end's job. Two fields, one shape — an explicit flag always wins,
+          # because a one-off collect under another policy or of another unit's
+          # state is a human's call, and re-recording the slot's assignment as a
+          # side effect of reading it would be this front end deciding something
+          # nobody asked it to.
           #
-          # No unit anywhere is *not* handled here: `capsule-collect`'s own
-          # refusal already names both remedies, and a second copy of it here
-          # would be a second thing to keep true.
+          # Neither *absence* is handled here: `capsule-collect`'s own refusals
+          # already name the remedies, and a second copy of them here would be a
+          # second thing to keep true.
           collect)
-            given=no
+            policyGiven=no
+            ${lib.optionalString stateNeedsUnit "unitGiven=no"}
             for a in ''${1+"$@"}; do
               case "$a" in
-                --unit | --unit=*) given=yes ;;
+                --policy | --policy=*) policyGiven=yes ;;
+                ${lib.optionalString stateNeedsUnit "--unit | --unit=*) unitGiven=yes ;;"}
               esac
             done
-            recordedUnit=$(recordField "$name" unit)
-            if [ "$given" = no ] && [ "$recordedUnit" != - ]; then
-              set -- --unit "$recordedUnit" ''${1+"$@"}
+            # So an unassigned slot ingests under exactly the policy its proxy is
+            # already serving (host/services.nix, NOTES item 36).
+            if [ "$policyGiven" = no ]; then
+              set -- --policy "$(effectivePolicy "$name")" ''${1+"$@"}
             fi
+            ${lib.optionalString stateNeedsUnit ''
+          recordedUnit=$(recordField "$name" unit)
+          if [ "$unitGiven" = no ] && [ "$recordedUnit" != - ]; then
+            set -- --unit "$recordedUnit" ''${1+"$@"}
+          fi
+        ''}
             work "$name" collect ''${1+"$@"}
             ;;
-        ''}
 
           *) work "$name" "$verb" ''${1+"$@"} ;;
         esac

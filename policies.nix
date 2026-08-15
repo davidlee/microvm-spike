@@ -49,7 +49,8 @@ rec {
       # bound on the transfer: a pack of a million small objects never trips it
       # and still fills the disk (NOTES item 18). It is here rather than in
       # `target.nix` because what may come back is host policy about ingestion,
-      # not a property of the project (item 25).
+      # not a property of the project (item 25). 512 MiB against a target whole
+      # history of 32 MiB, which leaves room for a working history.
       collectMaxPackBytes = 536870912;
 
       mayCollect = true;

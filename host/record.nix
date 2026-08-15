@@ -74,6 +74,22 @@
     # into the filter**: free text like `purpose` would then be jq code, the same
     # class of mistake as a path reaching a shell as code, and `purpose` is
     # explicitly whatever a client puts in it.
+    # `recordAlso` — a hook a caller may define, run inside the slot's lock and
+    # *before* the document is written. It exists for one thing: `capsule <slot>
+    # policy` re-points that slot's allowlist symlink in the same breath as the
+    # record, because a record and a perimeter that disagree is a perimeter
+    # nobody can read (NOTES item 36). A hook rather than an argument because
+    # `recordWrite`'s trailing arguments are jq's, and every other caller leaves
+    # it undefined.
+    #
+    # Before, not after, and the ordering is the whole of what it buys. Neither
+    # order is safe for both a tightening and a widening, so the one taken is the
+    # one with a clean failure: a hook that fails leaves the record untouched and
+    # nothing has changed at all. The other order's failure leaves a record
+    # claiming a perimeter that was never applied.
+    #
+    # It fails the write by exiting the locked subshell, so `recordWrite` returns
+    # non-zero and prints no generation — a caller with a hook must check.
     recordWrite() {
       local n="$1" filter="$2" dir
       shift 2
@@ -81,6 +97,9 @@
       mkdir -p "$dir"
       (
         flock 9
+        if declare -F recordAlso > /dev/null; then
+          recordAlso "$n" "$dir" || exit 1
+        fi
         cur=$(cat "$dir/assignment.json" 2>/dev/null || echo '{}')
         gen=$(printf '%s' "$cur" | jq -r '.generation // 0')
         next=$((gen + 1))
