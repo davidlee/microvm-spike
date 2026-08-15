@@ -47,7 +47,7 @@ time it is touched.
 | [22](./022-secrets-at-start.md) | secrets at start, and a payload that may be absent | built and run at N=2 |
 | [23](./023-second-target.md) | a second target, and what the parameterisation actually cost | done on branch `second-target` |
 | [24](./024-set-u-not-login-shell.md) | a `set -u` script must not *be* the login shell | fixed and shipped, unwitnessed |
-| [25](./025-assignment-is-a-perimeter-verb.md) | assignment is a perimeter-mutating verb | open — scoped in [contract-assignment.md](../contract-assignment.md) |
+| [25](./025-assignment-is-a-perimeter-verb.md) | assignment is a perimeter-mutating verb | scoped in [contract-assignment.md](../contract-assignment.md); **being resolved by item 36**, half built |
 | [26](./026-project-nix-runs-on-the-host.md) | a project's flake is code that runs on the host | open — scoped in [contract-flavour.md](../contract-flavour.md) |
 | [27](./027-a-class-is-not-always-a-kilobyte.md) | a class is a kilobyte only over reservations the profile derives nothing from | settled for `mem` by eval, `vcpu` read from source |
 | [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built and run at N=2 |
