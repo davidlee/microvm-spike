@@ -32,6 +32,7 @@
   net,
   target,
   capsules,
+  policies,
   # The guest's branch, threaded through to the git channel exactly as the
   # devshell path does it (flake.nix): the installed programs and the guest image
   # have to agree on it, and neither of them may spell it.
@@ -64,15 +65,24 @@
   # capsule, because every capsule has the identical tap address. Only the
   # namespace and the state directory differ. No preflight/watch: those are for
   # the foreground composition, and the guard unit is this path's version of
-  # them. The allowlist comes from the options rather than from `target.nix`,
-  # so a host that sets it differently gets what it asked for.
+  # them. **No allowlist**: the perimeter carries none any more (NOTES item 36),
+  # and each proxy is handed its policy's file in the environment — through the
+  # per-slot symlink below, so re-pointing it is a verb rather than a rebuild.
   perimeter = import ../perimeter {
     inherit pkgs;
     bind = net.host;
     client = net.guest;
     inherit (net) proxyPort;
-    allowlistFile = target.allowlist;
   };
+
+  # Where a slot's *selected* allowlist is, as one stable path the proxy unit can
+  # bind. It is a symlink into `policyDir`, created at the slot's declared
+  # default by tmpfiles and re-pointed by `capsule <slot> policy <name>` — which
+  # is what keeps the proxy from having to read the assignment record to learn
+  # its own perimeter (item 36). Beside the record, because the two are one
+  # slot's desired state and a verb writes both.
+  allowlistOf = c: "${cfg.stateDir}/slot/${c.name}/allowlist";
+  policyFile = name: "${cfg.policyDir}/${policies.policies.${name}.allowlist}";
 
   # The guest is not routable from the root namespace any more, so the human's
   # programs reach it the way `just ssh` does: a ProxyCommand against the
@@ -176,7 +186,10 @@
       after = [guardUnit (netnsUnit c) (tapUnit c)];
       environment = {
         CAPSULE_PROXY_STATE = "${proxyState}/${c.name}";
-        CAPSULE_ALLOWLIST = cfg.allowlist;
+        # The slot's symlink, not a policy's file: what it points at is run-time
+        # state a verb owns, and a unit that named a policy would need a rebuild
+        # to change one (NOTES item 36).
+        CAPSULE_ALLOWLIST = allowlistOf c;
       };
       # Neither privilege, a device, a namespace nor a second architecture's
       # syscalls. Ceilings rather than working limits: the point is that it
@@ -195,7 +208,15 @@
         # is not reachable from here — loopback is per-namespace. Without this
         # line tinyproxy resolves nothing and every request 403s as if the
         # allowlist had denied it.
-        BindReadOnlyPaths = [cfg.allowlist "${netns.resolvConf c.ns}:/etc/resolv.conf"];
+        # The whole policy directory, so the symlink above resolves inside the
+        # unit whichever declared policy it points at — and so the readable set
+        # is the declaration rather than whatever one symlink happened to name
+        # at start.
+        BindReadOnlyPaths = [
+          cfg.policyDir
+          (allowlistOf c)
+          "${netns.resolvConf c.ns}:/etc/resolv.conf"
+        ];
         # tmpfs rather than `true`, so the one file it does need can be
         # bound back in and nothing else in $HOME is visible at all.
         ProtectHome = "tmpfs";
@@ -418,14 +439,16 @@ in {
       '';
     };
 
-    allowlist = lib.mkOption {
+    policyDir = lib.mkOption {
       type = lib.types.str;
-      default = "/home/${cfg.owner}/dev/microvm-spike/${target.allowlist}";
-      defaultText = "/home/\${owner}/dev/microvm-spike/\${target.allowlist}";
+      default = "/home/${cfg.owner}/dev/microvm-spike/${policies.dir}";
+      defaultText = "/home/\${owner}/dev/microvm-spike/\${policies.dir}";
       description = ''
-        Proxy hostname allowlist. Deliberately a plain file rather than a store
-        path, so changing it needs a service restart and not a rebuild — it is
-        bind-mounted read-only into the proxy's namespace.
+        Directory holding every declared policy's allowlist. Deliberately plain
+        files rather than store paths, so changing one needs a proxy restart and
+        not a rebuild — the directory is bind-mounted read-only into each proxy's
+        namespace, which is why the policies are in one place: it makes the set
+        of files a proxy could ever read bounded and legible (policies.nix).
       '';
     };
 
@@ -487,15 +510,27 @@ in {
       # Plain and owner-owned. It was setgid and group-shared when a daemon uid
       # had to write into the same repositories the human read; nothing shares a
       # repository any more, which is the point of item 18.
-      systemd.tmpfiles.rules = [
-        "d ${cfg.stateDir} 0750 ${cfg.owner} users -"
-        # The directory is made; the key is not. `z` only corrects what is
-        # already there, so a host that has not been given a stop key is refused
-        # at VM start with a message, rather than handed a generated key that
-        # no guest closure knows about.
-        "d ${builtins.dirOf cfg.stopKey} 0755 root root -"
-        "z ${cfg.stopKey} 0400 microvm kvm -"
-      ];
+      systemd.tmpfiles.rules =
+        [
+          "d ${cfg.stateDir} 0750 ${cfg.owner} users -"
+          # The directory is made; the key is not. `z` only corrects what is
+          # already there, so a host that has not been given a stop key is refused
+          # at VM start with a message, rather than handed a generated key that
+          # no guest closure knows about.
+          "d ${builtins.dirOf cfg.stopKey} 0755 root root -"
+          "z ${cfg.stopKey} 0400 microvm kvm -"
+        ]
+        # A slot's directory, and its policy as declared by the host operator.
+        # `L` and not `L+`: it creates the symlink when it is absent and leaves one
+        # that is already there, so the operator's declaration is what an
+        # unassigned slot runs and an assigner's selection survives every boot.
+        # That is the whole of "a declared default, not a fallback" — there is no
+        # code path that picks a policy, only a link that exists.
+        ++ lib.concatMap (c: [
+          "d ${cfg.stateDir}/slot/${c.name} 0750 ${cfg.owner} users -"
+          "L ${allowlistOf c} - - - - ${policyFile c.policy}"
+        ])
+        instances;
 
       # Only the three that touch host state need wrapping; `capsule-inject`,
       # `capsule-baseline` and `capsule-refresh` write nothing host-side, so they

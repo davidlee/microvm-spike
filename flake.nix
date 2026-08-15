@@ -64,6 +64,7 @@
     # rule again. Under netns the guest-facing link is *not* in here — it is
     # identical in every capsule, so it stays in net.nix above.
     capsules = import ./capsules.nix;
+    policies = import ./policies.nix;
 
     # The branch a capsule's checkout sits on, everywhere and always. Not a value
     # file of its own and not a field of any of the three above: it is not
@@ -243,7 +244,6 @@
       bind = net.host;
       client = net.guest;
       inherit (net) proxyPort;
-      allowlistFile = target.allowlist;
       extraRuntimeInputs = [pkgs.iproute2];
       preflight = ''
         ${perimeterChecks}
@@ -308,7 +308,54 @@
         done
       '';
     };
-    capsule-host = perimeter.host;
+    # `capsule-host`, with a policy resolved in front of it. The perimeter no
+    # longer carries an allowlist (NOTES item 36), so the devshell path names one
+    # the way it names a capsule: as an argument, refusing without. A wrapper
+    # rather than an argument to `perimeter/` for the reason everything else here
+    # is injected — a policy vocabulary is this host's, and `perimeter/` is the
+    # one place that must stay portable enough for a seatbelt to reuse.
+    #
+    # It is a wrapper on `PATH`, so reading it answers about the wrapper and not
+    # about the proxy (CLAUDE.md).
+    capsule-host =
+      pkgs.writeShellApplication {
+        name = "capsule-host";
+        text = ''
+          root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
+          case "''${1:-}" in
+            --policy)
+              [ -n "''${2:-}" ] || { echo "capsule-host: --policy takes a name" >&2; exit 1; }
+              policy="$2"
+              shift 2
+              ;;
+            *)
+              echo "capsule-host: usage: capsule-host --policy <name> [args…]" >&2
+              echo "  declared policies: ${lib.concatStringsSep " " policies.everything}" >&2
+              echo "  A perimeter serves under a named policy or it does not serve" >&2
+              echo "  (policies.nix, NOTES item 36)." >&2
+              exit 1
+              ;;
+          esac
+          case "$policy" in
+          ${lib.concatMapStringsSep "
+" (n: ''
+              ${n}) allow="$root/${policies.dir}/${policies.policies.${n}.allowlist}" ;;'')
+            policies.everything}
+            *)
+              echo "capsule-host: no policy named '$policy'." >&2
+              echo "  declared: ${lib.concatStringsSep " " policies.everything}" >&2
+              exit 1
+              ;;
+          esac
+          [ -r "$allow" ] || {
+            echo "capsule-host: policy '$policy' names $allow, which is not readable." >&2
+            exit 1
+          }
+          echo "capsule-host: policy $policy"
+          export CAPSULE_ALLOWLIST="$allow"
+          exec ${lib.getExe perimeter.host} "$@"
+        '';
+      };
 
     # Host->guest ssh, for everything that is not the proxy: no host-key check
     # and no record of one, because a fresh capsule has fresh keys at the same
@@ -1084,7 +1131,12 @@
         PROXY_PORT="${toString net.proxyPort}"
         VM="capsule"
         PROXY="${perimeter.proxy}/bin/capsule-proxy"
-        ALLOWLIST="${target.allowlist}"
+        # The `build` policy's file, named rather than defaulted: the perimeter
+        # has no allowlist of its own any more, so a probe states which policy it
+        # is asserting under exactly as a capsule does (NOTES item 36). This is
+        # the one that has to admit an allowlisted host, since the round asserts
+        # a 200 as well as a 403.
+        ALLOWLIST="${policies.dir}/${policies.policies.build.allowlist}"
       '';
       runtimeInputs = [
         pkgs.iproute2
@@ -1297,7 +1349,7 @@
     # host that wants it as its real posture. Opt-in: `capsule-host` in the
     # devshell stays the development path and needs no rebuild. Import it in the
     # host's config and set `services.capsule-perimeter.{enable,owner}`.
-    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target capsules workBranch;};
+    nixosModules.capsule-perimeter = import ./host/services.nix {inherit net target capsules policies workBranch;};
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms

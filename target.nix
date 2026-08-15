@@ -45,11 +45,12 @@ rec {
   # them. nixpkgs attr names, resolved against the guest's pkgs.
   extraTools = ["pkg-config" "openssl"];
 
-  # Proxy hostname allowlist, relative to CAPSULE_ROOT so a moved checkout still
-  # finds it, and a plain file rather than a store path so editing it needs no
-  # rebuild. One file per target: a second target gets its own, since half of
-  # any such list is that target's dependency hosts.
-  allowlist = "perimeter/egress-allow.txt";
+  # No `allowlist` field, and nothing replaces it. What a capsule may talk to is
+  # a **control**, and a control chosen by whoever names the project is a control
+  # the naming authority holds (NOTES item 25) — invisible while one target was a
+  # build-time literal, and an authority hole the moment assigning a project is a
+  # run-time verb. It is a policy now, declared in `policies.nix`, selected per
+  # slot, and the same is true of `collectMaxPackBytes` below (NOTES item 36).
 
   # Toolchain-shaped rather than repo-shaped, which is why they are here: caches
   # that must live on the volume instead of in guest RAM. Env var -> directory

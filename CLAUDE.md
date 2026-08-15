@@ -204,6 +204,8 @@ Break these and the confinement stops meaning anything:
   roles — the client holding the requirements, and one instance of that
   contract. Update them in the same commit as anything that moves the boundary.
 
+  never use `git checkout` or other destructive forms.
+
 ## Firecracker constraints (verified in microvm.nix source)
 
 `lib/runners/firecracker.nix` throws on: 9p/virtiofs **shares**, device

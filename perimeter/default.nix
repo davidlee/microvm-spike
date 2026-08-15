@@ -32,12 +32,17 @@
 #   CAPSULE_ROOT         $PWD             repo root
 #   CAPSULE_STATE        .vm/host         host-side state
 #   CAPSULE_PROXY_STATE  $CAPSULE_STATE   proxy conf, log, pid
-#   CAPSULE_ALLOWLIST    $allowlistFile   proxy hostname allowlist
+#   CAPSULE_ALLOWLIST    (required)       proxy hostname allowlist
 #
-# The allowlist comes from the caller (target.nix, via flake.nix or the module's
-# options): which repo is confined is no more this file's business than which
-# hypervisor is. Nothing here reads the target, and nothing here touches a git
-# repository at all.
+# **The allowlist has no default here and is not a build-time value.** It used to
+# be `target.nix`'s `allowlist`, one file named by the project — which is the
+# authority bug item 25 names and item 36 fixes: what a capsule may talk to is a
+# control, and a control chosen by whoever names the project is a control the
+# naming authority holds. Each call site now resolves a *policy* and hands the
+# file over in the environment: the devshell's `capsule-host` from `--policy`,
+# the module's unit from a per-slot symlink its `policy` verb re-points. Which
+# repo is confined is no more this file's business than which hypervisor is, and
+# now neither is which policy.
 {
   pkgs,
   # Address the proxy listens on, and the single client permitted to use it. On
@@ -46,10 +51,6 @@
   bind,
   client,
   proxyPort,
-  # The allowlist file, relative to CAPSULE_ROOT. A value, like the addresses
-  # above — the caller knows the target, this does not. Stays overridable by
-  # environment.
-  allowlistFile,
   # Shell fragment run before anything binds. Fail-closed: `exit 1`.
   preflight ? "",
   # Shell fragment supervised alongside the proxy, for perimeter state this
@@ -85,8 +86,18 @@
       text = ''proxyState="''${CAPSULE_PROXY_STATE:-$state}"'';
     }
     {
+      # No fallback, deliberately: a proxy that picks an allowlist because none
+      # was named is the fleet-wide default this file just stopped having. The
+      # caller resolved a policy or it did not, and serving under an unnamed one
+      # is the failure being fixed (NOTES item 36).
       name = "allow";
-      text = ''allow="''${CAPSULE_ALLOWLIST:-$root/${allowlistFile}}"'';
+      text = ''
+        allow="''${CAPSULE_ALLOWLIST:-}"
+        [ -n "$allow" ] || {
+          echo "capsule-proxy: no allowlist. CAPSULE_ALLOWLIST names the file a" >&2
+          echo "  policy selected; nothing here picks one. See policies.nix." >&2
+          exit 1
+        }'';
     }
   ];
 
