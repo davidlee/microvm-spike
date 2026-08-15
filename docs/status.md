@@ -71,7 +71,7 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
-- **A policy is selected from a declared set now, and half of that is built.**
+- **A policy is selected from a declared set now, and it is built.**
   [Item 36](./ledger/036-a-policy-is-selected-not-named.md) is Plan D D2's
   run-time half and [item 25](./ledger/025-assignment-is-a-perimeter-verb.md)'s
   resolution: what a capsule may talk to stopped being named by the project that
@@ -91,11 +91,29 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   and **never reads the assignment record** — the front end resolves, which is a
   front end's latitude and never a program's.
 
-  **Two slices of four, and nothing is switched**, so this host still runs the
-  fleet-wide allowlist. What is left: `collectMaxPackBytes` and `mayCollect`
-  moving out of `target.nix` on `unit`'s precedent, the `capsule <slot> policy
-  <name>` verb that re-points the symlink and restarts that slot's proxy, and the
-  cases. The checklist is in the item.
+  **The ingestion limbs moved too.** `collectMaxPackBytes` and `mayCollect` are a
+  policy's, and `capsule-collect --policy <name>` resolves both — refusing
+  without one, and refusing a policy that does not permit collecting before it
+  opens the door. A **name and not a byte count**: a caller selects from what
+  this host declared rather than authoring a bound. The front end fills the flag
+  from the slot's record, falling back to the operator's declaration, which is
+  the same two steps tmpfiles takes for the allowlist link.
+
+  **`capsule <slot> policy <name>` is the verb**, validated against that slot's
+  declared set. It writes the record and re-points the link under one `flock` —
+  link first, so the only failure either can have leaves both as they were — then
+  restarts that slot's proxy, which is what a policy change costs a running
+  capsule. There is a `policy` status column beside `unit`, showing what the slot
+  resolves to rather than what its record happens to hold.
+
+  **Checked by `policyCases`**, 28 of them: the front end's own text against
+  three slots `capsules.nix` would itself refuse, watched going red on two
+  mutations. What no case can say is that any of it reaches the wire —
+  `probe/netns-egress.sh` has a two-policy round for that now, **written and
+  unrun**, and even that will not show two capsules differing at the same time.
+
+  **Nothing is switched**, so this host still runs the fleet-wide allowlist; the
+  switch is also what materialises the per-slot symlinks.
 
 - **The pool is ten slots, declared and switched onto this host.**
   `capsules.nix` says `a`…`j`, which is [Plan D](./plan-d-fleet.md) D2's first

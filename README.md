@@ -305,9 +305,9 @@ host — the only mechanical check this half has.
 Three terminals, or three tmux windows:
 
 ```
-capsule-net up      # once per boot; sudo. creates the tap, owned by you
-capsule-host        # foreground: the egress proxy
-vm capsule          # foreground: the VM, with its serial console on your tty
+capsule-net up            # once per boot; sudo. creates the tap, owned by you
+capsule-host --policy build  # foreground: the egress proxy, under a named policy
+vm capsule                # foreground: the VM, with its serial console on your tty
 ```
 
 The guest boots with an **empty** `/work/doctrine`. Give it history from the
@@ -398,7 +398,7 @@ that state was the state of
 | `capsule-net up`    | create the tap + assign `10.99.0.1/30`. Needs sudo.         |
 | `capsule-net down`  | remove it. Refuses while a VM runs; `--force` overrides.    |
 | `capsule-net verify`| report the perimeter's state without touching the link.      |
-| `capsule-host`      | tinyproxy + the perimeter watch. Foreground, unprivileged.   |
+| `capsule-host --policy NAME` | tinyproxy + the perimeter watch, serving that policy's allowlist. Foreground, unprivileged. Refuses without a policy. |
 | `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
 | `capsule-collect`   | fetch the guest's refs into a quarantine repo named for it.  |
 | `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` — credentials into `/work/home`, secrets to `/work/.env`. `capsule <name> start` runs it. |
@@ -481,8 +481,17 @@ NAT, **no default route in the guest**, no resolver in the guest. Everything
 outbound goes through the host's proxy, which resolves names itself — so an
 unlisted host cannot be reached or even resolved.
 
-To let something new out, edit `perimeter/egress-allow.txt` (extended regex,
-one hostname per line) and restart `capsule-host`. No rebuild.
+To let something new out, edit the file the policy names — for `build` that is
+`perimeter/egress-allow.txt` (extended regex, one hostname per line) — and
+restart the proxy. No rebuild: an allowlist is deliberately a plain file, and
+what a policy declares is *which* file.
+
+To move a slot to a different policy, `capsule <name> policy <name>` on the
+module path. It selects from the set that slot declares in `capsules.nix`,
+writes the record, re-points that slot's allowlist link and restarts its proxy —
+so egress drops for the length of a restart, which is what a tightening costs.
+The vocabulary is `policies.nix`; a project never names its own perimeter
+([NOTES item 36](./docs/ledger/036-a-policy-is-selected-not-named.md)).
 
 `ssh` runs the other way — host to guest — and widens nothing.
 
@@ -504,11 +513,16 @@ Tools the target's list omits because it assumes a host that has them go in
 
 ## Pointing it at a different repo
 
-`target.nix` holds everything target-shaped: name, path, tools package, egress
-allowlist file, cache directories, working branch, collect ceiling, the guest's
-sizes and the build config rendered from them. Change it and the guest's
-checkout path, the branch the git channel provisions onto, the motd and the host
-side all follow.
+`target.nix` holds everything target-shaped: name, path, tools package, cache
+directories, the out-of-band state paths, the guest's sizes and the build config
+rendered from them. Change it and the guest's checkout path, the motd and the
+host side all follow.
+
+What is *not* in there is the perimeter. The egress allowlist and the collect
+ceiling are host **policy**, declared in `policies.nix` and selected per slot,
+because a control chosen by whoever names the project is a control the naming
+authority holds ([NOTES item 36](./docs/ledger/036-a-policy-is-selected-not-named.md),
+[item 25](./docs/ledger/025-assignment-is-a-perimeter-verb.md)).
 
 What does *not* move with the target is `setup.nix` — which agent you sign in
 as is a property of you, not of the repo under confinement, so a second target
@@ -519,11 +533,12 @@ One duplication is unavoidable: an input's url must be a literal, so
 `target.nix`, and nix will not check that for you. For a one-off, override it
 instead: `--override-input target path:/home/you/dev/other`.
 
-Give each target its own allowlist file — half of any such list is that
-project's dependency hosts. And keep it here, host-side: an allowlist read out
-of the repo being worked on is an allowlist the agent can widen. NOTES item 16
-has the reasoning, and why *concurrent* capsules is a much bigger job than a
-different one.
+A second target usually wants a policy of its own — half of any allowlist is
+that project's dependency hosts — so add one to `policies.nix` and put its name
+in the declared set of the slots that may take it. It is still host-side: an
+allowlist read out of the repo being worked on is an allowlist the agent can
+widen. NOTES item 16 has the reasoning, and why *concurrent* capsules is a much
+bigger job than a different one.
 
 The field-by-field contract — what is required, what has a working absent path,
 what the capsule supplies back, and the porting order — is
@@ -542,7 +557,7 @@ what the capsule supplies back, and the porting order — is
 | egress dies mid-session, `Tearing down egress` | same, but it happened after start: docker/tailscale flipped forwarding |
 | `FORWARD drop ... cannot be verified`          | the sudo read rule is missing; safe only while `ip_forward` is 0 |
 | guest reaches nothing, host is up              | host firewall dropping the tap — see "Host requirements"    |
-| a hostname 403s through the proxy              | not in `perimeter/egress-allow.txt`; `.vm/host/tinyproxy.log` names it |
+| a hostname 403s through the proxy              | not in the file the running policy names (`capsule <name> policy` says which); `.vm/host/tinyproxy.log` names the host |
 | a download hangs mid-way, no error, no log line | proxy at `MaxClients` — `ss -lnt 'sport = :3128'` shows a non-zero `Recv-Q` (connections queued, never accepted). Cap the client (`bun install --network-concurrency 8`) or raise `MaxClients` in `perimeter/default.nix` |
 | the proxy log looks stale while egress works   | the unit path is serving, not `capsule-host` — its log is `/var/lib/capsule-proxy/tinyproxy.log`. `just proxy-log` picks the right one |
 | a TUI (claude, etc.) renders but ignores Enter | was the serial console's own quirk; loading `i8042`/`atkbd` in the guest fixed it (NOTES item 11) — if it returns, run TUIs over ssh |

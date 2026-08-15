@@ -9,6 +9,21 @@ on top of it was four questions about *mechanism*, answered from rules this repo
 already had, and no field moved
 ([item 29](./ledger/029-the-record-is-front-end-written.md)).
 
+**The policy noun is built now, and it is the second field an assignment
+actually writes.** [Item 36](./ledger/036-a-policy-is-selected-not-named.md) is
+the mechanism: `policies.nix` is the host's vocabulary, `capsules.nix` gives each
+slot a declared default and the set an assigner may select within, and `capsule
+<slot> policy <name>` writes the record. Two things this file's shape had to
+decide on contact with an implementation, both settled the way it says:
+
+- **the record is not what the perimeter reads.** The proxy would have to become
+  a reader of the assignment record, which is a hardened unit gaining a reason to
+  see host state. The verb re-points a per-slot symlink instead, under the same
+  `flock` as the record — the front end resolves, a program never probes;
+- **live costs a proxy restart, and it is stated rather than hidden.** The proxy
+  renders its config at start, so a selection reaches a running capsule when its
+  proxy restarts, and that slot's egress drops for the length of it.
+
 Two things D1 settled that this file states differently, both deliberate:
 
 - **the path is `/var/lib/capsule/slot/<slot>/`**, not `/var/lib/capsule/<slot>/`
@@ -138,7 +153,7 @@ never read by the guest.
 | `schema` | serialization discriminator, `1` to start | persistent state outlives the binary that wrote it. **Not a compatibility promise** — the design in this file is deliberately unversioned, and a number on the bytes is a different thing from a number on the contract |
 | `profile` | name of a project profile | the semantics half of what used to be "target" |
 | `profile_snapshot` | **the profile document itself**, retained here, addressed by its digest | see the retention rule below. A digest alone cannot answer "reapply what was pinned" once the named document has changed |
-| `policy` | name of a policy, from the slot's declared set | the control half. Separate field because separate owner (item 25) |
+| `policy` | name of a policy, from the slot's declared set | the control half. Separate field because separate owner (item 25). **Built** ([item 36](./ledger/036-a-policy-is-selected-not-named.md)): written by `capsule <slot> policy <name>`, refused outside that slot's set, and read by two things — the slot's allowlist link, re-pointed in the same locked write, and `capsule-collect`'s `--policy`, which the front end fills from here. Absent means the slot runs the operator's declared default, because absence is not a state a perimeter may be in |
 | `extras` | fragments composed on top of the profile's floor, from the slot's declared vocabulary | the assigner's half of what the guest can do. The profile declares a *floor* and never a flavour; the image is `compose(floor, extras)` ([contract-flavour.md](./contract-flavour.md)) |
 | `image` | **the store path** the composition resolved to, with a gcroot holding it | the resolved identity of `floor + extras`. Fragment names re-resolve when the vocabulary's inputs relock; a store path does not |
 | `class` | `mem`, `vcpu` | runner config |

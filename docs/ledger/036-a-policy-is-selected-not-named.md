@@ -1,10 +1,11 @@
 # NOTES item 36 — a policy is selected from a declared set, never named by a project
 
-*State: **two of four slices built and green, unswitched**. The vocabulary and
-each slot's set are declared, and the allowlist is a policy's — selected by
-`--policy` on the devshell path and by a per-slot symlink on the module path.
-What is left is the two collect limbs, the `policy` verb that re-points the
-symlink, and the cases; the checklist is at the foot of this file. This is
+*State: **built and green, unswitched**. The vocabulary and each slot's set are
+declared, all three limbs have moved out of `target.nix`, `capsule <slot> policy
+<name>` selects within a slot's set, and 28 cases pin it. Nothing is switched, so
+this host still runs the fleet-wide allowlist — the switch is also what
+materialises the per-slot symlinks. The one claim still owed is the live one, and
+`probe/netns-egress.sh`'s two-policy round is written and unrun. This is
 [item 25](./025-assignment-is-a-perimeter-verb.md)'s
 resolution shape turned into a mechanism, and it is the run-time half of
 [Plan D](../plan-d-fleet.md) D2 — the declaration half is
@@ -126,24 +127,55 @@ rule that probe was written under.
 | --- | --- |
 | the vocabulary, and each slot's declared default and set | **built**, two eval refusals watched firing |
 | the allowlist moves — `perimeter/` loses its value, both call sites resolve a policy | **built**, three `capsule-host` refusals exercised |
-| `collectMaxPackBytes` and `mayCollect` move | not started |
-| `capsule <slot> policy <name>`, the status column, and the cases | not started |
+| `collectMaxPackBytes` and `mayCollect` move | **built**, four `capsule-collect` refusals exercised |
+| `capsule <slot> policy <name>`, the status column, and the cases | **built**, 28 cases green, two mutations watched red |
+| the live claim — the same guest under two policies | **written, unrun**: `probe/netns-egress.sh` stage 2b, and it needs root |
 
 **Nothing is switched**, so this host still runs the fleet-wide allowlist. The
 switch is also what materialises the per-slot symlinks, since tmpfiles is what
 creates them at each slot's declared policy.
 
-**What the third slice has to decide**, and the precedent is `unit`'s exactly
-([item 32](./032-the-sideband-channel.md)): `collectMaxPackBytes` is a build-time
-literal today, baked into `capsule-collect`'s store path as `ulimit -f` blocks,
-and it becomes a run-time argument the front end fills from the slot's policy —
-explicit flag wins, and a direct call with neither **refuses**, because a collect
-with no declared bound is the unbounded ingest the bound exists to prevent.
-`mayCollect` is the same shape one field over and refuses before the door opens.
+**How the ingestion limbs moved**, on `unit`'s precedent exactly
+([item 32](./032-the-sideband-channel.md)): `capsule-collect --policy <name>`,
+refusing without one, resolving both limbs from a case generated out of
+`policies.nix`. A **name and not a byte count**, which is the decision worth
+recording — `--policy sealed` selects from what this host declared, while
+`--max-pack-bytes 10G` would let any caller author a bound, and the whole item is
+about who may author a control. `mayCollect` refuses before the door opens, so a
+capsule that may not send anything back is not asked to build a snapshot first.
+The front end fills the flag from the record, falling back to the slot's declared
+default — the same two steps tmpfiles takes for the allowlist link, so an
+unassigned slot ingests under exactly the policy its proxy is serving.
 
-**What the fourth has to decide** is what a policy change does to a slot that is
-running: the call taken is that the verb restarts that slot's proxy, so a
-tightening bites without a re-assign and one slot's egress drops for the length
-of a restart. It writes the record and re-points the symlink under the same
-`flock` the record already takes, because a record and a symlink that disagree is
-a perimeter nobody can read.
+**What the verb does to a running slot** is what the fourth slice had to decide:
+it restarts that slot's proxy, so a tightening bites without a re-assign and one
+slot's egress drops for the length of it. It writes the record and re-points the
+symlink under the same `flock`, because a record and a symlink that disagree is a
+perimeter nobody can read — and the link goes **first**, since neither order is
+safe for both a tightening and a widening and only that one has a failure where
+nothing moved at all. That is `host/record.nix`'s `recordAlso`, a hook rather
+than an argument because `recordWrite`'s trailing arguments are jq's.
+
+## What it is checked with, and what is still owed
+
+`policyCases` (flake.nix) is the third kind of check's fourth instance: the front
+end's own text against a declaration that is not this host's — three slots
+`capsules.nix` would itself refuse, so the branches are reachable without editing
+the pool or writing a live record. The second seam is `host/cli.nix`'s
+`moduleState`, an argument with a default, so the record lands in the sandbox and
+both shipped copies stay one store path. 28 cases, and the suite was watched
+going red on two mutations: `ln -sfT` weakened to `ln -sfn`, which turns a failed
+re-point into a link written *inside* a directory and reported as success, and
+the hook moved to after the document, which leaves a record claiming a perimeter
+that was never applied.
+
+**What the cases cannot say** is that any of it reaches the wire. That is
+`probe/netns-egress.sh`'s stage 2b — the same guest, the proxy restarted under
+`sealed`, the host that was allowed refused, and allowed again when the policy is
+put back, because a denial after a restart could be a proxy that simply stopped
+working. It is written and needs root, so it is unrun.
+
+**And what that probe still will not say** is that two capsules differ *at the
+same time*. That needs two guests, which is `probe/two-capsules.sh`'s shape and
+not this one's. Selection reaching the wire and two selections coexisting are two
+claims, and only the first has an instrument.

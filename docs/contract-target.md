@@ -77,11 +77,11 @@ changes until they are built.
 | `guestPath` | capsule | both: the guest's checkout | derived | — |
 | `toolsPackage` | flavour | guest: `packages.<system>.<name>` from the target's own flake | in practice yes | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Available only to a target whose whole tool set is a list of nixpkgs attr names**: `extraTools` is a supplement, never a substitute, so anything built by a function — a `python3.withPackages (…)` has no attr name — has to export a package (NOTES item 23) |
 | `extraTools` | flavour | guest: nixpkgs attr names, resolved against the *guest's* pkgs | no | `[]` |
-| `allowlist` | **policy** | host: the proxy's hostname allowlist, relative to `CAPSULE_ROOT` | yes | — |
+| ~~`allowlist`~~ | — | — | **no such field** | deleted, and nothing replaces it: what a capsule may talk to is a host policy selected per slot from a declared set, never named by the project in it ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) — see below |
 | `caches` | profile | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
 | `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
-| `collectMaxPackBytes` | **policy** | host: `capsule-collect`'s `ulimit -f` | yes | — |
+| ~~`collectMaxPackBytes`~~ | — | — | **no such field** | deleted with `allowlist` and for its reason: how much may come back out of a capsule is host policy about ingestion. It and `mayCollect` are a policy's, and `capsule-collect` resolves them from `--policy <name>` ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) |
 | `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). A **template** list — each entry may hold one `{unit}`, filled at collect from the assignment. Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
 | `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
@@ -90,18 +90,24 @@ changes until they are built.
 | `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
 | `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
-**Three rows are the ones the column exists for.** `allowlist` and
-`collectMaxPackBytes` are host controls — what a capsule may talk to, and how
-much may come back — sitting in the same file as `commands` and a motd string.
-`statePaths` joins them and is the sharpest of the three, because it is the one
-that names *files*: an allowlist of paths that are read out of a guest's
-worktree with `.gitignore` deliberately bypassed, and therefore a list to keep
-short and to read as a control rather than as configuration
-([item 32](./ledger/032-the-sideband-channel.md)).
-That is harmless while a target is a build-time literal and one host has one
-allowlist, and it stops being harmless the moment assigning a project is a
-run-time verb, because the project would then be naming its own perimeter
-([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)).
+**Two of those rows are struck out, and that is what the column was for.**
+`allowlist` and `collectMaxPackBytes` were host controls — what a capsule may
+talk to, and how much may come back — sitting in the same file as `commands` and
+a motd string. Harmless while a target was a build-time literal and one host had
+one allowlist; an authority hole the moment assigning a project is a run-time
+verb, because the project would then be naming its own perimeter
+([item 25](./ledger/025-assignment-is-a-perimeter-verb.md)). They are
+`policies.nix`'s now, with `mayCollect` beside them, and a slot declares which
+policies an assigner may select within
+([item 36](./ledger/036-a-policy-is-selected-not-named.md)).
+
+**`statePaths` is the one that stayed, and it is the sharpest of the three** —
+the one that names *files*: an allowlist of paths read out of a guest's worktree
+with `.gitignore` deliberately bypassed, and therefore a list to keep short and
+to read as a control rather than as configuration
+([item 32](./ledger/032-the-sideband-channel.md)). It stayed because what a
+target keeps out of its commits is genuinely the target's to declare; what may
+be *ingested* from it is not, which is the line the two struck rows crossed.
 
 **`statePaths` is a template, and that is item 25's split applied inside one
 field.** An exhibit has a scope — *the out-of-band state of the work the capsule
@@ -174,11 +180,14 @@ the consumers, not this table, before relying on one.
 
 ### What is deliberately not a target field
 
-- **The allowlist file is host-side, keyed by target.** The tempting version — a
-  `.capsule/egress-allow.txt` in the repo being worked on — hands the allowlist
-  to the thing being confined. Not directly, since the host reads the human's
-  working tree, but one careless merge of collected work and the agent has
-  widened its own egress. Same for `sizes` and `guestConfig`.
+- **The allowlist file is host-side, and keyed by *policy* rather than by
+  target.** The tempting version — a `.capsule/egress-allow.txt` in the repo
+  being worked on — hands the allowlist to the thing being confined. Not
+  directly, since the host reads the human's working tree, but one careless merge
+  of collected work and the agent has widened its own egress. Same for `sizes`
+  and `guestConfig`. Keyed by target was the *second* version, and it is gone
+  too: it made the authority to say which project a slot holds into the authority
+  to say what it may talk to ([item 36](./ledger/036-a-policy-is-selected-not-named.md)).
 - **Only the tool set comes from the target**, because it is a build input
   rather than a control. Keep that asymmetry explicit or the perimeter argument
   leaks.
@@ -268,9 +277,9 @@ Environment, in the order a program consults it:
 | --- | --- |
 | `CAPSULE_NAME` | which capsule, when `--capsule` is not given. There is no default — `capsules.default` was deleted ([item 28](./ledger/028-a-slot-has-no-default.md)) and a program refuses without a name |
 | `CAPSULE_REPO` | overrides `target.nix`'s `path` for `capsule-provision` |
-| `CAPSULE_ROOT` | this checkout, for resolving `allowlist` and the default state directory |
+| `CAPSULE_ROOT` | this checkout, for resolving a policy's allowlist file and the default state directory |
 | `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise. Written by `capsule-collect`, read by `capsule-adopt` and `capsule-brief`; one definition, `host/quarantine.nix` |
-| `CAPSULE_ALLOWLIST` | the allowlist file, overriding the target's |
+| `CAPSULE_ALLOWLIST` | the allowlist file the proxy serves. **Required, with no fallback** — a proxy that picks one because none was named is the fleet-wide default this repo stopped having. The devshell path fills it from `capsule-host --policy <name>`, the module path from a per-slot symlink ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) |
 
 The guest initiates nothing. It has no remote and no route to one, so what used
 to be a ref restriction is now the absence of a channel
@@ -295,8 +304,11 @@ different one. Nothing else generic moved. In order:
    from its checkout that a commit does not carry. Not a branch: there is no such
    field, and the guest's is the constant `work` whatever the target calls its
    own.
-3. Its own `allowlist` file. Half of any such list is that target's dependency
-   hosts, so it is a new file rather than an edit to doctrine's.
+3. Usually its own **policy** in `policies.nix`, whose allowlist file is a new
+   file rather than an edit to doctrine's — half of any such list is that
+   target's dependency hosts. It is not a `target.nix` field any more, and the
+   slots that may take it name it in their declared set
+   ([item 36](./ledger/036-a-policy-is-selected-not-named.md)).
 4. `toolsPackage`. `null` plus a filled-out `extraTools` is the absent path on
    paper and is unavailable to most targets in practice — attr names only, so a
    tool set assembled by a function has to become an exported package in the

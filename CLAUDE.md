@@ -29,13 +29,14 @@ evaluates). `just` (default) runs the build, units, and fmt.
 **There are three kinds of check here, and they are not interchangeable.**
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
-not mention them. `guardCases`, `briefCases` and `snapshotCases` *run* a host-side program's own
-text with a substitute for the one thing tying it to this host (`just cases`),
-and are the answer whenever the interesting branches are ones a live host can
-only reach destructively or expensively — the guard's by unnaming a namespace
-under a running guest, the brief runner's by dirtying one capsule's worktree to
-watch another refuse it, the state snapshot's by driving a real unit of work in
-a checkout that holds several. All three kinds are in `just build`, so a failing case is a failing
+not mention them. `guardCases`, `briefCases`, `snapshotCases` and `policyCases` *run* a host-side
+program's own text with a substitute for the one thing tying it to this host
+(`just cases`), and are the answer whenever the interesting branches are ones a
+live host can only reach destructively or expensively — the guard's by unnaming a
+namespace under a running guest, the brief runner's by dirtying one capsule's
+worktree to watch another refuse it, the state snapshot's by driving a real unit
+of work in a checkout that holds several, the front end's by editing the declared
+pool and writing the live record of a slot somebody is using. All three kinds are in `just build`, so a failing case is a failing
 build.
 
 The seam that makes the third kind possible is worth reusing rather than
@@ -43,8 +44,9 @@ reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
 test cannot stub `ip` by prepending its own. **A program that needs testing takes
 as an argument the one thing that ties it to this host** — `host/guard.nix`'s
 `tools`, `host/brief.nix`'s guest `runner` and `host/state-snapshot.nix`'s
-`snapshotFor`, both taking the checkout they run in — exactly as all three take
-`transport`: one text, two instantiations, no second copy of an invariant. Two
+`snapshotFor`, both taking the checkout they run in, and `host/cli.nix`'s
+`moduleState`, an argument with a default so both shipped copies stay one store
+path — exactly as all of them take `transport`: one text, two instantiations, no second copy of an invariant. Two
 rules for writing a case: assert the *reason* as well as the exit status, since a
 refusal for the wrong reason is a different program passing; and check the suite
 can fail by mutating the behaviour it claims to pin — the skip in
@@ -147,8 +149,17 @@ Break these and the confinement stops meaning anything:
   (NOTES item 28). `capsule` as a flake attribute is the guest **image**, not a
   slot: probes build `.#capsule` and match `microvm@capsule`, so it has to stay
   a real attribute even though it is not declared in `capsules.nix`.
+- **`policies.nix` is the same deal for the host's controls** — an allowlist
+  file, an ingestion bound and `mayCollect` per named policy, with each slot
+  declaring a default and the set an assigner may select within (`capsules.nix`).
+  A control chosen by whoever names the project is a control the naming authority
+  holds, so **no perimeter value lives in `target.nix`** and none comes back
+  (NOTES item 36, item 25). `capsule-host --policy <name>` and `capsule-collect
+  --policy <name>` refuse without one; `capsule <slot> policy <name>` writes the
+  record and re-points that slot's allowlist link under one `flock`, then
+  restarts its proxy.
 - **`target.nix` is the same deal for the repo under confinement** — name, path,
-  tools package, allowlist file, caches, sizes. Threaded the same way. It has
+  tools package, caches, sizes. Threaded the same way. It has
   **no branch field** and gets none back: the guest's branch is `workBranch` in
   `flake.nix`, a constant, because a name that identifies the work is not
   project state (docs/contract-target.md). `capsule-provision <ref>` is a ref in
