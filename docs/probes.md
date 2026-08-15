@@ -351,28 +351,53 @@ store path serving both capsules throughout, and from run 2 one set of host
 programs serving both as well (see the asymmetry it found, below). The four
 independences hold in every run, and the pair costs this:
 
-| figure | run 1 | run 2 | run 3 | note |
-| --- | --- | --- | --- | --- |
-| A answers ssh, from launch | 6.94 s | 6.92 s | 6.90 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
-| both answer ssh, from launch | 7.12 s | 7.10 s | 7.10 s | the second capsule costs **0.18–0.20 s** in every run, not a second boot |
-| declared guest RAM, per capsule | 16384 MiB | 8192 MiB | 6144 MiB | `target.sizes.mem`, cut twice across the three runs |
-| **MemAvailable, both booted and idle** | **1488 MiB** | **1393 MiB** | **1028 MiB** | against 32768 / 16384 / 12288 MiB declared between them. See the withdrawal below |
-| both provisioned, in series | 3.51 s | 3.86 s | 3.92 s | two 32 MiB histories, one after the other |
-| volume, A / B | 295 / 295 MiB | 295 / 295 MiB | 298 / 299 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
-| teardown, one down, sibling up | 3.56 s | 3.56 s | **0.51 s** | see below — the stop changed, not the pair |
-| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | 2 / 1, 1 | 2 / 1, 1 | see below |
+| figure | run 1 | run 2 | run 3 | run 4 | note |
+| --- | --- | --- | --- | --- | --- |
+| A answers ssh, from launch | 6.94 s | 6.92 s | 6.90 s | 6.92 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
+| both answer ssh, from launch | 7.12 s | 7.10 s | 7.10 s | 7.12 s | the second capsule costs **0.18–0.20 s** in every run, not a second boot |
+| declared guest RAM, per capsule | 16384 MiB | 8192 MiB | 6144 MiB | 6144 MiB | `target.sizes.mem`, cut twice across the four runs |
+| **MemAvailable, both booted and idle** | **1488 MiB** | **1393 MiB** | **1028 MiB** | **1213 MiB** | against 32768 / 16384 / 12288 / 12288 MiB declared between them. See the withdrawal below, and the spread below that |
+| both provisioned, in series | 3.51 s | 3.86 s | 3.92 s | 4.55 s | two 32 MiB histories, one after the other |
+| volume, A / B | 295 / 295 MiB | 295 / 295 MiB | 298 / 299 MiB | 299 / 299 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
+| teardown, one down, sibling up | 3.56 s | 3.56 s | **0.51 s** | **0.51 s** | see below — the stop changed, not the pair |
+| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | 2 / 1, 1 | 2 / 1, 1 | 2 / 1, 1 | see below |
 
 **The teardown figure moved by 7×, and it is not this probe's finding.** 3.56 s
 was `halt_guest` waiting out a poll for an event firecracker does not produce;
-0.51 s is the reboot-not-poweroff stop the harness has carried since. Run 3 is
-the first time this probe has been taken since. Nothing about the pair changed —
-a sibling still costs the teardown nothing, which is the claim.
+0.51 s is the reboot-not-poweroff stop the harness has carried since. Run 3 was
+the first time this probe had been taken since, and run 4 reproduces it to the
+centisecond. Nothing about the pair changed — a sibling still costs the teardown
+nothing, which is the claim.
 
 **MemAvailable fell again, and again by less than the ceiling did.** 12288 MiB
 declared between the two capsules against 1028 MiB actually consumed, after a
 6144 cut — the third point on the line the withdrawal below draws, and the same
 shape: the charge tracks what the guests *touched* at idle, not what they were
 offered.
+
+**Run 4 is the first repeat at an unchanged ceiling, and that is what it is
+worth.** Runs 1–3 each cut `sizes.mem`, so every difference between them had a
+declared cause and this file had no measurement of its own noise. Run 4 changed
+nothing, and the figures split cleanly in two:
+
+- **The boot timings reproduce to 0.3%** — 6.90 → 6.92 s and 7.10 → 7.12 s, and
+  the second capsule's cost lands inside the same 0.18–0.20 s band it has held
+  across four runs at three ceilings. The teardown is identical. These are
+  measurements of one thing, taken inside one namespace, and they behave like it.
+- **The host-wide readings move by a sixth.** MemAvailable went 1028 → **1213
+  MiB** and the serial provision 3.92 → **4.55 s**, at an identical declaration.
+  So the *memory* figure carries roughly ±200 MiB of run-to-run spread — which
+  is not a fault, it is the caveat this file already states arriving as a number:
+  MemAvailable is host-wide, and **this host runs other agents**.
+
+Which is the useful half. The withdrawal below rests on a **ratio** — 12288 MiB
+declared against ~1 GiB consumed — and a sixth of noise does not touch a factor
+of ten. But quoting `1028 MiB` as *the* idle cost of a pair would be quoting a
+sample; the pair costs **~1.0–1.2 GiB at idle**, and any figure this probe
+derives from MemAvailable wants that spread carried with it. The rule
+generalises to every host-wide reading here: what a probe measures inside its own
+namespace is a figure, and what it reads off `/proc/meminfo` is a figure plus
+whatever else this host was doing.
 
 ### Run 3 — two capsules, two policies, at the same moment
 
@@ -423,9 +448,14 @@ assertion written against a convention that later moved. Fixed by injecting
 
 **42/42.** Same probe, same host, the injected `codeRefsOf` in place of the
 spelled convention: *what came out of A is what went into A* passes for both
-capsules, and nothing else moved. That is the whole of what this run claims — it
-is a re-take of run 3's round, not a new one, and the fourteen policy assertions
-were already green.
+capsules, and nothing else moved. It is a re-take of run 3's round rather than a
+new one — the fourteen policy assertions were already green, and both halves of
+the swap answered as before, `200` for `build` against `403 Filtered` for
+`sealed` at the same moment and the answers exchanging when the policies did.
+
+Its second use is the one it was not run for: **an unchanged declaration twice in
+a row is this probe's first measurement of its own spread**, which is in the
+table above and is worth reading before quoting any figure here.
 
 Worth naming, because it is the only thing run 4 adds beyond a colour: **42 is
 still what says it ran**. A skipped stage 2b lands at 28, which is exactly the
