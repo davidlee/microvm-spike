@@ -3,8 +3,8 @@
 **Cited from source and from the other docs as `NOTES item N`.** That citation
 is an *id*, not a path: the numbers are frozen and append-only, a resolved item
 is struck or annotated in place, never deleted and never renumbered, and the
-file it lives in may change without any of the 39 source comments changing with
-it.
+file it lives in may change without any of the source comments citing it
+changing with it.
 
 **One file per item, and the number is the filename** — `NNN-slug.md`, so
 `NOTES item 20` is `020-*.md` and reading one item costs one item rather than
@@ -58,4 +58,5 @@ time it is touched.
 | [33](./033-provision-is-a-sequence.md) | a provision is not finished when the push lands | built, evaluated and **run** — inside a provision and standalone; step (3) of item 32's inbound half |
 | [34](./034-adopting-a-guest-authored-tree.md) | adopting a guest-authored tree: what actually needed checking | built, evaluated, logic asserted against real git objects, **run** on the real 1886-entry exhibit |
 | [35](./035-briefing-a-capsule-with-state.md) | briefing a capsule with another one's state | built, evaluated, guest half asserted at build time (`briefCases`), **run** across two live capsules — closes item 32's inbound step (2) |
-| [36](./036-a-policy-is-selected-not-named.md) | a policy is selected from a declared set, never named by a project | **built** and unswitched — the vocabulary, each slot's set, the allowlist and both collect limbs, plus `capsule <slot> policy <name>` and 28 cases. The live claim is written and unrun |
+| [36](./036-a-policy-is-selected-not-named.md) | a policy is selected from a declared set, never named by a project | **built, switched and proven at the wire** — the vocabulary, each slot's set, the allowlist and both collect limbs, plus `capsule <slot> policy <name>` and 28 cases; `probe-netns-egress` 33/33 with stage 2b green, so a selected allowlist is what a guest meets. Two capsules differing *at the same time* is still uninstrumented |
+| [37](./037-a-teardown-that-only-unnames.md) | a teardown that only unnames, and the check that could not have caught it | **fixed, switched and witnessed** — both netns programs roll back an aborted `up`, six restarts at 1 ms where 4 s used to fail ([probes](../probes.md#what-a-namespace-units-restart-costs-before-and-after-item-37)), and `hostModulePrograms` builds every program the module's units name, which nothing did before. A probe for it is still owed |

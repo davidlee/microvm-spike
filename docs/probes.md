@@ -17,11 +17,16 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
 | `two-capsules.sh` | can two capsules run at once, are they independent, what does the pair cost? | `sudo probe-two-capsules [REF_A] [REF_B]` | 28/28 green, twice (doctrine EVD-020) — figures below, and it **withdrew a figure this file never had a right to** |
 
-One figure here comes from something that is not a probe: `capsule-baseline` is
-a lifecycle command a human runs on a capsule they are about to work in, and it
-happens to produce [the cold build](#the-cold-build). It needs no root, and it
-needs the real perimeter up — which is why it is not in `probe/`
-([item 19](./ledger/019-baseline-build-and-figures.md)).
+Two figures here come from something that is not a probe, and both say so where
+they sit. `capsule-baseline` is a lifecycle command a human runs on a capsule
+they are about to work in, and it happens to produce
+[the cold build](#the-cold-build) — it needs no root, and it needs the real
+perimeter up, which is why it is not in `probe/`
+([item 19](./ledger/019-baseline-build-and-figures.md)). The
+[namespace restart timings](#what-a-namespace-units-restart-costs-before-and-after-item-37)
+are a human at a terminal, and unlike the baseline that one is an **instrument
+still owed**, not a decision about where a figure belongs
+([item 37](./ledger/037-a-teardown-that-only-unnames.md)).
 
 ## What netns.sh established
 
@@ -154,6 +159,37 @@ Like `netns-boot.sh` it borrows the live tap, /30 and volume, for the same
 reason: the guest image has `net.nix` in it, so the real capsule is the subject.
 Everything it adds is on its own addressing (10.100/16, 10.101/30) and it
 refuses to start on an overlap.
+
+## What a namespace unit's restart costs, before and after item 37
+
+Not a probe — a human at a terminal with no guest running, which is why
+[item 37](./ledger/037-a-teardown-that-only-unnames.md) still owes an
+instrument. The figures live here anyway, because the whole claim *is* a figure.
+
+| | gap between `Stopped` and `Starting` | result |
+| --- | --- | --- |
+| before | **4 s** | `Error: An interface with the same name exists in the target netns.` |
+| after | **1 ms**, six consecutive restarts | `Finished` every time |
+
+```
+15:34:02.653471  Stopped network namespace for capsule b.
+15:34:02.654490  Starting network namespace for capsule b...
+15:34:02.756697  Finished network namespace for capsule b.
+15:34:02.769816  Stopping network namespace for capsule b...
+```
+
+**The timing is the assertion, and it is the stronger of the two that were
+going to be made separately.** A start 1 ms after a stop can only find the
+peer's name free if `down` deleted the veth *synchronously*; no kernel reaper is
+that fast, and demonstrably was not at four seconds. So "the peer is gone from
+the aggregator in between" needs no second observation.
+
+`up` costs ~100 ms and `down` ~60 ms, which is what makes six restarts fit in
+three seconds — and therefore what trips systemd's `StartLimitBurst=5` in
+`StartLimitIntervalUSec=10s` on the seventh. That failure is the governor, not
+this bug, and it leaves a state that *looks* like it: namespace gone, unit
+`failed`. `reset-failed` then `start` is the whole recovery. Nothing strayed —
+even the stop whose start was refused cleaned up completely.
 
 ## Figures
 
@@ -958,4 +994,9 @@ comes from, and the two should not be conflated.
   chain`, which is the probe reporting that it did *not* need its public-resolver
   fallback. The fallback stays, because it is what makes the difference legible
   rather than silent.
+- **A namespace unit's restart, by anything that runs again.** The
+  [timings above](#what-a-namespace-units-restart-costs-before-and-after-item-37)
+  are a human reading a journal — they settle the claim and instrument nothing.
+  Up, down, up immediately, asserting the return *and the gap*, needing no
+  guest ([item 37](./ledger/037-a-teardown-that-only-unnames.md)).
 - Throughput over the unix socket. The tap did ~100 MiB/s each way.

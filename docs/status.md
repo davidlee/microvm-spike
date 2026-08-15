@@ -6,7 +6,18 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **item 36 was switched onto this host and its one
+Last updated 2026-08-15, after **a capsule's namespace teardown was found to
+only unname, and the check that should have caught the fix was found not to
+exist** ([item 37](./ledger/037-a-teardown-that-only-unnames.md), below). A
+`systemctl restart` of one slot's namespace unit failed and left wreckage that
+`systemctl stop` could not reach; both netns programs now roll back an aborted
+`up` and delete their veth peer explicitly, **switched and witnessed** — six
+restarts at a 1 ms gap where the pre-fix code failed at 4 s. The larger half is
+that
+`hostModulePrograms` now builds every program the module's units name — nothing
+ever had, so shellcheck had never run on `capsule-netns`,
+`capsule-egress-ns` or `capsule-perimeter-guard`. Before that, the same day,
+after **item 36 was switched onto this host and its one
 owed claim was run: a selected policy reaches the wire**, `sudo
 probe-netns-egress` 33/33 (below). One guest, two policies in sequence, the
 answer changing and coming back. Two capsules on two policies *at once* is still
@@ -38,7 +49,10 @@ two capsules have been on one story
 ([probes](./probes.md#what-the-sideband-arc-costs-end-to-end)). The whole arc is
 under five seconds of wall clock, and a second collect is 0.48 s. `just check`,
 `just build` and `just units` are green, so shellcheck-at-build has seen every
-render and `hostModuleUnits` has forced the module's three new programs; 34's
+render **that a flake output names** — which did not include the module's own
+`ExecStart` programs until
+[item 37](./ledger/037-a-teardown-that-only-unnames.md) — and
+`hostModuleUnits` has forced the module's three new programs; 34's
 logic is asserted against hand-built git objects by hand, and 35's guest half is
 asserted **in the build** (`briefCases`, fourteen cases, watched failing on two
 mutations). What no run has reached is any of the arc's *refusals* except the two
@@ -77,6 +91,39 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A namespace teardown that only unnamed, and a whole class of program
+  nothing built.** [Item 37](./ledger/037-a-teardown-that-only-unnames.md).
+  `capsule-netns`'s `down` deleted the namespace and left the veth peer in
+  `cap-egress` to the kernel's reaper, so a fast restart hit `An interface with
+  the same name exists in the target netns` — while the aggregator's own `down`,
+  five lines up the same file, had always deleted the peer first and said why.
+  The aborted `up` then stranded a peer in the *root* namespace and a half-built
+  namespace that `systemctl stop` could not clear, because a unit that fails in
+  `ExecStart` never runs `ExecStop`. Both programs now have one `undo_up` used
+  as `down` and as `up`'s own `EXIT` rollback.
+
+  **What it exposed matters more than what it broke.** `capsule-netns` and
+  `capsule-egress-ns` are only ever an `ExecStart` — no flake output, not in
+  `environment.systemPackages`, and `hostModuleUnits` deliberately forces an
+  outPath without embedding it so that reading the module stays an eval. So
+  shellcheck, which runs at build, had never run on either, nor on
+  `capsule-perimeter-guard`. `hostModulePrograms` is the exact inversion, a
+  second derivation off the same evaluation whose contents are every
+  `serviceConfig` literal of every capsule unit — so building it builds them,
+  and a program added to a unit tomorrow is checked without that line moving.
+  Watched going red on an unused variable while `hostModuleUnits` stayed green,
+  which is the demonstration that the gap was real.
+
+  **Switched and witnessed at the failure it repairs**: six consecutive
+  `systemctl restart capsule-netns-b` finished, at a 1 ms gap between `Stopped`
+  and `Starting`, where the pre-fix code failed at 4 s
+  ([probes](./probes.md#what-a-namespace-units-restart-costs-before-and-after-item-37)).
+  The timing *is* the assertion — a start that soon can only find the peer's
+  name free if `down` deleted the veth synchronously, so the second direction
+  needs no separate observation. Still owed is an instrument rather than a
+  claim: that was a human reading timestamps, and no case suite can hold a
+  namespace.
 
 - **A policy is selected from a declared set now, and it is built.**
   [Item 36](./ledger/036-a-policy-is-selected-not-named.md) is Plan D D2's
@@ -1081,6 +1128,14 @@ It is in flight rather than finished, and one of the two is cheap.
 
 ## Open, and nothing should claim these closed
 
+- **A namespace unit's restart has been exercised, but not by anything that
+  runs again.** [Item 37](./ledger/037-a-teardown-that-only-unnames.md)'s fix is
+  witnessed — six restarts at 1 ms where 4 s used to fail — by a human reading
+  journal timestamps. Stubbing `ip` would assert the fix issues the right
+  commands in the right order, which is the implementation and not the
+  behaviour, so the instrument is a probe: up, down, up again immediately,
+  asserting the return *and the gap it returned across*. No guest needed, so it
+  is cheap, and it now has a figure to assert against rather than a hope.
 - ~~**The flavour composition has never been in an image.**~~ Built, refreshed
   onto slot `a`, and a real workload has built on it — and it cost **+0.5 GiB of
   closure and +100.9 MiB of erofs**, with no second toolchain, since
