@@ -972,7 +972,7 @@
     in
       pkgs.runCommand "capsule-policy-cases" {nativeBuildInputs = [pkgs.jq];} ''
         export CASE_STATE=$PWD/state
-        mkdir -p "$CASE_STATE" stub policies
+        mkdir -p "$CASE_STATE" stub policies allow
         touch policies/${buildFile} policies/${sealedFile}
 
         # What `work` execs once the front end has filled the flags in.
@@ -1052,15 +1052,31 @@
         ck "a selection with nowhere to point refuses" 1 "$rc"
         ckt "  naming the copy that can" saw "no policy directory"
 
+        # Half of the pair is not the pair. A copy holding the policy directory
+        # and not the directory the links live in would write a record and put
+        # the link nowhere, which is the disagreement the lock exists to prevent
+        # arriving by a different door (NOTES item 39).
         export CAPSULE_POLICY_DIR=$PWD/policies
+        run one policy build
+        ck "and so does a copy with only half the pair" 1 "$rc"
+        ckt "  by the same refusal, since it means the same thing" \
+          saw "no policy directory"
+        ckt "  and nothing was written" test ! -e "$CASE_STATE/slot/one/assignment.json"
+
+        export CAPSULE_ALLOWLIST_DIR=$PWD/allow
 
         # ------------------------------------------ the record and the link, once
         run one policy build
         ck "a declared selection is taken" 0 "$rc"
         ckt "  the record says so" \
           test "$(jq -r .policy "$CASE_STATE/slot/one/assignment.json")" = build
-        ckt "  the link beside it points at that policy's file" \
-          test "$(readlink "$CASE_STATE/slot/one/allowlist")" = "$CAPSULE_POLICY_DIR/${buildFile}"
+        ckt "  the link points at that policy's file" \
+          test "$(readlink "$CAPSULE_ALLOWLIST_DIR/one")" = "$CAPSULE_POLICY_DIR/${buildFile}"
+        # The point of item 39, asserted rather than commented: the directory a
+        # proxy reads is not the directory the record is in. A link that came back
+        # to sit beside the record would pass every other case in this file.
+        ckt "  and it is not in the record's directory" \
+          test ! -e "$CASE_STATE/slot/one/allowlist"
         ckt "  and the generation moved once" test "$(gen one)" = 1
 
         # A record that disagrees with the declaration is the whole point of there
@@ -1068,7 +1084,7 @@
         run both policy build
         ck "a slot may be moved off its declared default" 0 "$rc"
         ckt "  the link follows the record" \
-          test "$(readlink "$CASE_STATE/slot/both/allowlist")" = "$CAPSULE_POLICY_DIR/${buildFile}"
+          test "$(readlink "$CAPSULE_ALLOWLIST_DIR/both")" = "$CAPSULE_POLICY_DIR/${buildFile}"
         run both policy
         ck "and the record is what it reads back" 0 "$rc"
         ckt "  not the declaration" saw build
@@ -1087,9 +1103,9 @@
         # (host/record.nix's `recordAlso`), so the only failure either can have
         # leaves both as they were. A directory where the link should be is how a
         # sandbox reaches that; on a live host it is a disk or a permission.
-        rm "$CASE_STATE/slot/one/allowlist"
-        mkdir "$CASE_STATE/slot/one/allowlist"
-        touch "$CASE_STATE/slot/one/allowlist/occupied"
+        rm "$CAPSULE_ALLOWLIST_DIR/one"
+        mkdir "$CAPSULE_ALLOWLIST_DIR/one"
+        touch "$CAPSULE_ALLOWLIST_DIR/one/occupied"
         # `build` again rather than another name, because `one` declares a set of
         # one: this has to fail at the link and not at the selection, which is
         # what the run before it already proved is checked first.
@@ -1191,6 +1207,78 @@
         literals (lib.attrValues (host.config.systemd.services.${n}.serviceConfig or {}));
       newlined = lib.filter (n: lib.any (lib.hasInfix "\n") (directives n)) units;
 
+      # A bound path is mounted as **root** and opened as the unit's **user**, so
+      # `BindReadOnlyPaths` naming a file under a directory that user cannot
+      # traverse builds a unit that starts and then dies at `open()` — `filter
+      # file: Permission denied` about a path that is plainly there, with the
+      # bind itself reported as fine. Every capsule proxy was in exactly that
+      # state, on every slot and under every policy, and the only witness was one
+      # line in one unit's journal ([NOTES item 39]).
+      #
+      # Evaluable because both halves are this module's own declarations: its `d`
+      # rules say what mode it gives each directory it creates, and each unit says
+      # who it runs as. Same shape as the guard's capability pairing above and as
+      # `borrowed` in the probe fabric — the alternative is a comment that is true
+      # on the day it is written. It cannot see directories the module did not
+      # declare, which is the honest limit: it pairs what this repo controls.
+      dirRules =
+        lib.filter (d: d != null)
+        (map (
+            rule: let
+              w = lib.filter (s: s != "") (lib.splitString " " rule);
+              at = i: lib.elemAt w i;
+            in
+              if lib.length w >= 5 && at 0 == "d"
+              then {
+                path = at 1;
+                # tmpfiles' own defaults for `-`, so a rule that declines to say
+                # is read as what it will actually produce.
+                mode =
+                  if at 2 == "-"
+                  then "0755"
+                  else at 2;
+                owner =
+                  if at 3 == "-"
+                  then "root"
+                  else at 3;
+                group =
+                  if at 4 == "-"
+                  then "root"
+                  else at 4;
+              }
+              else null
+          )
+          host.config.systemd.tmpfiles.rules);
+
+      # Traversal is the `x` bit, and for a user who is neither the owner nor in
+      # the group that is the *others* digit. Group membership is a declaration
+      # too, so it is read rather than assumed.
+      othersTraverse = mode: lib.elem (lib.last (lib.stringToCharacters mode)) ["1" "3" "5" "7"];
+      mayTraverse = user: d:
+        d.owner
+        == user
+        || lib.elem user (host.config.users.groups.${d.group}.members or [])
+        || othersTraverse d.mode;
+
+      binds = n: let
+        v = host.config.systemd.services.${n}.serviceConfig.BindReadOnlyPaths or [];
+      in
+        map (e: lib.head (lib.splitString ":" e)) (lib.toList v);
+
+      unreachable = lib.concatMap (n: let
+        user = host.config.systemd.services.${n}.serviceConfig.User or "root";
+      in
+        if user == "root"
+        then []
+        else
+          lib.concatMap (
+            p:
+              map (d: "${n} runs as ${user} and binds ${p}, which is under ${d.path} (${d.mode} ${d.owner}:${d.group}) — it cannot traverse that, so the open fails though the mount does not")
+              (lib.filter (d: lib.hasPrefix "${d.path}/" p && !(mayTraverse user d)) dirRules)
+          )
+          (binds n))
+      units;
+
       # Refused before either derivation is named, so a `nix build` of the
       # programs cannot pass a module whose units are wrong.
       checked = drv:
@@ -1200,6 +1288,8 @@
         then throw "capsule-perimeter: a newline in a serviceConfig value of ${lib.concatStringsSep ", " newlined} — systemd reads that as unbalanced quoting and drops the rest of the unit. Put the script in the store and name it."
         else if !(lib.elem "CAP_SYS_PTRACE" guardCaps)
         then throw "capsule-perimeter: the guard's CapabilityBoundingSet has no CAP_SYS_PTRACE, so `ip netns pids` will silently omit the VMM it is asked about and the guard will refuse a correctly-bound guest (NOTES item 30)."
+        else if unreachable != []
+        then throw "capsule-perimeter: ${lib.concatStringsSep "; " unreachable} (NOTES item 39)."
         else drv;
     in {
       units = checked (pkgs.writeText "capsule-units.txt" ''

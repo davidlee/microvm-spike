@@ -79,9 +79,20 @@
   # bind. It is a symlink into `policyDir`, created at the slot's declared
   # default by tmpfiles and re-pointed by `capsule <slot> policy <name>` — which
   # is what keeps the proxy from having to read the assignment record to learn
-  # its own perimeter (item 36). Beside the record, because the two are one
-  # slot's desired state and a verb writes both.
-  allowlistOf = c: "${cfg.stateDir}/slot/${c.name}/allowlist";
+  # its own perimeter (item 36).
+  #
+  # **Its own directory, and not beside the record** (NOTES item 39). It was
+  # `stateDir/slot/<name>/allowlist` on the reasoning that the two are one slot's
+  # desired state and one verb writes both — true, and it made the proxy unable
+  # to start. `stateDir` is `0750 owner:users` and the proxy runs as
+  # `capsule-proxy`, which is in neither, so it cannot *traverse* to a file that
+  # was bound for it: `BindReadOnlyPaths` mounts as root and the open happens as
+  # the unit's user. The fix is not to widen `stateDir` — traversal there reaches
+  # `collect/`, which holds everything a capsule ever sent back — so the one path
+  # the perimeter must read lives outside the directory the human's state is in.
+  # Which is item 36's own rule, made true of the filesystem rather than only of
+  # the code: the proxy has no way to the record, instead of no reason to read it.
+  allowlistOf = c: "${cfg.allowlistDir}/${c.name}";
   policyFile = name: "${cfg.policyDir}/${policies.policies.${name}.allowlist}";
 
   # The guest is not routable from the root namespace any more, so the human's
@@ -159,6 +170,7 @@
         export CAPSULE_STATE=${cfg.stateDir}
         export CAPSULE_REPO=${cfg.repo}
         export CAPSULE_POLICY_DIR=${cfg.policyDir}
+        export CAPSULE_ALLOWLIST_DIR=${cfg.allowlistDir}
         exec ${lib.getExe program} "$@"
       '';
     };
@@ -453,6 +465,26 @@ in {
       '';
     };
 
+    allowlistDir = lib.mkOption {
+      type = lib.types.path;
+      default = "/var/lib/capsule-allowlist";
+      description = ''
+        Holds one symlink per slot, named for the slot, pointing at the allowlist
+        file in `policyDir` that slot's selected policy declares. tmpfiles creates
+        each at the slot's declared default and `capsule <slot> policy <name>`
+        re-points it; the proxy binds only its own.
+
+        Its own directory rather than `stateDir`, for `stopKey`'s reason and then
+        one more. `stateDir` is the human's and closed to everyone else, and each
+        proxy runs as `capsule-proxy` — so a link under it is one the proxy cannot
+        traverse to, however carefully the bind names it, and opening `stateDir`
+        far enough to fix that also opens `collect/`, which holds everything every
+        capsule has ever sent back. This is the one path the perimeter must read,
+        so it sits where the perimeter can read it and the record does not
+        (NOTES item 39).
+      '';
+    };
+
     stopKey = lib.mkOption {
       type = lib.types.path;
       default = "/var/lib/capsule-stop/key";
@@ -514,6 +546,12 @@ in {
       systemd.tmpfiles.rules =
         [
           "d ${cfg.stateDir} 0750 ${cfg.owner} users -"
+          # Traversable, unlike `stateDir`, because a proxy has to reach its own
+          # link and is in neither of that directory's owners. Nothing is in here
+          # but the links, which is what makes 0755 cost nothing: a reader learns
+          # which policy a slot is on, and every policy is already declared in a
+          # file this repo commits.
+          "d ${cfg.allowlistDir} 0755 ${cfg.owner} users -"
           # The directory is made; the key is not. `z` only corrects what is
           # already there, so a host that has not been given a stop key is refused
           # at VM start with a message, rather than handed a generated key that
@@ -521,7 +559,8 @@ in {
           "d ${builtins.dirOf cfg.stopKey} 0755 root root -"
           "z ${cfg.stopKey} 0400 microvm kvm -"
         ]
-        # A slot's directory, and its policy as declared by the host operator.
+        # A slot's record directory, and — in the other directory entirely, see
+        # `allowlistOf` — its policy as declared by the host operator.
         # `L` and not `L+`: it creates the symlink when it is absent and leaves one
         # that is already there, so the operator's declaration is what an
         # unassigned slot runs and an assigner's selection survives every boot.

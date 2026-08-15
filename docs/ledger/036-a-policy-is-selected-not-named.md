@@ -11,10 +11,13 @@ served something. **And the last claim is made**: `probe/two-capsules.sh` run 3,
 fourteen assertions green, `build` and `sealed` on two guests at the same moment
 with the answers swapping when the policies do (run 4, **42/42**, is that same
 round re-taken once a stale assertion of the probe's own was fixed). **A declared
-slot has been put on `sealed`**: `b`, record and link together, first time. What
-is outstanding is only what wants that slot *running* — the verb's proxy restart,
-and the `mayCollect` refusal, which a slot with no door never reaches because the
-transport check sits ahead of the policy parse. This is
+slot has been put on `sealed`**: `b`, record and link together, first time.
+Starting that slot is what found
+[item 39](./039-a-bind-is-not-a-traversal.md) — **this item's proxy unit had
+never once started**, on any slot, because the allowlist it binds sat under a
+directory it cannot traverse. Everything above about selection is unaffected and
+none of it was where the fault was; what it corrects is the word *switched*,
+which was read as *running* and is not the same claim. This is
 [item 25](./025-assignment-is-a-perimeter-verb.md)'s
 resolution shape turned into a mechanism, and it is the run-time half of
 [Plan D](../plan-d-fleet.md) D2 — the declaration half is
@@ -163,6 +166,14 @@ went from `"policy": null` to `"policy": "sealed"` at generation 4, and the
 status column reads `sealed` for `b` against `build` for the other nine. Both
 halves under the one `flock`, link first, exactly as the cases pin them — so
 what a case asserts against a sandbox is now what the host does to a real slot.
+
+**And starting the slot found that this item's proxy unit has never run.** Its
+allowlist was bound from under `stateDir`, which the proxy's uid cannot traverse,
+so `capsule-proxy-b` crash-looped on `filter file: Permission denied` — on every
+slot and under every policy, since before any of this was assigned.
+[Item 39](./039-a-bind-is-not-a-traversal.md) is the whole of it, including why
+28 cases, an eval check and two wire proofs all had to miss it. Nothing about
+*selection* is wrong; what was wrong is the one path a selection is delivered on.
 
 **Two things are still owed, and they are the same thing: the slot was down.**
 The verb took the `is-active` false arm rather than restarting a proxy, which is

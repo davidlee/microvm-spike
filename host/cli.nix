@@ -58,8 +58,10 @@
   # (host/observe.nix). A path and not a set of guest paths, deliberately: this
   # file asks a capsule what is true and does not know what `/work` is.
   observe,
-  # Where the module keeps its state: quarantines, and the assignment records and
-  # allowlist links beside them. On the module path this is not a guess at all —
+  # Where the module keeps its state: quarantines and the assignment records. The
+  # allowlist links are *not* in here — they are the one thing a proxy must read,
+  # and this directory is the one place it may not (NOTES item 39,
+  # host/services.nix's `allowlistDir`). On the module path this is not a guess at all —
   # that copy is wrapped with `CAPSULE_STATE` and `CAPSULE_REPO` from the host's
   # own options (host/services.nix), and `CAPSULE_STATE` is the first thing
   # `quarantineOf` tries. The literal is the *devshell* copy's guess at where the
@@ -827,9 +829,10 @@ in
           # assigner authors (NOTES item 36, item 25). Two writes and a restart:
           #
           #   - the record, so the slot says what it was told to be;
-          #   - the allowlist symlink beside it, so the proxy serves it without
-          #     ever reading the record — the front end resolves, which is a front
-          #     end's latitude and never a program's;
+          #   - the allowlist symlink, in the directory the proxy can reach and
+          #     the record's is not, so the proxy serves it without ever reading
+          #     the record — the front end resolves, which is a front end's
+          #     latitude and never a program's;
           #   - a restart of that slot's proxy, because the proxy renders its
           #     config at start. The cost is stated rather than avoided: that
           #     slot's egress drops for the length of a restart, and a tightening
@@ -872,11 +875,15 @@ in
               exit 1
             fi
             # The module path's, and only there: the record already is
-            # (`recordRoot` above), and the symlink is a `stateDir` path the units
-            # bind. The devshell shape names its policy per run, on
-            # `capsule-host --policy <name>`, which is the same selection with no
-            # state to keep.
-            if [ -z "''${CAPSULE_POLICY_DIR:-}" ]; then
+            # (`recordRoot` above), and the symlink is a path the units bind. The
+            # devshell shape names its policy per run, on `capsule-host --policy
+            # <name>`, which is the same selection with no state to keep.
+            #
+            # Two variables and one refusal, because a copy that has one and not
+            # the other is a copy that would write half of a selection. Both are
+            # the module's wrap (host/services.nix), so either being unset means
+            # the same thing.
+            if [ -z "''${CAPSULE_POLICY_DIR:-}" ] || [ -z "''${CAPSULE_ALLOWLIST_DIR:-}" ]; then
               echo "capsule: no policy directory, so this copy cannot re-point a" >&2
               echo "  slot's allowlist. The verb is the module path's — run" >&2
               echo "  /run/current-system/sw/bin/capsule $name policy $want." >&2
@@ -890,8 +897,15 @@ in
             # directory means `ln` writes *inside* it and reports success, which
             # is a re-point that never happened and a proxy still on the old
             # policy.
+            #
+            # `$1` is the slot and `$2` is its *record* directory, which this
+            # deliberately does not use: the link lives outside the record's
+            # directory so that a proxy can traverse to it without being able to
+            # reach the record at all (NOTES item 39, host/services.nix's
+            # `allowlistDir`).
             recordAlso() {
-              ln -sfT "$CAPSULE_POLICY_DIR/$(policyFile "$want")" "$2/allowlist"
+              ln -sfT "$CAPSULE_POLICY_DIR/$(policyFile "$want")" \
+                "$CAPSULE_ALLOWLIST_DIR/$1"
             }
             # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
             gen=$(recordWrite "$name" '.policy = $p' --arg p "$want") || {

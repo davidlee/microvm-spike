@@ -6,9 +6,17 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **the last claim item 36 does not make got an
-instrument, and building it found that the probe holding the first one shares
-its whole fabric with production**
+Last updated 2026-08-15, after **starting a slot for the first time since item 36
+was switched found that its proxy unit has never once run**
+([item 39](./ledger/039-a-bind-is-not-a-traversal.md), below): the allowlist each
+proxy binds sat under `stateDir`, which the proxy's uid cannot traverse, so the
+mount succeeded as root and the open failed as the unit — on every slot, under
+every policy, since the switch. The link has its own directory now, `just build`
+**throws** on any unit binding a path under a module-declared directory its user
+cannot traverse, and the whole of it needs a `~/flakes` switch plus
+`capsule b policy sealed` after it. Before that, after **the last claim item 36
+does not make got an instrument, and building it found that the probe holding the
+first one shares its whole fabric with production**
 ([item 38](./ledger/038-a-probe-that-became-a-borrower.md), below).
 `probe/two-capsules.sh` has a stage 2b: two guests, one aggregator, `build` and
 `sealed` at the same moment, and the swap that stops a broken capsule reading as
@@ -110,6 +118,50 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A bind is mounted as root and opened as the unit's user, and no capsule proxy
+  had ever started.** [Item 39](./ledger/039-a-bind-is-not-a-traversal.md).
+  `capsule-proxy-<slot>` binds its allowlist with `BindReadOnlyPaths`; the link
+  was at `stateDir/slot/<name>/allowlist` and `stateDir` is `0750 owner:users`,
+  while the proxy runs as `capsule-proxy` — in neither. systemd mounts as PID 1,
+  so the unit starts; tinyproxy opens as itself and gets `filter file: Permission
+  denied`, every three seconds, on every slot and under every policy.
+
+  **The interesting half is why everything passed.** `policyCases` runs one uid
+  and asserted the record and the link move together, which they do.
+  `hostModuleUnits` read the `BindReadOnlyPaths` string, which was correct.
+  `probe-netns-egress` and `probe-two-capsules` proved a selected policy reaches
+  the wire — through the harness's own proxy, in the probe's namespace, **as the
+  human**. And the switch materialised the links and was read as the module half
+  landing. It did land. Nothing started it, because both slots were idle all day.
+  So **a control can be switched and proven and still never have been started**,
+  and the witness that existed was `capsule all status`'s unit column, which
+  reports `auto-restart` and which nobody read while a slot was up.
+
+  **Fixed by placement, not by permission.** The link is in its own
+  `allowlistDir` (`/var/lib/capsule-allowlist`, `0755`), because widening
+  `stateDir` to traverse-only would expose `collect/` — every quarantine, already
+  `0755` inside it — and that is the one directory that must stay shut. Which
+  makes item 36's own rule structural: the proxy has no *way* to the assignment
+  record now, rather than no reason to read it. `stopKey` sits outside `stateDir`
+  for the shorter version of the same reason.
+
+  **Asserted at eval**, the third pairing of this kind: `hostModuleUnits` reads
+  the module's own `d` tmpfiles rules and each unit's `User` and throws when a
+  bound path is under a directory that user cannot traverse. A case suite runs as
+  one uid and cannot discover a permission — the same gap the guard's
+  `CAP_SYS_PTRACE` assertion fills, and the same answer as `probeFabric`'s
+  `borrowed`. Watched going red on the pre-fix path: twenty findings, both
+  offending prefixes for each of ten slots. `policyCases` gained the one
+  assertion every other case in it would pass — that the link is *not* in the
+  record's directory.
+
+  **Owed: a `~/flakes` switch, then `capsule b policy sealed`.** tmpfiles' `L`
+  creates the new link at each slot's *declared* policy and leaves an existing
+  one alone, so `b` — whose record says `sealed` — needs the verb run once after
+  the switch to make the two agree. A path move is the one event that can
+  separate a record from its link, since it is the one thing neither the verb nor
+  its lock is party to.
 
 - **Two capsules on two policies at once has an instrument, and a probe was
   found to be the live fabric.** [Item 38](./ledger/038-a-probe-that-became-a-borrower.md).
