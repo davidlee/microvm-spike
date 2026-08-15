@@ -443,9 +443,29 @@
     in [ip systemctl sleep pkgs.gnugrep pkgs.coreutils];
 
     guardCases = let
+      # Two slots, and not this host's two. The cases below assert a property
+      # that holds at any fleet size — one absent slot is a smaller fleet, one
+      # present-and-wrong slot is a breach — so following `capsules.nix` would
+      # make widening the pool an edit to eleven expected strings and would test
+      # today's declaration rather than the guard. Everything else about the
+      # declaration is the real one: only `instances` is substituted, so the
+      # aggregator, the uplink net and the drop pattern the cases grep for are
+      # the shipped values.
+      fixture =
+        capsules
+        // {
+          instances = capsules.instancesOf {
+            a = {index = 0;};
+            b = {index = 1;};
+          };
+        };
       stubbed = import ./host/guard.nix {
-        inherit pkgs lib net capsules;
-        netns = import ./host/netns.nix {inherit pkgs lib net capsules;};
+        inherit pkgs lib net;
+        capsules = fixture;
+        netns = import ./host/netns.nix {
+          inherit pkgs lib net;
+          capsules = fixture;
+        };
         tools = guardStubs;
       };
 

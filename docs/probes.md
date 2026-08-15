@@ -711,6 +711,44 @@ the one choke point both `capsule-adopt` and `capsule-brief` read through.
 `.doctrine/state/slice` is already narrow, but by accident of what that checkout
 held rather than by declaration.
 
+## What ten declared slots cost
+
+[Item 30](./ledger/030-a-pool-audits-what-exists.md) left two things measurable
+and unmeasured before the pool could be declared: what ten declarations cost at
+eval and switch, and whether ten idle ones cost anything at rest. This is the
+first half. It is a *host-side eval* figure, taken here rather than on a rebuild,
+because `hostModuleUnits` evaluates the whole module — assertions, unit graph,
+`serviceConfig` strings and every program on `environment.systemPackages` — which
+is the same evaluation a switch does and none of the build a switch does.
+
+Both runs are `nix eval --no-eval-cache` of `hostModuleUnits.drvPath` with
+`NIX_SHOW_STATS`, on one checkout differing only in `capsules.nix`'s `declared`.
+
+| counter | 2 slots | 10 slots | change |
+| --- | --- | --- | --- |
+| thunks forced | 4 366 084 | 4 495 452 | **+3.0%** |
+| function calls | 2 684 244 | 2 783 020 | **+3.7%** |
+| primop calls | 1 356 785 | 1 406 097 | **+3.6%** |
+| heap allocated | 540.4 MB | 549.7 MB | **+1.7%** |
+| `cpuTime` | 1.606 s | 1.578 s | — |
+
+**Eight extra slots are 3% of an eval that is 97% not about slots**, which is the
+finding: the module's cost is dominated by the fixed part — the guest image's
+config, the programs, nixpkgs itself — and the per-slot part is five units and an
+uplink /30. `cpuTime` came out *lower* at ten, which is the honest way of saying
+wall clock cannot resolve a 3% arithmetic difference at this scale; the counters
+can, and are deterministic. Three wall-clock runs each spanned 1.66–1.72 s at two
+and 1.69–1.79 s at ten, i.e. overlapping.
+
+The units the pool generates: **5 per slot** — `capsule-netns-<n>`,
+`capsule-proxy-<n>`, `capsule-ssh-relay-<n>`, `microvm-tap-interfaces@<n>` and
+`microvm@<n>` — so 50 rather than 10, plus the aggregator and the guard. None is
+`wantedBy` anything, which is what makes the at-rest half of the question worth
+asking rather than answering by arithmetic. **The at-rest half is still
+unmeasured**, and needs a switch on this host: whether ten idle declarations cost
+anything is a claim about systemd's unit table and nothing else, since no
+namespace, volume or VMM exists until a capsule starts.
+
 ## The same exhibit, scoped — what the prediction was worth
 
 The narrowing built ([item 32](./ledger/032-the-sideband-channel.md)), against

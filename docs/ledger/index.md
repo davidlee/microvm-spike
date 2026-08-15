@@ -52,7 +52,7 @@ time it is touched.
 | [27](./027-a-class-is-not-always-a-kilobyte.md) | a class is a kilobyte only over reservations the profile derives nothing from | settled for `mem` by eval, `vcpu` read from source |
 | [28](./028-a-slot-has-no-default.md) | a slot has no default, and a front end is where one is guessed | built and run at N=2 |
 | [29](./029-the-record-is-front-end-written.md) | the record is front-end written, and a pin is measured rather than resolved twice | built and run on this host |
-| [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12; the pool itself is D2 |
+| [30](./030-a-pool-audits-what-exists.md) | a pool degrades by auditing what exists, not by excluding what is declared | reviewed, built, run — closes [Plan D](../plan-d-fleet.md) L12, and **the pool is declared now**: `a`…`j`, eval cost measured, at-rest cost still needing a switch |
 | [31](./031-the-fragment-vocabulary.md) | the fragment vocabulary: composition built, selection deferred | built, run, measured — supersedes item 3; selection is [Plan D](../plan-d-fleet.md) D7 |
 | [32](./032-the-sideband-channel.md) | the sideband channel: state that is not a commit | built and run; extraction is item 34 and the inbound half is item 35, both now run — **the scope is closed**: `statePaths` is a template, the assignment fills `{unit}`, and the same exhibit is 36 entries against 1886 |
 | [33](./033-provision-is-a-sequence.md) | a provision is not finished when the push lands | built, evaluated and **run** — inside a provision and standalone; step (3) of item 32's inbound half |

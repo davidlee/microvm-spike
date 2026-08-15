@@ -36,16 +36,28 @@ let
   # not exist yet (docs/contract-assignment.md) — until it does, the honest
   # statement is that these two names say nothing at all.
   #
-  # Two, not the ten `a`…`j` the plan settles on: the guard `requires` every
-  # declared namespace unit, so a slot that cannot come up denies the whole host
-  # (plan-d L12), and a pool wants that degraded mode in the same change. Its
-  # shape is decided and unbuilt — the audit set becomes declared ∩ present, so
-  # an absent slot is not audited and a broken one still refuses everything
-  # (NOTES item 30). Until that ships, adding a name here adds a way to deny the
-  # host.
+  # Ten, which is Plan D D2's pool (docs/plan-d-fleet.md). It waited for the
+  # guard to stop making one broken slot the whole host's problem: the audit set
+  # is declared ∩ present now, so a slot that never came up is capacity that does
+  # not exist rather than a refusal, and only a *present and wrong* namespace is
+  # fleet-wide (NOTES item 30, run on this host).
+  #
+  # A declaration is not a reservation. Nothing the module generates is
+  # `wantedBy` anything, so no namespace, unit, volume or byte of RAM exists
+  # until some capsule starts — ten idle slots are ten names, an index each, and
+  # five units per name that nothing has queued. What the pool costs at eval is
+  # measured and it is not the eval: docs/probes.md#what-ten-declared-slots-cost.
   declared = {
     a = {index = 0;};
     b = {index = 1;};
+    c = {index = 2;};
+    d = {index = 3;};
+    e = {index = 4;};
+    f = {index = 5;};
+    g = {index = 6;};
+    h = {index = 7;};
+    i = {index = 8;};
+    j = {index = 9;};
   };
 
   # Carved into a /30 per capsule by index, so the aggregator's route and NAT
@@ -75,6 +87,8 @@ let
     };
   };
 
+  instancesOf = builtins.mapAttrs recordOf;
+
   names = builtins.attrNames declared;
 
   # IFNAMSIZ is 15 and the longest prefix above spends 4 of it. `egress` is
@@ -101,7 +115,17 @@ in
   assert !reused || throw "capsules.nix: two slots declare the same index, so they would share an uplink /30"; {
     inherit uplinkNet socketOf;
 
-    instances = builtins.mapAttrs recordOf declared;
+    instances = instancesOf declared;
+
+    # The same construction over a declaration that is not this host's, for the
+    # one caller that must not follow this host's fleet size. `guardCases`
+    # asserts what the guard *concludes* — one absent slot is a smaller fleet and
+    # not a dead one — which is true at any size, so binding those cases here
+    # would make widening the pool an edit to eleven expected strings and would
+    # test today's declaration rather than the guard. Same seam as the guard's
+    # `tools` (CLAUDE.md): what ties a program to this host is an argument, so a
+    # case may substitute one.
+    inherit instancesOf;
 
     # The aggregator. One per host, not per capsule, and the only place the
     # capsules' networks meet — which is why the drops between them live here

@@ -2,9 +2,12 @@
 
 *State: built, asserted and **run** — the degraded start, the arrival and the
 departure all witnessed on this host, and one live refusal paid for on the way
-(the capability, below). The pool is still two slots; `capsules.nix` grows to ten
-in its own change now that this has run. Reviewed once before building, which cost
-the `wants` version and bought the argument against the exclusion list.*
+(the capability, below). **The pool is ten now** — `capsules.nix` declares
+`a`…`j`, which is what this item was the precondition for; the eval cost of that
+is measured and the at-rest cost is not
+([probes](../probes.md#what-ten-declared-slots-cost), and below). Reviewed once
+before building, which cost the `wants` version and bought the argument against
+the exclusion list.*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
@@ -176,9 +179,17 @@ D1 built rather than to the audit. This item is only about a pool being
 *declarable* without its weakest member holding the other nine hostage.
 
 Two things it leaves measurable and unmeasured: what ten declarations cost at
-eval and switch — indices, uplink /30s, four units each, one image shared, no
+eval and switch — indices, uplink /30s, five units each, one image shared, no
 volume until first boot — and whether ten idle declarations change anything at
 rest, which the chain above says is nothing and nothing has confirmed.
+
+**The first is measured now** and is 3% of a module eval, against a fixed cost
+that is 97% not about slots
+([probes](../probes.md#what-ten-declared-slots-cost)). The second still needs a
+switch: it is a claim about systemd's unit table, since nothing here is
+`wantedBy` anything and no namespace, volume or VMM exists until a capsule
+starts. The count "four units each" above was wrong by one — it is five, and
+`microvm-tap-interfaces@<n>` is the one it missed.
 
 ## What building it produced besides the guard
 
@@ -191,6 +202,20 @@ has to, because `writeShellApplication` prepends `runtimeInputs` to `PATH` and a
 stub prepended by a test would lose to the real `ip` every time. That seam is the
 same one `transport` is, and CLAUDE.md now names it as the way to make any
 host-side program testable.
+
+**And declaring the pool found the one thing those cases had baked in.** They ran
+against `capsules.nix` itself, so eleven of them asserted `N of 2 declared` and
+listed `cap-a cap-b` by hand — which made widening the pool an edit to eleven
+expected strings, and meant the suite was pinning *this host's fleet size* while
+claiming to pin the guard. The property under test is size-independent by
+construction: one absent slot is a smaller fleet at two and at ten. So the cases
+take a **fixture** declaration — `capsules.instancesOf`, the file's own
+constructor, over two invented slots — and the rest of the declaration stays the
+real one, since the aggregator, the uplink net and the drop pattern are what the
+cases grep for. That is the `tools` seam applied to the second argument that ties
+the guard to this host, and it was checked the same way: pointed back at the live
+declaration once, to watch `both present, nothing running` go red on `nothing
+matching 2 of 2 declared`.
 
 Two of those cases exist because a *weaker* design passes without them: a live
 guest in an unnamed namespace is limb one's unsoundness, and a VMM in another

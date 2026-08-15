@@ -6,7 +6,11 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **the exhibit's scope — a collect is narrowed to
+Last updated 2026-08-15, after **the pool — `capsules.nix` declares `a`…`j`,
+which is [Plan D](./plan-d-fleet.md) D2's declaration half** (below): built and
+green, eval cost measured at 3%, **not yet switched onto this host**, and the
+run-time half (`policy`) still to come. Before that, the same day, after **the
+exhibit's scope — a collect is narrowed to
 the unit of work the capsule was assigned, which closes item 32's last open
 invariant** (below). **Built, asserted, switched and run**: the same slot, guest
 and commit that produced the 1886-entry exhibit now produce a **36-entry** one,
@@ -65,6 +69,35 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **The pool is ten slots, declared and unswitched.** `capsules.nix` says
+  `a`…`j`, which is [Plan D](./plan-d-fleet.md) D2's first half and what
+  [item 30](./ledger/030-a-pool-audits-what-exists.md) was the precondition for:
+  a slot that never came up is capacity that does not exist, so declaring eight
+  more adds no way to deny the host. `just check`, `just build` and `just units`
+  are green and the module generates **50 unit definitions** — five per slot,
+  none `wantedBy` anything — plus the aggregator and the guard.
+
+  **What it costs at eval is 3%**, against a fixed cost that is 97% not about
+  slots: +3.0% thunks, +3.7% function calls, +1.7% heap over the same eval at two
+  slots, and a `cpuTime` that came out *lower* at ten because wall clock cannot
+  resolve it ([probes](./probes.md#what-ten-declared-slots-cost)). **The at-rest
+  half is unmeasured and needs a switch** — it is a question about systemd's unit
+  table and nothing else, since no namespace, volume or VMM exists until a
+  capsule starts.
+
+  **Declaring it found what `guardCases` had baked in.** Eleven cases asserted
+  `N of 2 declared` against the live `capsules.nix`, so the suite pinned this
+  host's fleet size while claiming to pin the guard — and widening the pool would
+  have been an edit to eleven expected strings. They take a **fixture**
+  declaration now, built by `capsules.instancesOf` so there is no second copy of
+  the constructor, with everything else about the declaration still the real
+  one. Same seam as the guard's `tools`, checked the same way: pointed back at
+  the live declaration once to watch a case go red.
+
+  **What is left of D2 is the run-time half** — `policy` as a field an assignment
+  selects rather than a fleet-wide file. The record (D1) already carries the
+  field as null.
 
 - **The exhibit has a scope now, and it is declared rather than held in a pair of
   hands.** Item 32's own invariant — *a collect brings back the out-of-band state

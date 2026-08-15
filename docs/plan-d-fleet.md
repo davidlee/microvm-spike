@@ -637,7 +637,12 @@ only place a repo name appears.
   host. That was L12, and it is closed
   ([item 30](./ledger/030-a-pool-audits-what-exists.md)) — so what is left of D2
   is the declaration and the run-time assignment, with nothing standing in front
-  of them.
+  of them. **The declaration has landed**: `capsules.nix` says `a`…`j`, the eval
+  cost of it is 3% of a module eval
+  ([probes](./probes.md#what-ten-declared-slots-cost)), and the at-rest cost
+  needs a switch. What is left of D2 is the run-time half — `policy` as a field
+  an assignment selects from a declared set, rather than one allowlist for the
+  fleet.
 - **D3 — volume verbs.** `capsule <slot> volume {df,reset,reset-home,clone-from
   <m>}`, host-side, refusing while the VM runs. `reset` is S4 without the `rm
   -rf`; `clone-from` is S5, and on ext4 it is a sparse copy of ~1.1 GiB —
