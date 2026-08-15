@@ -15,10 +15,10 @@
 #   capspk-g<i>   "guest"    spk-gst<i>  10.98.0.2/30  02:00:00:00:99:02
 #         |                      (identical in both capsules — that is the point)
 #   capspk-cap<i> "capsule"  spk-tap<i>  10.98.0.1/30     <- stands in for the tap
-#                            spk-out<i>  10.100.<i>.2/30  <- the proxy's way out
-#   capspk-wan    "upstream" spk-wan<i>  10.100.<i>.1/30
-#                            spk-up      10.101.0.2/30    <- stage 2 only
-#   root ns                  spk-rt      10.101.0.1/30    <- stage 2 only
+#                            spk-out<i>  10.110.<i>.2/30  <- the proxy's way out
+#   capspk-wan    "upstream" spk-wan<i>  10.110.<i>.1/30
+#                            spk-up      10.111.0.2/30    <- stage 2 only
+#   root ns                  spk-rt      10.111.0.1/30    <- stage 2 only
 #
 # Stage 1 lives entirely in its own namespaces — the root namespace has no
 # interface, no route and no sysctl in it — and answers the confinement
@@ -64,7 +64,7 @@ need_root probe-netns
 # Refuse rather than produce wrong answers: an overlapping route in the root
 # namespace silently redirects this spike's replies to whatever really owns the
 # address — which, with a capsule running, is a live guest.
-for net in "$GUEST_NET" 10.100.0.0/16 10.101.0.0/30; do
+for net in "$GUEST_NET" "$EG_NET" "$EG_UPLINK_NET"; do
   if ip route show | grep -qF "${net%%/*}"; then
     echo "probe-netns: the root namespace already has a route near $net:" >&2
     ip route show | grep -F "${net%%/*}" >&2
@@ -128,11 +128,11 @@ for i in 0 1; do
   ip link add "spk-out$i" type veth peer name "spk-wan$i" || exit 1
   ip link set "spk-out$i" netns "$cap"
   ip link set "spk-wan$i" netns "$NSWAN"
-  ip -n "$cap" addr add "10.100.$i.2/30" dev "spk-out$i"
-  ip -n "$NSWAN" addr add "10.100.$i.1/30" dev "spk-wan$i"
+  ip -n "$cap" addr add "$(eg_out "$i")/30" dev "spk-out$i"
+  ip -n "$NSWAN" addr add "$(eg_gw "$i")/30" dev "spk-wan$i"
   ip -n "$cap" link set "spk-out$i" up
   ip -n "$NSWAN" link set "spk-wan$i" up
-  ip netns exec "$cap" ip route add default via "10.100.$i.1"
+  ip netns exec "$cap" ip route add default via "$(eg_gw "$i")"
 
   # The guest already has root and has added the route the design says it can.
   # Every "blocked" below is against an adversary that has done this.
@@ -142,7 +142,7 @@ done
 # The return path that makes the negatives mean something. Capsule 0 only —
 # identical guest addressing means the upstream could not hold a second one
 # anyway, which is itself the point: nothing upstream can name a guest.
-ip netns exec "$NSWAN" ip route add "$GUEST_NET" via 10.100.0.2
+ip netns exec "$NSWAN" ip route add "$GUEST_NET" via "$(eg_out 0)"
 echo "   two namespaces, both holding 10.98.0.1/30, both guests at 10.98.0.2"
 echo "   upstream holds a route back to capsule 0's guest"
 
@@ -153,32 +153,32 @@ echo "== stage 1: the namespaces only; the root ns has nothing in it =="
 check "guest reaches its own capsule's tap address" ok \
   nsping capspk-g0 10.98.0.1
 check "capsule-local process reaches its upstream" ok \
-  nsping capspk-cap0 10.100.0.1
+  nsping capspk-cap0 "$(eg_gw 0)"
 check "guest with a default route cannot reach the upstream" deny \
-  nsping capspk-g0 10.100.0.1
+  nsping capspk-g0 "$(eg_gw 0)"
 check "upstream with a route to the guest still cannot reach it" deny \
   ip netns exec "$NSWAN" ping -c1 -W2 -n 10.98.0.2
 check "guest cannot reach the other capsule's upstream link" deny \
-  nsping capspk-g0 10.100.1.1
+  nsping capspk-g0 "$(eg_gw 1)"
 check "guest cannot reach the other capsule's inside address" deny \
-  nsping capspk-g0 10.100.1.2
+  nsping capspk-g0 "$(eg_out 1)"
 
-# Weak host model, one scope down: 10.100.0.2 is a local address of the capsule
+# Weak host model, one scope down: the capsule's own egress address is a local
 # namespace, so a packet arriving on the tap is INPUT there, not forward. Same
 # class as the host-side mistake PLAN_C now documents — if this is reachable,
 # services in the namespace must bind explicitly and the namespace wants an
 # input drop on its own egress veth.
-observe "guest -> its own capsule's *egress* address (10.100.0.2)" \
-  nsping capspk-g0 10.100.0.2
+observe "guest -> its own capsule's *egress* address ($(eg_out 0))" \
+  nsping capspk-g0 "$(eg_out 0)"
 
 # The control: the sysctl is what is doing the work, not luck or a missing
 # route. If this pair does not flip, nothing above is evidence of anything.
 ip netns exec capspk-cap0 sysctl -q -w net.ipv4.ip_forward=1
 check "control: with ip_forward=1 in the capsule ns, the guest DOES get out" ok \
-  nsping capspk-g0 10.100.0.1
+  nsping capspk-g0 "$(eg_gw 0)"
 ip netns exec capspk-cap0 sysctl -q -w net.ipv4.ip_forward=0
 check "control: back to 0, blocked again" deny \
-  nsping capspk-g0 10.100.0.1
+  nsping capspk-g0 "$(eg_gw 0)"
 
 # (DNS is a stage 2 question: with nothing routing in stage 1, a resolver
 # failure would prove nothing.)
@@ -248,16 +248,16 @@ if [ "$WANT_INTERNET" = 1 ]; then
 
   ip link add spk-up type veth peer name spk-rt || exit 1
   ip link set spk-up netns "$NSWAN"
-  ip -n "$NSWAN" addr add 10.101.0.2/30 dev spk-up
+  ip -n "$NSWAN" addr add "$EG_ADDR/30" dev spk-up
   ip -n "$NSWAN" link set spk-up up
-  ip addr add 10.101.0.1/30 dev spk-rt
+  ip addr add "$EG_PEER_ADDR/30" dev spk-rt
   ip link set spk-rt up
-  ip netns exec "$NSWAN" ip route add default via 10.101.0.1
+  ip netns exec "$NSWAN" ip route add default via "$EG_PEER_ADDR"
   # The upstream now has to forward: it is the aggregation point for every
   # capsule's proxy. Note what that re-enables — see the last observation.
   ip netns exec "$NSWAN" sysctl -q -w net.ipv4.ip_forward=1
   # Reply routing, and the host firewall's reverse-path check, both need this.
-  ip route add 10.100.0.0/16 via 10.101.0.2 dev spk-rt
+  ip route add "$EG_NET" via "$EG_ADDR" dev spk-rt
 
   FORWARD_SAVED=$(cat /proc/sys/net/ipv4/ip_forward)
   sysctl -q -w net.ipv4.ip_forward=1
@@ -265,7 +265,7 @@ if [ "$WANT_INTERNET" = 1 ]; then
 table ip $NFT_TABLE {
   chain post {
     type nat hook postrouting priority srcnat;
-    ip saddr 10.100.0.0/16 oifname "$UPLINK" masquerade
+    ip saddr $EG_NET oifname "$UPLINK" masquerade
   }
 }
 EOF
@@ -293,7 +293,7 @@ EOF
   # cross-capsule problem, and it wants an explicit drop between the upstream's
   # capsule-facing links.
   observe "capsule 0 -> capsule 1's inside address, via the shared upstream" \
-    nsping capspk-cap0 10.100.1.2
+    nsping capspk-cap0 "$(eg_out 1)"
 fi
 
 # ---------------------------------------------------------------------- report

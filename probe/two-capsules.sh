@@ -24,6 +24,12 @@
 #      assertion that forced `probe/harness.sh` to stop identifying a VMM by
 #      name: with two capsules on one image, `pkill -f microvm@capsule` is a
 #      power cut for the sibling and reads as a clean teardown while doing it.
+#   5. **Perimeter.** Two policies at the same moment — one host allowed for the
+#      capsule whose policy permits it and refused for the capsule whose policy
+#      does not, then swapped so neither capsule can be merely dead. This is the
+#      one claim `probe/netns-egress.sh` deliberately does not make: run 3 there
+#      put *one* guest through two policies in turn, and sequential selection is
+#      not simultaneous selection (NOTES item 36).
 #
 # It also collects from both, because attribution is half of REQ-454: a verdict
 # that cannot be tied to the capsule that produced it is not evidence. The two
@@ -57,6 +63,12 @@
 PROG=probe-two-capsules
 NS_A="cap-$NAME_A"
 NS_B="cap-$NAME_B"
+# The two /30s these capsules carve out of the harness fabric. Declared, not
+# taken from the order they are booted in, for the reason `capsules.nix` declares
+# a slot's index: the index is what picks the uplink, so deriving it from
+# position means one capsule silently changes wires when the other moves.
+IDX_A=0
+IDX_B=1
 RUNNER=""
 # Two base commits, from the *target repo*, defaulting to its HEAD and its
 # parent: the target declares no branch any more, and the guest's
@@ -74,6 +86,14 @@ DIR_B="$ROOT/.vm/$NAME_B"
 LOG_A="$DIR_A/two-capsules.log"
 LOG_B="$DIR_B/two-capsules.log"
 STATE="$ROOT/.vm/pair-host"
+# A proxy's state per capsule, beside its console log rather than in `.vm/host`,
+# so a probe run cannot leave the devshell path pointing at a config it did not
+# write. Two directories because two proxies: the rendered config names the
+# allowlist a policy selected, and one path for both would be one policy.
+PROXY_A="$DIR_A/policy-proxy"
+PROXY_B="$DIR_B/policy-proxy"
+ALLOW="$ROOT/$ALLOWLIST"
+SEALED="$ROOT/$SEALED_ALLOWLIST"
 
 # ------------------------------------------------------------------- refusals
 
@@ -91,9 +111,16 @@ if any_vm_running "$VM"; then
   echo "$PROG: a microvm is already running — vm-stop first." >&2
   exit 1
 fi
-for ns in "$NS_A" "$NS_B"; do
+for ns in "$NS_A" "$NS_B" "$EG_NS"; do
   if ip netns list | grep -qw "$ns"; then
     echo "$PROG: namespace $ns is left over — 'ip netns del $ns'." >&2
+    exit 1
+  fi
+done
+egress_preflight "$PROG" || exit 1
+for f in "$ALLOW" "$SEALED"; do
+  if [ ! -r "$f" ]; then
+    echo "$PROG: no allowlist at $f" >&2
     exit 1
   fi
 done
@@ -118,6 +145,7 @@ cleanup() {
   halt_guest "$NS_A" "$GUEST_ADDR" "$VM"
   halt_guest "$NS_B" "$GUEST_ADDR" "$VM"
   kill_helpers
+  egress_down
   ns_down "$NS_A"
   ns_down "$NS_B"
   rm -rf "$SOCKDIR_A" "$SOCKDIR_B"
@@ -144,6 +172,22 @@ ns_up "$NS_B" "$TAP" "$HOST_ADDR" "$PREFIX" || exit 1
 check "both namespaces hold a $TAP at $HOST_ADDR" ok \
   bash -c "ip -n $NS_A addr show $TAP | grep -q $HOST_ADDR &&
            ip -n $NS_B addr show $TAP | grep -q $HOST_ADDR"
+
+echo "== the aggregator both capsules' proxies leave through =="
+egress_up "$GUEST_ADDR" || exit 1
+egress_attach "$NS_A" "$IDX_A" || exit 1
+egress_attach "$NS_B" "$IDX_B" || exit 1
+# **No `egress_guest_return` here, and its absence is the shape rather than an
+# omission**: every guest is at $GUEST_ADDR in its own namespace, so a route back
+# to "the guest" can only ever name one of them. That is the same identical
+# addressing stage 2 makes a claim out of, seen from the host side.
+RESULTS+=("NOTE  no return path to either guest — two capsules share one address, so there can be only one")
+egress_resolver "$NS_A"
+egress_resolver "$NS_B"
+egress_rules || exit 1
+capsule_guard_rules "$NS_A" "$TAP" "$HOST_ADDR" || exit 1
+capsule_guard_rules "$NS_B" "$TAP" "$HOST_ADDR" || exit 1
+echo "   uplink $EG_WAN_IF, resolver $RESOLVER, host ip_forward was $EG_FORWARD_SAVED"
 
 echo "== building the runner, once (as $HUMAN) =="
 RUNNER=$(capsule_runner "$ROOT" "$VM") || exit 1
@@ -250,6 +294,79 @@ check "the root namespace cannot reach that address at all" deny \
 check "each capsule has its own volume image" ok \
   bash -c "[ -f '$DIR_A/capsule-work.img' ] && [ -f '$DIR_B/capsule-work.img' ]"
 
+# ------------------------------- stage 2b: two policies, at the same moment
+
+echo "== stage 2b: two capsules, two policies, at the same moment =="
+#
+# The one claim `probe/netns-egress.sh` deliberately does not make. Its run 3 put
+# *one* guest through two policies in turn, which is evidence that a selection
+# reaches the wire and no evidence at all that two selections coexist — those are
+# different claims, and only the first had an instrument (NOTES item 36,
+# docs/probes.md).
+#
+# So: one host, one moment, two answers. Two proxies bound to the **same address
+# and port** in two namespaces, which is stage 2's identical addressing turned
+# into a perimeter question — under one namespace this is EADDRINUSE and there is
+# only ever one policy.
+#
+# Then the round that discriminates, and without which none of the above is
+# evidence: **swap the policies and watch the answers swap**. A capsule that is
+# simply broken — a fabric asymmetry, an index, the order the two were booted in
+# — reads exactly like a capsule the perimeter refused. After the swap each
+# capsule has been allowed in one half and refused in the other, so neither can
+# be dead and neither can be lucky.
+#
+# Both halves also assert that a refusal is an *HTTP* refusal. A dead proxy and a
+# sealed one are the same `deny` from a status line's point of view, and the claim
+# is that the perimeter answered and said no.
+both_listening() {
+  wait_listen "$NS_A" "$HOST_ADDR" "$PROXY_PORT" \
+    && wait_listen "$NS_B" "$HOST_ADDR" "$PROXY_PORT"
+}
+
+ALLOWED_HOST=$(first_allowed "$ALLOW")
+if [ -n "$ALLOWED_HOST" ]; then
+  as_human mkdir -p "$PROXY_A" "$PROXY_B" || exit 1
+
+  check "A's proxy comes up under the build policy" ok \
+    proxy_up "$NS_A" "$ROOT" "$PROXY_A" "$ALLOW"
+  check "B's proxy comes up under the sealed policy" ok \
+    proxy_up "$NS_B" "$ROOT" "$PROXY_B" "$SEALED"
+
+  a_build=$(guest_connect "$NS_A" "$GUEST_ADDR" "$ALLOWED_HOST")
+  b_sealed=$(guest_connect "$NS_B" "$GUEST_ADDR" "$ALLOWED_HOST")
+  check "the capsule on build reaches $ALLOWED_HOST" ok is_200 "$a_build"
+  check "the capsule on sealed is refused the same host" deny is_200 "$b_sealed"
+  check "and that refusal is a proxy's answer, not a dead port" ok \
+    is_http "$b_sealed"
+  check "both proxies were still up either side of the pair" ok both_listening
+  RESULTS+=("NOTE  A on build, $ALLOWED_HOST: $a_build")
+  RESULTS+=("NOTE  B on sealed, same host, same moment: $b_sealed")
+
+  echo "== stage 2b: and now the other way round =="
+  check "A's proxy stops" ok proxy_down "$NS_A" "$PROXY_A"
+  check "B's proxy stops" ok proxy_down "$NS_B" "$PROXY_B"
+  check "A comes back under the sealed policy" ok \
+    proxy_up "$NS_A" "$ROOT" "$PROXY_A" "$SEALED"
+  check "B comes back under the build policy" ok \
+    proxy_up "$NS_B" "$ROOT" "$PROXY_B" "$ALLOW"
+
+  a_sealed=$(guest_connect "$NS_A" "$GUEST_ADDR" "$ALLOWED_HOST")
+  b_build=$(guest_connect "$NS_B" "$GUEST_ADDR" "$ALLOWED_HOST")
+  check "the capsule now on build reaches $ALLOWED_HOST" ok is_200 "$b_build"
+  check "the capsule now on sealed is refused the same host" deny is_200 "$a_sealed"
+  check "and that refusal is a proxy's answer too" ok is_http "$a_sealed"
+  check "both proxies were still up either side of that pair" ok both_listening
+  RESULTS+=("NOTE  A on sealed, $ALLOWED_HOST: $a_sealed")
+  RESULTS+=("NOTE  B on build, same host, same moment: $b_build")
+  RESULTS+=("NOTE  each capsule was allowed in one half and refused in the other, so neither is merely dead")
+else
+  # The count is part of the evidence, exactly as it is for netns-egress's
+  # stage 2b: a skip here lands the run fourteen assertions short, and reading
+  # the total is what tells a green run from a vacuous one.
+  RESULTS+=("NOTE  no plain hostname in $ALLOW — the two-policy round was skipped, 14 assertions short")
+fi
+
 # ------------------------------------ stage 3: two histories, from one image
 
 echo "== stage 3: different base commits, one guest image =="
@@ -308,9 +425,9 @@ check "capsule B collects into its own quarantine" ok \
   as_human env "CAPSULE_STATE=$STATE" "$COLLECT" --capsule "$NAME_B" "${COLLECT_ARGS[@]}"
 
 q_a=$(as_human git -C "$STATE/collect/$NAME_A.git" \
-  rev-parse "refs/capsule/$NAME_A/$WORK_BRANCH" 2>/dev/null)
+  rev-parse "$CODE_REFS_A/$WORK_BRANCH" 2>/dev/null)
 q_b=$(as_human git -C "$STATE/collect/$NAME_B.git" \
-  rev-parse "refs/capsule/$NAME_B/$WORK_BRANCH" 2>/dev/null)
+  rev-parse "$CODE_REFS_B/$WORK_BRANCH" 2>/dev/null)
 check "what came out of A is what went into A" ok test "$q_a" = "$COMMIT_A"
 check "what came out of B is what went into B" ok test "$q_b" = "$COMMIT_B"
 

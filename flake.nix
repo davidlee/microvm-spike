@@ -66,6 +66,14 @@
     capsules = import ./capsules.nix;
     policies = import ./policies.nix;
 
+    # Where a collected exhibit lives and what its refs are called. Bound here
+    # rather than imported at each use because there are three now — the token
+    # bound in `snapshotCases`, and both probes that assert a collect landed
+    # where it was sent. A probe that spells a ref convention is a probe that
+    # keeps asserting the old one after the convention moves, which is what
+    # `refs/capsule/<name>/heads/` cost (NOTES item 38).
+    quarantine = import ./host/quarantine.nix;
+
     # The branch a capsule's checkout sits on, everywhere and always. Not a value
     # file of its own and not a field of any of the three above: it is not
     # addressing, it is not a slot's, and it is emphatically not the target's —
@@ -792,7 +800,7 @@
       # The bound as a program, so the case suite runs the real fragment rather
       # than a description of it (host/quarantine.nix).
       token = pkgs.writeText "capsule-token-check" ''
-        ${(import ./host/quarantine.nix).checkToken ''"$1"'' "'unit $1'"}
+        ${quarantine.checkToken ''"$1"'' "'unit $1'"}
       '';
     in
       pkgs.runCommand "capsule-snapshot-cases" {nativeBuildInputs = [pkgs.git];} ''
@@ -1251,6 +1259,11 @@
     # an address itself. The harness is concatenated rather than sourced: one
     # `writeShellApplication` is one script, so shellcheck sees both halves and
     # the probe needs no path to a sibling at run time.
+    #
+    # Harness, then prelude, then probe. The harness declares an empty default
+    # for every value a prelude may inject — which is what lets it carry the
+    # egress fabric below without every probe that never builds one tripping
+    # SC2154 — so the prelude has to come *after* it or those defaults would win.
     probe = {
       name,
       script,
@@ -1262,10 +1275,85 @@
         # A probe's whole job includes running commands that must fail.
         bashOptions = ["nounset" "pipefail"];
         text =
-          prelude
-          + builtins.readFile ./probe/harness.sh
+          builtins.readFile ./probe/harness.sh
+          + prelude
           + builtins.readFile script;
       };
+
+    # The names, links and addressing a probe's egress fabric is built from —
+    # **and the eval-time refusal to share any of them with `capsules.nix`**,
+    # which is the whole reason this is a value here rather than four literals in
+    # `probe/harness.sh`.
+    #
+    # `capsules.nix` copied its map *from* `probe/netns-egress.sh` once that probe
+    # had verified the shape, so the probe became a borrower of live addressing
+    # with no line of it changing and nothing to notice: on a module-path host
+    # `eg-rt` is the live aggregator's uplink to the root namespace, and the
+    # probe's own teardown deletes that name (NOTES item 38). The rule about not
+    # borrowing live addressing needs an enforcer, because it is broken by the
+    # *other* file moving.
+    #
+    # A separate /16 and /30 is what keeps every per-index address off the live
+    # fabric without asserting each one — the harness derives `<base>.<i>.{1,2}`
+    # the same way `capsules.nix` does.
+    probeFabric = rec {
+      ns = "probe-egress";
+      peerNs = "probe-peer";
+      dev = "pr-up";
+      peer = "pr-rt";
+      addr = "10.111.0.2";
+      peerAddr = "10.111.0.1";
+      netBase = "10.110";
+      net = "${netBase}.0.0/16";
+      uplinkNet = "10.111.0.0/30";
+      outPrefix = "pr-out";
+      wanPrefix = "pr-wan";
+    };
+
+    # Every string this host's declaration puts on a wire or in `ip netns list`.
+    # A probe may reuse none of them.
+    liveNames = let
+      eg = capsules.egress;
+      c = i: [i.ns i.uplink.dev i.uplink.peer i.uplink.addr i.uplink.gw];
+    in
+      [eg.ns eg.dev eg.peer eg.addr eg.peerAddr capsules.uplinkNet]
+      ++ lib.concatMap c (lib.attrValues capsules.instances);
+
+    borrowed =
+      lib.intersectLists (lib.attrValues probeFabric) liveNames;
+
+    fabricPrelude = assert borrowed
+    == []
+    || throw "flake.nix: probeFabric borrows '${builtins.head borrowed}' from capsules.nix — a probe's fabric may share no name, link, address or network with the live one (NOTES item 38)"; ''
+      EG_NS="${probeFabric.ns}"
+      EG_DEV="${probeFabric.dev}"
+      EG_PEER="${probeFabric.peer}"
+      EG_ADDR="${probeFabric.addr}"
+      EG_PEER_ADDR="${probeFabric.peerAddr}"
+      EG_NET="${probeFabric.net}"
+      EG_NET_BASE="${probeFabric.netBase}"
+      EG_UPLINK_NET="${probeFabric.uplinkNet}"
+      EG_OUT_PREFIX="${probeFabric.outPrefix}"
+      EG_WAN_PREFIX="${probeFabric.wanPrefix}"
+    '';
+
+    # The fabric, plus what a round that puts a *proxy* on it needs. Two strings
+    # because `probe/netns.sh` builds the fabric with no proxy in it, and an
+    # allowlist path a probe never reads is an unused variable — which is a build
+    # failure here rather than a stray line.
+    egressPrelude =
+      fabricPrelude
+      + ''
+        PROXY_PORT="${toString net.proxyPort}"
+        PROXY="${perimeter.proxy}/bin/capsule-proxy"
+        # The two policies a wire round asserts under, named rather than
+        # defaulted: the perimeter has no allowlist of its own any more, so a
+        # probe states which policy it is asserting under exactly as a capsule
+        # does (NOTES item 36). `build` is the one that has to admit a host,
+        # since every round asserts a 200 as well as a 403; `sealed` must not.
+        ALLOWLIST="${policies.dir}/${policies.policies.build.allowlist}"
+        SEALED_ALLOWLIST="${policies.dir}/${policies.policies.sealed.allowlist}"
+      '';
 
     # This flake's copy of the namespace layer. `host/services.nix` builds its
     # own from the module's `pkgs`, which is a different nixpkgs and therefore a
@@ -1281,6 +1369,11 @@
     probe-netns = probe {
       name = "probe-netns";
       script = ./probe/netns.sh;
+      # Its links and namespaces were always its own (`spk-*`, `capspk-*`); its
+      # *addressing* was the live aggregator's, and stage 2 puts `10.101.0.1` and
+      # a route for `10.100.0.0/16` in the **root** namespace. Third instance of
+      # NOTES item 38, and the reason the fix is a value rather than a rename.
+      prelude = fabricPrelude;
       runtimeInputs = [
         pkgs.iproute2
         pkgs.iputils
@@ -1359,25 +1452,19 @@
     probe-netns-egress = probe {
       name = "probe-netns-egress";
       script = ./probe/netns-egress.sh;
-      prelude = ''
-        TAP="${net.tap}"
-        HOST_ADDR="${net.host}"
-        GUEST_ADDR="${net.guest}"
-        PREFIX="${toString net.prefix}"
-        PROXY_PORT="${toString net.proxyPort}"
-        VM="capsule"
-        PROXY="${perimeter.proxy}/bin/capsule-proxy"
-        # The `build` policy's file, named rather than defaulted: the perimeter
-        # has no allowlist of its own any more, so a probe states which policy it
-        # is asserting under exactly as a capsule does (NOTES item 36). This is
-        # the one that has to admit an allowlisted host, since the round asserts
-        # a 200 as well as a 403.
-        ALLOWLIST="${policies.dir}/${policies.policies.build.allowlist}"
-        # The other one, for the round that asserts a policy is selected rather
-        # than shared: the same guest, restarted under this, refuses the host the
-        # first one allowed — and is allowed again when it is put back.
-        SEALED_ALLOWLIST="${policies.dir}/${policies.policies.sealed.allowlist}"
-      '';
+      prelude =
+        egressPrelude
+        + ''
+          TAP="${net.tap}"
+          HOST_ADDR="${net.host}"
+          GUEST_ADDR="${net.guest}"
+          PREFIX="${toString net.prefix}"
+          VM="capsule"
+          # The VM-less sibling that exists to be unreachable. Prefixed like the
+          # rest of the fabric rather than `cap-`, which is what a slot's
+          # namespace is called.
+          NSPEER="${probeFabric.peerNs}"
+        '';
       runtimeInputs = [
         pkgs.iproute2
         pkgs.iputils
@@ -1468,42 +1555,54 @@
     probe-two-capsules = probe {
       name = "probe-two-capsules";
       script = ./probe/two-capsules.sh;
-      prelude = ''
-        TAP="${net.tap}"
-        HOST_ADDR="${net.host}"
-        GUEST_ADDR="${net.guest}"
-        PREFIX="${toString net.prefix}"
-        VM="capsule"
-        NAME_A="${pairA}"
-        NAME_B="${pairB}"
-        SOCKDIR_A="${builtins.dirOf (socketOf pairA)}"
-        SOCKDIR_B="${builtins.dirOf (socketOf pairB)}"
-        PROVISION="${nsPrograms.provision}/bin/capsule-provision"
-        COLLECT="${nsPrograms.collect}/bin/capsule-collect"
-        # What a slot's record and the operator's declaration would supply, for
-        # two capsules that are neither (NOTES item 36, item 32). The unit half
-        # is present only where this target's state paths have a hole for one,
-        # since a flag that scopes nothing is refused.
-        COLLECT_ARGS=(--policy build${
-          lib.optionalString nsPrograms.stateNeedsUnit " --unit probe"
-        })
-        GUEST_PATH="${target.guestPath}"
-        TARGET_PATH="${target.path}"
-        WORK_BRANCH="${workBranch}"
-        MEM_MIB="${toString target.sizes.mem}"
-      '';
+      prelude =
+        egressPrelude
+        + ''
+          TAP="${net.tap}"
+          HOST_ADDR="${net.host}"
+          GUEST_ADDR="${net.guest}"
+          PREFIX="${toString net.prefix}"
+          VM="capsule"
+          NAME_A="${pairA}"
+          NAME_B="${pairB}"
+          SOCKDIR_A="${builtins.dirOf (socketOf pairA)}"
+          SOCKDIR_B="${builtins.dirOf (socketOf pairB)}"
+          PROVISION="${nsPrograms.provision}/bin/capsule-provision"
+          COLLECT="${nsPrograms.collect}/bin/capsule-collect"
+          # What a slot's record and the operator's declaration would supply, for
+          # two capsules that are neither (NOTES item 36, item 32). The unit half
+          # is present only where this target's state paths have a hole for one,
+          # since a flag that scopes nothing is refused.
+          COLLECT_ARGS=(--policy build${
+            lib.optionalString nsPrograms.stateNeedsUnit " --unit probe"
+          })
+          GUEST_PATH="${target.guestPath}"
+          TARGET_PATH="${target.path}"
+          WORK_BRANCH="${workBranch}"
+          MEM_MIB="${toString target.sizes.mem}"
+          # Where a collect lands, from the one construction that decides it
+          # rather than from this file's memory of it. The probe used to spell
+          # `refs/capsule/<name>/<branch>` and was two assertions red from the
+          # day item 32 split the code half under `heads/` — silently, because
+          # nothing runs a probe (NOTES item 38).
+          CODE_REFS_A="${quarantine.codeRefsOf pairA}"
+          CODE_REFS_B="${quarantine.codeRefsOf pairB}"
+        '';
       runtimeInputs = [
         pkgs.iproute2
         pkgs.iputils
+        pkgs.nftables # the aggregator's drops, and each capsule's own
         pkgs.procps
         pkgs.coreutils # du, dirname, date, tr
         pkgs.gnugrep
+        pkgs.gnused # the allowed host comes out of the allowlist, not the probe
         pkgs.gawk # the arithmetic behind every figure
         pkgs.util-linux # runuser: enter the namespace as root, boot the VM as you
         pkgs.glibc.bin # getent, for the human's home directory
         pkgs.bash
         pkgs.socat
         pkgs.openssh
+        pkgs.bind.dnsutils # whether the host's own resolver is reachable
         pkgs.git
         pkgs.nix # builds the one runner both capsules share, as the human
       ];

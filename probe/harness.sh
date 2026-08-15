@@ -1,7 +1,13 @@
-# Shared by every probe. Concatenated ahead of one by flake.nix rather than
-# sourced: `writeShellApplication` builds a single script, so shellcheck sees
-# the probe and its harness as one file, and a probe has no path to a sibling
-# at run time anyway.
+# Shared by every probe. Concatenated with one by flake.nix rather than sourced:
+# `writeShellApplication` builds a single script, so shellcheck sees the probe
+# and its harness as one file, and a probe has no path to a sibling at run time
+# anyway.
+#
+# The order is harness, then flake.nix's `prelude`, then the probe. The harness
+# comes first so that it can declare an empty default for every value a prelude
+# may inject and the prelude's own assignment still wins — which is what lets the
+# egress fabric below name nothing without every probe that never builds one
+# tripping shellcheck's SC2154.
 #
 # The rule these exist to serve (CLAUDE.md): a probe asserts *both* directions,
 # because a denial-only test passes for the wrong reason. Hence `check` taking
@@ -364,6 +370,328 @@ kill_vm() {
     sleep 0.1
   done
   return 1
+}
+
+# --------------------------------- the fabric a capsule's proxy leaves through
+#
+# `probe/netns-egress.sh` established this and `probe/two-capsules.sh` asserts
+# two policies through it at the same moment, so it lives here rather than in
+# either — two copies of an egress fabric are two answers the first time one is
+# edited, which is the reason the capsule boot above is here too.
+#
+# **None of it is the live fabric's, and that is a correction rather than a
+# precaution.** `capsules.nix`'s map was copied *from* `netns-egress.sh` once the
+# probe had verified the shape, which is how a probe that predated the module
+# became a borrower of live addressing without a line of it changing: on a
+# module-path host `eg-rt` is the production aggregator's uplink to the root
+# namespace and `10.100.0.0/16` is the route to every capsule, so the teardown's
+# `ip link del eg-rt` was a fleet-wide egress cut fired from a cleanup trap.
+# Three refusals happened to fire ahead of it, so what the fault actually cost
+# was a human following one of them (CLAUDE.md, NOTES item 38). Every name, link
+# and network here comes from `flake.nix`'s `probeFabric`, which refuses at eval
+# to spell anything `capsules.nix` declares — so a future copy in either
+# direction is a build failure rather than an incident.
+#
+#   root ns      $EG_PEER            $EG_PEER_ADDR/30    forwards + masquerades
+#   $EG_NS       $EG_DEV             $EG_ADDR/30         the aggregator: every
+#                $EG_WAN_PREFIX<i>   <base>.<i>.1/30     capsule's proxy leaves
+#                                                        through here, and the
+#                                                        drops live here
+#   capsule ns   $EG_OUT_PREFIX<i>   <base>.<i>.2/30     that capsule's way out
+#
+# Empty here and injected by the prelude, per the ordering note at the top: a
+# probe that builds no fabric still carries these lines, and an unassigned
+# variable referenced by a function is SC2154 whether the function runs or not.
+EG_NS=""
+EG_DEV=""
+EG_PEER=""
+EG_ADDR=""
+EG_PEER_ADDR=""
+EG_NET=""
+EG_NET_BASE=""
+EG_UPLINK_NET=""
+EG_OUT_PREFIX=""
+EG_WAN_PREFIX=""
+
+# The same, for the three values a proxy round needs that are nobody's fabric:
+# two from net.nix and the program itself. Declared rather than threaded through
+# `proxy_up` and `guest_connect` as four more positional arguments — a capsule's
+# tap address and the perimeter's port are one host's, not one call's.
+HOST_ADDR=""
+PROXY_PORT=""
+PROXY=""
+
+# Table names, which are the harness's own: the module's are `capsule-egress`
+# and `capsule-guard`, and these have never collided with them. Kept here rather
+# than injected because nothing in `capsules.nix` declares an nft table, so there
+# is no live value for `probeFabric` to assert against.
+EG_NFT_NAT=capeg-nat
+EG_NFT_FWD=capeg-fwd
+EG_NFT_GUARD=capeg-guard
+
+EG_WAN_IF=""
+EG_FORWARD_SAVED=""
+EG_RESOLV=()
+RESOLVER=""
+
+# A capsule's /30 within EG_NET, by index. This is the one thing that cannot be
+# identical across capsules — the aggregator has a single routing table — which
+# is also why the /16 differing from `capsules.uplinkNet` is what keeps every
+# derived address off the live fabric without asserting each one.
+eg_gw() { echo "$EG_NET_BASE.$1.1"; }
+eg_out() { echo "$EG_NET_BASE.$1.2"; }
+
+# Before anything is created, so a refusal leaves nothing behind. An overlapping
+# route in the root namespace sends this fabric's replies to whatever really owns
+# the address and two results come back wrong in opposite directions; an existing
+# link of the fabric's own name is the same statement one layer down, and the one
+# a probe must never "clean up" — that link is how something else gets out.
+egress_preflight() {
+  local prog=$1 net
+  for net in "$EG_NET" "$EG_UPLINK_NET"; do
+    if ip route show | grep -qF "${net%%/*}"; then
+      echo "$prog: the root namespace already has a route near $net:" >&2
+      ip route show | grep -F "${net%%/*}" >&2
+      echo "$prog: refusing — results would be meaningless." >&2
+      return 1
+    fi
+  done
+  if ip link show "$EG_PEER" >/dev/null 2>&1; then
+    echo "$prog: $EG_PEER already exists in the root namespace." >&2
+    echo "$prog: refusing. Do NOT delete it to get past this — this probe's" >&2
+    echo "  teardown deletes that name, and a link you did not create is" >&2
+    echo "  something else's way out." >&2
+    return 1
+  fi
+  EG_WAN_IF=$(ip -o route show default | awk '{print $5; exit}')
+  [ -n "$EG_WAN_IF" ] || {
+    echo "$prog: no default route — there is no egress to prove." >&2
+    return 1
+  }
+}
+
+# The aggregator, and the host's half of the link to it. Takes the guest address
+# because the NAT covers it as well as the fabric: that is the most permissive
+# upstream there could be, which is what makes every denial downstream mean the
+# capsule namespace stopped it rather than that nothing knew the way back.
+egress_up() {
+  local guest=$1
+  ip netns add "$EG_NS" || return 1
+  ip -n "$EG_NS" link set lo up
+  # It has to forward: it is the point every capsule's proxy leaves through.
+  # Which is exactly what makes it a capsule-to-capsule path, and why the drops
+  # in `egress_rules` are not optional (probe/netns.sh found this as an
+  # observation).
+  ip netns exec "$EG_NS" sysctl -q -w net.ipv4.ip_forward=1
+
+  ip link add "$EG_DEV" type veth peer name "$EG_PEER" || return 1
+  ip link set "$EG_DEV" netns "$EG_NS"
+  ip -n "$EG_NS" addr add "$EG_ADDR/30" dev "$EG_DEV"
+  ip -n "$EG_NS" link set "$EG_DEV" up
+  ip addr add "$EG_PEER_ADDR/30" dev "$EG_PEER"
+  ip link set "$EG_PEER" up
+  ip netns exec "$EG_NS" ip route add default via "$EG_PEER_ADDR"
+
+  EG_FORWARD_SAVED=$(cat /proc/sys/net/ipv4/ip_forward)
+  sysctl -q -w net.ipv4.ip_forward=1
+  ip route add "$EG_NET" via "$EG_ADDR" dev "$EG_PEER"
+
+  nft -f - <<EOF
+table ip $EG_NFT_NAT {
+  chain post {
+    type nat hook postrouting priority srcnat;
+    ip saddr { $EG_NET, $guest } oifname "$EG_WAN_IF" masquerade
+  }
+}
+EOF
+}
+
+# One capsule onto the aggregator, on the /30 its index carves out.
+egress_attach() {
+  local ns=$1 i=$2 out="$EG_OUT_PREFIX$2" wan="$EG_WAN_PREFIX$2" gw addr
+  gw=$(eg_gw "$i")
+  addr=$(eg_out "$i")
+  ip link add "$out" type veth peer name "$wan" || return 1
+  ip link set "$out" netns "$ns"
+  ip link set "$wan" netns "$EG_NS"
+  ip -n "$ns" addr add "$addr/30" dev "$out"
+  ip -n "$EG_NS" addr add "$gw/30" dev "$wan"
+  ip -n "$ns" link set "$out" up
+  ip -n "$EG_NS" link set "$wan" up
+  ip netns exec "$ns" ip route add default via "$gw"
+}
+
+# A route back to a guest, from the aggregator and from the host, plus the NAT
+# `egress_up` already installed for it: the most permissive upstream there could
+# be, so a guest that cannot get out is being stopped rather than merely lost.
+#
+# **One capsule at a time, and that is the design rather than a limit.** Every
+# guest is at the same address in its own namespace, so a return path can only
+# ever name one of them — which is the same identical addressing that makes a
+# sibling unaddressable in `probe/two-capsules.sh`. A probe with two guests up
+# has no return path to either, and its denials are correspondingly weaker.
+egress_guest_return() {
+  local guest=$1 i=$2
+  ip route add "$guest/32" via "$EG_ADDR" dev "$EG_PEER"
+  ip netns exec "$EG_NS" ip route add "$guest/32" via "$(eg_out "$i")"
+}
+
+# Loopback is per-namespace, so the host's stub on 127.0.0.53 is not in here. The
+# designed answer keeps the host's resolver chain (resolved -> stubby -> ControlD)
+# rather than dropping to a public resolver: an extra stub address on the
+# capsule-facing link, and an /etc/netns/<ns>/resolv.conf naming it. The second
+# half is the probe's to write; the first half is a host-config edit, so detect
+# it rather than assume it — from where the consumer is, and before any drop goes
+# in, so what it detects is the host rather than the probe's own rules.
+#
+# Detected once and written per namespace: a second capsule must not re-ask a
+# question whose answer is the host's, and two capsules disagreeing about their
+# resolver would be a difference nobody declared.
+egress_resolver() {
+  local ns=$1
+  if [ -z "$RESOLVER" ]; then
+    if ip netns exec "$ns" timeout 5 dig +short +tries=1 "@$EG_PEER_ADDR" \
+      example.com >/dev/null 2>&1; then
+      RESOLVER=$EG_PEER_ADDR
+      RESULTS+=("NOTE  the host's own resolver answers on $EG_PEER_ADDR — the capsule keeps its DoT chain")
+    else
+      RESOLVER=1.1.1.1
+      RESULTS+=("NOTE  no host resolver on $EG_PEER_ADDR — fell back to $RESOLVER, which LOSES the host's DoT hop.")
+      RESULTS+=("NOTE  the shipped shape wants two lines in ~/flakes: DNSStubListenerExtra on the")
+      RESULTS+=("NOTE  capsule-facing address, and an input allow for port 53 on that link — the")
+      RESULTS+=("NOTE  host firewall covers every interface, including one this repo created.")
+    fi
+  fi
+  mkdir -p "/etc/netns/$ns"
+  echo "nameserver $RESOLVER" >"/etc/netns/$ns/resolv.conf"
+  EG_RESOLV+=("$ns")
+}
+
+# In the aggregator: capsules must not reach each other through the thing that
+# aggregates them, and must not reach the host's own networks either. The
+# interface-pair rule is a clean wildcard — it matches links, not addresses, so
+# it enumerates nothing and a new capsule needs no edit. The resolver is the one
+# RFC1918 destination a capsule may have, and it is allowed narrowly (port 53, by
+# address) ahead of the broad drop, which is what makes the pair testable: DNS
+# works, a ping to the same address does not.
+egress_rules() {
+  ip netns exec "$EG_NS" nft -f - <<EOF
+table ip $EG_NFT_FWD {
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    ip daddr $RESOLVER udp dport 53 accept
+    ip daddr $RESOLVER tcp dport 53 accept
+    iifname "$EG_WAN_PREFIX*" oifname "$EG_WAN_PREFIX*" drop
+    ip saddr $EG_NET ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } drop
+  }
+}
+EOF
+}
+
+egress_rules_down() {
+  ip netns exec "$EG_NS" nft delete table ip "$EG_NFT_FWD" 2>/dev/null
+}
+
+# In a capsule's namespace: the proxy's way out is a *local* address there, so a
+# packet from the guest to it is INPUT and no amount of ip_forward=0 touches it
+# (probe/netns.sh, cost 1). Services bind the tap address; anything else arriving
+# on the tap is not for the guest.
+capsule_guard_rules() {
+  local ns=$1 tap=$2 addr=$3
+  ip netns exec "$ns" nft -f - <<EOF
+table ip $EG_NFT_GUARD {
+  chain input {
+    type filter hook input priority filter; policy accept;
+    iifname "$tap" ip daddr != $addr drop
+  }
+}
+EOF
+}
+
+capsule_guard_down() {
+  ip netns exec "$1" nft delete table ip "$EG_NFT_GUARD" 2>/dev/null
+}
+
+# Everything the fabric put in the root namespace, and the aggregator with it.
+# Deleting either end of a veth takes both, and the root-side routes with it.
+egress_down() {
+  local ns
+  nft delete table ip "$EG_NFT_NAT" 2>/dev/null
+  [ -n "$EG_FORWARD_SAVED" ] && sysctl -q -w "net.ipv4.ip_forward=$EG_FORWARD_SAVED"
+  [ -n "$EG_PEER" ] && ip link del "$EG_PEER" 2>/dev/null
+  for ns in "${EG_RESOLV[@]}"; do rm -rf "/etc/netns/$ns"; done
+  [ -n "$EG_NS" ] && ns_down "$EG_NS"
+  return 0
+}
+
+# The real `capsule-proxy` — the same binary host/services.nix runs as a unit and
+# `capsule-host` runs as a child — joined to a capsule's namespace, under a named
+# policy's allowlist. Its state goes wherever the caller says rather than in
+# `.vm/host`, so a probe run cannot leave the devshell path pointing at a config
+# it did not write.
+#
+# Started and stopped by policy rather than once, because a policy is *selected*
+# and the perimeter follows the selection (NOTES item 36): the proxy renders its
+# config at start, so a restart is what a policy change costs a running capsule.
+# This is the mechanism the `policy` verb uses and not a probe-only shortcut.
+proxy_up() {
+  local ns=$1 root=$2 state=$3 allow=$4
+  helper_as_human "$ns" \
+    "CAPSULE_ROOT=$root" \
+    "CAPSULE_PROXY_STATE=$state" \
+    "CAPSULE_ALLOWLIST=$allow" \
+    "$PROXY"
+  wait_listen "$ns" "$HOST_ADDR" "$PROXY_PORT"
+}
+
+# `pkill -f` on the rendered config path, which is `capsule-host`'s own reaper and
+# safe here for the reason it is safe there: that path is this run's, under the
+# caller's own state directory, so it cannot match anything else on the host.
+# (The CLAUDE.md warning about `pkill -f` is about the VMM, whose name every
+# capsule shares.)
+proxy_down() {
+  local ns=$1 state=$2
+  pkill -f -- "tinyproxy -d -c $state/tinyproxy.conf" || true
+  for _ in $(seq 20); do
+    ip netns exec "$ns" ss -lnt 2>/dev/null \
+      | grep -qF "$HOST_ADDR:$PROXY_PORT" || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# CONNECT through the proxy, from inside the guest, as any HTTPS client would.
+# Asked *of the guest* because the guest is the confined party — the same request
+# from the capsule namespace answers a different question and would answer it
+# green. bash and /dev/tcp rather than curl: the guest's tool set comes from the
+# target's flake and a probe may not assume what is in it. Only bash is
+# guaranteed, and /dev/tcp also gives tinyproxy's status line verbatim, which is
+# the difference between "refused" and "could not resolve" — two outcomes an exit
+# status cannot tell apart.
+#
+# `timeout` outside ssh rather than ConnectTimeout, which a CONNECT that hangs
+# has already got past.
+guest_connect() {
+  local ns=$1 addr=$2 target=$3
+  in_ns_as_human "$ns" timeout 20 ssh "${SSH_OPTS[@]}" "root@$addr" \
+    "exec 3<>/dev/tcp/$HOST_ADDR/$PROXY_PORT; printf 'CONNECT %s:443 HTTP/1.1\r\nHost: %s:443\r\n\r\n' '$target' '$target' >&3; head -1 <&3" \
+    2>&1 | tr -d '\r' | tail -1
+}
+
+is_200() { case $1 in *" 200 "*) return 0 ;; *) return 1 ;; esac; }
+
+# A refusal that came from a proxy rather than from a dead one. The claim a
+# policy round makes is that the perimeter answered and said no; a connection
+# error says nothing about the allowlist, and reads identically from `check`.
+is_http() { case $1 in HTTP/*) return 0 ;; *) return 1 ;; esac; }
+
+# One host the allowlist permits, taken from the allowlist itself — a probe does
+# not get to spell a hostname, for the same reason nothing else here does: which
+# hosts a target may reach is that target's policy. Anchored plain names only; a
+# genuine regex entry is skipped rather than guessed at, which is why a round
+# built on this has to report its own count (docs/probes.md).
+first_allowed() {
+  sed -n '/^\^[A-Za-z0-9.\\-]*\$$/{s/[^A-Za-z0-9.-]//g;p;}' "$1" | head -1
 }
 
 # Nonzero if anything failed, so a probe ends `report || exit 1`.
