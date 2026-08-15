@@ -158,8 +158,22 @@ does not prove two selections coexist.
 
 Like `netns-boot.sh` it borrows the live tap, /30 and volume, for the same
 reason: the guest image has `net.nix` in it, so the real capsule is the subject.
-Everything it adds is on its own addressing (10.100/16, 10.101/30) and it
-refuses to start on an overlap.
+
+**Everything else it adds was the live fabric too, and that was not visible from
+this run.** 10.100/16, 10.101/30, `eg-up`/`eg-rt` and the namespace `cap-egress`
+are all `capsules.nix`'s, because that file was written *from this probe's map*
+after the probe verified the shape — so its teardown's `ip link del eg-rt`
+deletes the fleet's uplink on a module-path host
+([item 38](./ledger/038-a-probe-that-became-a-borrower.md)). This run predates
+the fix and was taken on a host where nothing collided at the time; the fabric is
+now `probe/harness.sh`'s, on `10.110/16`, `10.111/30`, `pr-up`/`pr-rt` and
+`probe-egress`, refused at eval if any of it is ever a live string again.
+**Re-running this probe was therefore a regression check as well as a repeat**:
+the same 33 assertions on a fabric none of which is the one they were taken on.
+**Run 4 came back green** on it. The count was not captured off the terminal, so
+this file records the colour and not the number — which is the weaker of the two
+things a run of this probe can say, since a skipped stage 2b lands at 27 and
+still reads green. Worth re-taking the total the next time it runs.
 
 ## What netns-restart.sh established
 
@@ -320,20 +334,89 @@ that counts it as one is worse than a checklist that admits the gap.
 
 ## What two-capsules.sh established
 
-**28/28 green, twice**, one runner store path serving both capsules — and on run
-2 one set of host programs serving both as well (see the asymmetry it found,
-below). The four independences hold in both runs, and the pair costs this:
+**28/28 green, twice**, then **40/42 on run 3** — the two reds a stale assertion
+in the probe rather than anything the programs did, see *Run 3* below. One runner
+store path serving both capsules throughout, and from run 2 one set of host
+programs serving both as well (see the asymmetry it found, below). The four
+independences hold in every run, and the pair costs this:
 
-| figure | run 1 | run 2 | note |
-| --- | --- | --- | --- |
-| A answers ssh, from launch | 6.94 s | 6.92 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
-| both answer ssh, from launch | 7.12 s | 7.10 s | the second capsule costs **0.18 s** in both runs, not a second boot |
-| declared guest RAM, per capsule | 16384 MiB | 8192 MiB | `target.sizes.mem`, halved between the runs |
-| **MemAvailable, both booted and idle** | **1488 MiB** | **1393 MiB** | against 32768 / 16384 MiB declared between them. See the withdrawal below |
-| both provisioned, in series | 3.51 s | 3.86 s | two 32 MiB histories, one after the other |
-| volume, A / B | 295 / 295 MiB | 295 / 295 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
-| teardown, one down, sibling up | 3.56 s | 3.56 s | matches the single-capsule 3.63 s: a sibling costs the teardown nothing |
-| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | 2 / 1, 1 | see below |
+| figure | run 1 | run 2 | run 3 | note |
+| --- | --- | --- | --- | --- |
+| A answers ssh, from launch | 6.94 s | 6.92 s | 6.90 s | one namespace, cold volume — the freshness figure, reproduced beside a sibling |
+| both answer ssh, from launch | 7.12 s | 7.10 s | 7.10 s | the second capsule costs **0.18–0.20 s** in every run, not a second boot |
+| declared guest RAM, per capsule | 16384 MiB | 8192 MiB | 6144 MiB | `target.sizes.mem`, cut twice across the three runs |
+| **MemAvailable, both booted and idle** | **1488 MiB** | **1393 MiB** | **1028 MiB** | against 32768 / 16384 / 12288 MiB declared between them. See the withdrawal below |
+| both provisioned, in series | 3.51 s | 3.86 s | 3.92 s | two 32 MiB histories, one after the other |
+| volume, A / B | 295 / 295 MiB | 295 / 295 MiB | 298 / 299 MiB | matches the single-capsule 296 MiB. Disk behaves exactly as documented |
+| teardown, one down, sibling up | 3.56 s | 3.56 s | **0.51 s** | see below — the stop changed, not the pair |
+| `microvm@capsule`, host-wide / per namespace | 2 / 1, 1 | 2 / 1, 1 | 2 / 1, 1 | see below |
+
+**The teardown figure moved by 7×, and it is not this probe's finding.** 3.56 s
+was `halt_guest` waiting out a poll for an event firecracker does not produce;
+0.51 s is the reboot-not-poweroff stop the harness has carried since. Run 3 is
+the first time this probe has been taken since. Nothing about the pair changed —
+a sibling still costs the teardown nothing, which is the claim.
+
+**MemAvailable fell again, and again by less than the ceiling did.** 12288 MiB
+declared between the two capsules against 1028 MiB actually consumed, after a
+6144 cut — the third point on the line the withdrawal below draws, and the same
+shape: the charge tracks what the guests *touched* at idle, not what they were
+offered.
+
+### Run 3 — two capsules, two policies, at the same moment
+
+**The claim [item 36](./ledger/036-a-policy-is-selected-not-named.md) does not
+make**, and the last one it owed. Run 3 of `netns-egress` put *one* guest through
+two policies in turn; this puts two guests on two policies at once. Fourteen
+assertions, **all fourteen green**:
+
+| | A | B |
+| --- | --- | --- |
+| first half | `build` → `HTTP/1.1 200 Connection established` | `sealed` → `HTTP/1.1 403 Filtered` |
+| **swapped** | `sealed` → `HTTP/1.1 403 Filtered` | `build` → `HTTP/1.1 200 Connection established` |
+
+One host — `api.anthropic.com`, taken from the allowlist rather than spelled by
+the probe — asked for by both guests at the same moment, answered differently for
+each, and the answers **swap when the policies swap**. That swap is what makes it
+evidence: a capsule that is simply broken reads exactly like a capsule the
+perimeter refused, and after the swap each capsule has been allowed in one half
+and refused in the other, so neither can be dead and neither can be lucky.
+
+Two smaller assertions carry weight out of proportion to their size. Each refusal
+is checked to be an **HTTP** refusal, because a dead proxy and a sealed one are
+the same `deny` from a status line's point of view — the claim is that the
+perimeter answered and said no, and `403 Filtered` is it saying so. And **both
+proxies are checked to still be listening either side of each pair**, since a
+denial measured against a proxy that went away mid-round is a denial of nothing.
+
+Two proxies bound to the **same address and port** in two namespaces is stage 2's
+identical addressing pointed at the perimeter: in one namespace this is
+EADDRINUSE and there is only ever one policy.
+
+**The count is part of the evidence**, as it is for netns-egress's stage 2b: the
+round is skipped when the allowlist holds no plain hostname, and a skip lands
+fourteen short. 42 is what says it ran rather than passed vacuously.
+
+**The two reds are the probe, not the programs.** `capsule A collects into its
+own quarantine` passed for both; `what came out of A is what went into A` failed
+for both. The probe looked for `refs/capsule/<name>/<branch>` and
+`capsule-collect` has fetched into `refs/capsule/<name>/heads/<branch>` since
+[item 32](./ledger/032-the-sideband-channel.md) split the code half from the
+state half — so the assertion has been wrong since that change and nothing
+noticed, because nothing *runs* a probe. Same family as
+[item 38](./ledger/038-a-probe-that-became-a-borrower.md) one level up: an
+assertion written against a convention that later moved. Fixed by injecting
+`quarantine.codeRefsOf` rather than spelling it a second time; **unrun**.
+
+**And the fabric move cost the host's resolver.** The run reports `no host
+resolver on 10.111.0.1 — fell back to 1.1.1.1, which LOSES the host's DoT hop`.
+That is correct and expected: `~/flakes`'s `DNSStubListenerExtra` names
+`10.101.0.1`, the *live* capsule-facing address, and item 38 moved every probe's
+fabric to `10.111.0.1`. So probes now resolve through a public resolver unless
+the host config gains the second stub address. It does not weaken any assertion
+here — the allowlist is matched on the name before anything resolves — but it is
+a host-config edit the fix created, and it is recorded rather than defaulted to
+for exactly the reason that fallback prints a NOTE.
 
 **Run 2 is the stronger version of the withdrawal below.** The declared ceiling
 was halved between the runs and the measured charge moved 95 MiB — 6% — which is
@@ -1046,18 +1129,23 @@ comes from, and the two should not be conflated.
   not.~~ The units are wired (`host/netns.nix`, `host/services.nix`) and have run
   at N=1 and N=2 on this host, and the guard has held two namespaces across a
   pool widened to ten.
-- **Two policies at once.** Run 3 proves a *selected* allowlist reaches the wire
-  (33/33, above), by putting one guest through two policies in sequence. Two
-  capsules on two policies **at the same time** has no instrument — only a shape,
-  `probe/two-capsules.sh`. Sequential selection and coexisting selections are
-  different claims and only the first one is evidence.
+- ~~**Two policies at once.**~~ Proven: `probe-two-capsules` run 3, above.
+  `netns-egress` run 3 had put one guest through two policies in sequence
+  (33/33); this puts `build` and `sealed` on two guests at the same moment,
+  answers the same host `200` for one and `403` for the other, and **swaps them**
+  so neither capsule can be merely dead. Fourteen assertions, all green. What
+  remains is that no *declared slot* has been put on `sealed` — both runs sealed
+  a probe's capsule.
 - ~~**DNS through the host's own chain, under netns.**~~ Proven from run 2 on,
   once the host module grew both halves — the stub on the capsule-facing address
   and the input allow for port 53 on that link. Runs 2 and 3 both open with
   `NOTE the host's own resolver answers on 10.101.0.1 — the capsule keeps its DoT
   chain`, which is the probe reporting that it did *not* need its public-resolver
   fallback. The fallback stays, because it is what makes the difference legible
-  rather than silent.
+  rather than silent — **and item 38 has since made it fire.** The probe fabric
+  moved to `10.111.0.1` and `~/flakes` stubs `10.101.0.1`, so every probe now
+  falls back to `1.1.1.1` until the host config names the second address.
+  Proven once, and currently not in force: exactly what a NOTE is for.
 - ~~**A namespace unit's restart, by anything that runs again.**~~ Instrumented:
   `probe/netns-restart.sh`, 33/33, above. It also **withdrew the reasoning** the
   hand-run timings were recorded under — the gap was never the assertion, and

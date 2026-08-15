@@ -59,11 +59,21 @@ PLAN_C's addressing and isolation decisions rest on. They need root, so they are
 the user's to run (`sudo probe-netns`); `just build` shellchecks them. Write new
 ones the same way: assert both directions, since a denial-only network test
 passes for the wrong reason, and never borrow live addressing — a probe on the
-real `/30` tests the real capsule. **Nor a live *name*:** `probe/netns-egress.sh`
-sets `NSWAN=cap-egress`, the string `capsules.nix` declares for the live
-aggregator, so on a module-path host its "left over, delete it" refusal names a
-production namespace and instructs you to delete it. Doing so cost a guard
-failure and a recovery. **And a probe's set-up produces the state it needs
+real `/30` tests the real capsule — **nor a live *name***. Both halves of that
+are now *enforced* rather than asked for: `flake.nix`'s `probeFabric` holds every
+name, link, address and network a probe's egress fabric is built from, and
+`borrowed`, its intersection with what `capsules.nix` declares, **throws at
+eval**. Don't reach around it. The reason it exists rather than a comment is
+[NOTES item 38](./docs/ledger/038-a-probe-that-became-a-borrower.md), and the
+shape generalises: `probe/netns-egress.sh` shared `cap-egress`, `eg-up`/`eg-rt`,
+both addresses and the whole `10.100.0.0/16` with production **without ever
+borrowing them** — it verified the shape first and `capsules.nix` was written
+from its map afterwards, so the probe became a borrower by standing still while
+the declaration moved onto it. Its cleanup trap deletes `eg-rt`, the fleet's
+uplink, by name; only three refusals sitting ahead of the trap kept that
+theoretical, and following one of them cost a guard failure and a recovery. **A
+probe that verifies a shape before the shape is declared becomes a borrower the
+moment the declaration copies it, and there is no diff to notice.** **And a probe's set-up produces the state it needs
 rather than inheriting something that resembles it** (NOTES item 37, three
 faults in one file): `|| exit 1` on a set-up step kills the run with no report at
 exactly the moment the program under test is broken; tolerating a failed set-up
@@ -77,7 +87,11 @@ were found, and how a round that resembles the real failure but never
 discriminates gets caught. `probe/harness.sh` is concatenated ahead of
 each probe by the `probe` builder in `flake.nix`, not sourced, so shellcheck
 sees one file; values from `net.nix`/`target.nix` reach a probe through that
-builder's `prelude` rather than being spelled in the script. **Quote them
+builder's `prelude` rather than being spelled in the script. **The harness comes
+first and the prelude second**, so the harness can declare an empty default for
+every injected value — which is what lets it carry the egress fabric without
+every probe that never builds one tripping SC2154, and it means a prelude
+assignment wins over that default rather than being overwritten by it. **Quote them
 there** — an unquoted `TAP=vm-capsule` reads as arithmetic to shellcheck
 (SC2100) once the harness has a `vm` variable in scope, and
 `writeShellApplication` fails the build on it. The harness carries four verbs,
@@ -86,7 +100,10 @@ whose bar is a price needs numbers beside the assertions), and `report`. It also
 carries the whole capsule-in-a-namespace boot — `ns_up`, `capsule_boot`,
 `wait_guest`, `halt_guest` — because `netns-boot.sh` and `freshness.sh` assert
 and measure the same shape, and two copies of a boot sequence are two answers
-the first time one is edited.
+the first time one is edited. Same rule, same file, for **the egress fabric** —
+`egress_up`, `egress_attach`, `egress_resolver`, `egress_rules`, `proxy_up`,
+`guest_connect` — since `netns-egress.sh` and `two-capsules.sh` both put a proxy
+in a namespace and ask the guest to get out.
 
 **A VMM is identified by its namespace, never by its name.** The one-image lever
 means every capsule runs the same runner from the same store path, so all of

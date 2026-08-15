@@ -6,7 +6,22 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **a capsule's namespace teardown was found to
+Last updated 2026-08-15, after **the last claim item 36 does not make got an
+instrument, and building it found that the probe holding the first one shares
+its whole fabric with production**
+([item 38](./ledger/038-a-probe-that-became-a-borrower.md), below).
+`probe/two-capsules.sh` has a stage 2b: two guests, one aggregator, `build` and
+`sealed` at the same moment, and the swap that stops a broken capsule reading as
+a refused one. **Run: 40/42, all fourteen green**, `200` against `403` for
+`api.anthropic.com` and both swapping when the policies did — so **item 36 is
+closed**, bar `sealed` on a declared slot. `probe-netns-egress` re-ran green on
+the new fabric as a regression check.
+The finding underneath it is larger: `probe/netns-egress.sh` never borrowed
+`cap-egress`, `eg-rt`, `10.100/16` or `10.101/30` — `capsules.nix` was written
+*from that probe's map*, so the probe became a borrower by standing still, and
+its cleanup trap deletes the live aggregator's uplink by name. The fabric is
+`probe/harness.sh`'s now and `flake.nix`'s `probeFabric` **throws at eval** on
+any string `capsules.nix` declares. Before that, the same day, after **a capsule's namespace teardown was found to
 only unname, and the check that should have caught the fix was found not to
 exist** ([item 37](./ledger/037-a-teardown-that-only-unnames.md), below). A
 `systemctl restart` of one slot's namespace unit failed and left wreckage that
@@ -92,6 +107,64 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **Two capsules on two policies at once has an instrument, and a probe was
+  found to be the live fabric.** [Item 38](./ledger/038-a-probe-that-became-a-borrower.md).
+  `probe/two-capsules.sh` grew a stage 2b: both capsules leave through one
+  aggregator, one on `build` and one on `sealed`, and the host `build` admits is
+  asked for by both guests at the same moment — allowed for one, refused for the
+  other. Then **the swap**, which is what makes it evidence: stop both proxies,
+  bring them back the other way round, and ask again, so each capsule has been
+  allowed in one half and refused in the other and neither can be merely dead.
+  Fourteen assertions, plus a check that each refusal is an *HTTP* refusal and
+  that both proxies were still listening either side of each pair. **Run: 40/42,
+  all fourteen green** — `api.anthropic.com` answered `HTTP/1.1 200 Connection
+  established` for the capsule on `build` and `HTTP/1.1 403 Filtered` for the one
+  on `sealed`, at the same moment, and the two answers swapped when the policies
+  did ([probes](./probes.md#run-3--two-capsules-two-policies-at-the-same-moment)).
+  That closes [item 36](./ledger/036-a-policy-is-selected-not-named.md) bar one
+  thing: no *declared slot* has ever been put on `sealed`.
+
+  **The two reds are a third instance of the same class, one level down.** The
+  probe asserted a collect landed at `refs/capsule/<name>/<branch>`;
+  `capsule-collect` has fetched into `refs/capsule/<name>/heads/<branch>` since
+  [item 32](./ledger/032-the-sideband-channel.md) split the code half from the
+  state half. The assertion has been wrong since that day and nothing noticed,
+  because **nothing runs a probe** — item 37 found programs nothing *built*, this
+  finds an assertion nothing *ran*. Fixed by injecting `quarantine.codeRefsOf`
+  rather than spelling the convention twice; unrun.
+
+  **And the fix costs the probes the host's DoT hop.** `~/flakes` stubs
+  `DNSStubListenerExtra` on `10.101.0.1`, the live capsule-facing address, so a
+  fabric at `10.111.0.1` falls back to `1.1.1.1` and says so. No assertion
+  depends on it — an allowlist matches a name before anything resolves — but it
+  is a host-config edit this created.
+
+  **What building it found is the larger half.** A second probe needing an
+  aggregator meant hoisting the first one's into `probe/harness.sh` — and the
+  first one's *was the live one*. `cap-egress`, `eg-up`/`eg-rt`, `10.101.0.1/2`
+  and the whole of `10.100.0.0/16` are `capsules.nix`'s, so `probe-netns-egress`
+  refuses to start on this host naming a production namespace, and behind that
+  refusal its cleanup trap runs `ip link del eg-rt` on the fleet's uplink. **The
+  probe never borrowed anything**: it predates `host/netns.nix`, it verified the
+  shape, and `capsules.nix` was then written from its map — that file's own
+  header says so. It became a borrower by standing still while the declaration
+  moved onto it, which is why the rule needed an enforcer and not a sentence: a
+  comment accurate on the day it was written went false with no diff to notice.
+  **A third instance settles that it is a class**: `probe/netns.sh`, whose links
+  and namespaces really are its own, carves `10.100.<i>.{1,2}` per capsule and
+  puts `10.101.0.1/30` and a `10.100.0.0/16` route in the **root** namespace. A
+  name check — the obvious fix — passes it cleanly.
+
+  The fabric is the harness's now — aggregator, a veth per capsule by index, NAT,
+  resolver detection, both nft tables and the proxy verbs — on names and
+  addressing from `flake.nix`'s `probeFabric`, beside which `borrowed` is its
+  intersection with every namespace, link, address and network `capsules.nix`
+  declares. Non-empty **throws at eval**, in either direction. Watched going red
+  on six mutations, one field at a time; `netBase` is the one worth having, since
+  it is caught through the *derived* `/16` and a base that moves relocates every
+  per-index address at once. `probe-netns-egress` also joined `just build`, which
+  had never named it — the same question as item 37's, one notch milder.
 
 - **A namespace teardown that only unnamed, and a whole class of program
   nothing built.** [Item 37](./ledger/037-a-teardown-that-only-unnames.md).

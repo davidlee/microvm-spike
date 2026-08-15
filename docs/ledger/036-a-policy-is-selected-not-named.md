@@ -7,8 +7,10 @@ on this host, which is also what materialised the per-slot symlinks: `a` and `b`
 both resolve `build`, and `capsule all status` has a `policy` column. The claim
 the cases could not make is made — `probe/netns-egress.sh` **33/33**, stage 2b's
 six included, so a selected allowlist is what a guest meets and `sealed` has
-served something. What remains open is two capsules differing *at the same time*,
-which is another probe's shape. This is
+served something. **And the last claim is made**: `probe/two-capsules.sh` run 3,
+fourteen assertions green, `build` and `sealed` on two guests at the same moment
+with the answers swapping when the policies do. Nothing about this item is
+outstanding except that no *declared slot* has been put on `sealed`. This is
 [item 25](./025-assignment-is-a-perimeter-verb.md)'s
 resolution shape turned into a mechanism, and it is the run-time half of
 [Plan D](../plan-d-fleet.md) D2 — the declaration half is
@@ -190,4 +192,30 @@ now served something.
 **And what that probe still will not say** is that two capsules differ *at the
 same time*. That needs two guests, which is `probe/two-capsules.sh`'s shape and
 not this one's. Selection reaching the wire and two selections coexisting are two
-claims, and only the first has an instrument.
+claims, and only the first had an instrument.
+
+**It has one now, and it has run: 40/42, with all fourteen of these green and
+the two reds a stale assertion elsewhere in the probe**
+([probes](../probes.md#run-3--two-capsules-two-policies-at-the-same-moment)).
+`probe/two-capsules.sh` grew a stage 2b: both capsules leave through one aggregator, `a` on `build` and `b` on
+`sealed`, and the host `build` admits is asked for by both guests at the same
+moment — allowed for one, refused for the other. Fourteen assertions, and three
+of them are what make it evidence rather than a coincidence:
+
+- **the swap**. Stopping both proxies, bringing `a` up on `sealed` and `b` on
+  `build`, and asking again — `200`/`403` became `403`/`200`. Without it a capsule that is simply broken — a
+  fabric asymmetry, an index, the order the two booted in — reads exactly like a
+  capsule the perimeter refused. After it, each capsule has been allowed in one
+  half and refused in the other, so neither can be dead and neither can be lucky.
+- **the refusal is an HTTP refusal**. A dead proxy and a sealed one are the same
+  `deny` from a status line's point of view; the claim is that the perimeter
+  answered and said no.
+- **both proxies still listening either side of each pair**, since a denial
+  measured against a proxy that went away mid-round is a denial of nothing.
+
+Two proxies bound to the *same address and port* in two namespaces is the same
+identical addressing that makes a sibling unaddressable in that probe's stage 2,
+pointed at the perimeter: in one namespace this is EADDRINUSE and there is only
+ever one policy. Building it cost [item 38](./038-a-probe-that-became-a-borrower.md),
+because a second probe needing an aggregator is what exposed that the first one's
+was the live one.
