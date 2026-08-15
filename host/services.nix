@@ -109,7 +109,7 @@
   guestSsh = import ./guest-ssh.nix {inherit lib;};
 
   hostPrograms = import ./programs.nix {
-    inherit pkgs lib net target policies workBranch;
+    inherit pkgs lib net target capsules policies workBranch;
     access = guestSsh.viaSocket {
       socat = "${pkgs.socat}/bin/socat";
       socket = capsules.socketOf ''"$capsule"'';

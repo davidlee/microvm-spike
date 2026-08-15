@@ -378,7 +378,7 @@
     # relay socket instead — one construction, two transports, which is the only
     # thing that differs (host/programs.nix).
     hostPrograms = import ./host/programs.nix {
-      inherit pkgs lib net target policies workBranch;
+      inherit pkgs lib net target capsules policies workBranch;
       # The same socket expression the units inject, for the opposite purpose:
       # there it is the way in, here its existence is what says this copy is the
       # wrong one (host/guest-ssh.nix).
@@ -682,6 +682,7 @@
     # and nothing to assert about one.
     briefCases = let
       runner = hostPrograms.briefRunner "dest";
+      spec = hostPrograms.briefSpecChecker;
     in
       pkgs.runCommand "capsule-brief-cases" {nativeBuildInputs = [pkgs.git];} ''
         export HOME=$PWD GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -771,6 +772,35 @@
         rc=0; bash ${runner} "$state" "$code" >out 2>&1 || rc=$?
         ck "refuses a second brief onto an already-briefed capsule" 3 "$rc"
 
+        # ------------------------------------------------ which names a source
+        #
+        # The half [item 42](docs/ledger/042-a-state-half-no-capsule-has-held.md)
+        # had to decide, and the only half of this file that needs no guest: **a
+        # quarantine is what a capsule sent back**, not a place state lives. So a
+        # directory of the right shape under a name nobody declared is not a
+        # source, and the host's own checkout is a flag rather than a name.
+        #
+        # `dest` is this capsule here, matching the fixture above.
+        for src in a b; do
+          rc=0; bash ${spec} "$src" >out 2>err || rc=$?
+          ck "'$src' is a declared slot and may be a source" 0 "$rc"
+        done
+        rc=0; bash ${spec} a:audit >out 2>err || rc=$?
+        ck "a stage rides the source name" 0 "$rc"
+
+        rc=0; bash ${spec} dest >out 2>err || rc=$?
+        ck "refuses this capsule as its own source" 1 "$rc"
+        ckt "  and says a brief moves state between two capsules" \
+          grep -q 'is this capsule' err
+
+        rc=0; bash ${spec} scratch >out 2>err || rc=$?
+        ck "refuses a name that is not a slot" 1 "$rc"
+        ckt "  and says a quarantine is what a capsule sent back" \
+          grep -q 'what a capsule sent back' err
+        ckt "  and names the other origin" grep -q -- '--from-host' err
+        rc=0; bash ${spec} ../a >out 2>err || rc=$?
+        ck "refuses a source that is not a name at all" 1 "$rc"
+
         [ "$fail" = 0 ] || exit 1
         cp "$log" $out
         cat $out
@@ -852,6 +882,10 @@
         echo phase-254 >.doctrine/state/slice/254/phase-01.md
         echo phase-253 >.doctrine/state/slice/253/phase-01.md
         echo scratch >notes.md
+        # Tracked, committed, and edited since — outside every declared path, so
+        # it can only ever travel as the diff. Which is the whole question a host
+        # origin asks of `dirty.diff` (NOTES item 42).
+        echo "an edit outside every declared path" >>src.txt
         cd ..
 
         # Into a file rather than down a pipe: `ckt` takes a command, and a
@@ -865,14 +899,14 @@
         # missing token substitutes as the empty string, which collapses every
         # scoped path onto its parent — the unscoped collect wearing the scoped
         # one's name.
-        rc=0; bash ${snapshot} implementation >out 2>err || rc=$?
+        rc=0; bash ${snapshot} implementation "" all >out 2>err || rc=$?
         ck "refuses a scoped policy with no unit" 1 "$rc"
         ckt "  and says the two ends disagree" grep -q "scoped to one unit" err
         ckt "  and wrote no ref" \
           test -z "$(git -C src for-each-ref 'refs/capsule/state/')"
 
         # ----------------------------------------------------------- scoped, green
-        rc=0; bash ${snapshot} implementation 254 >out 2>err || rc=$?
+        rc=0; bash ${snapshot} implementation 254 all >out 2>err || rc=$?
         ck "takes a snapshot scoped to one unit" 0 "$rc"
         oid=$(cut -f1 out)
         ckt "  and reported a commit" test "$oid" != -
@@ -908,7 +942,7 @@
         #
         # Not a refusal: a target says what its state *is*, not what any one run
         # produced, and that has to keep holding once the paths are scoped.
-        rc=0; bash ${snapshot} implementation 999 >out 2>err || rc=$?
+        rc=0; bash ${snapshot} implementation 999 all >out 2>err || rc=$?
         ck "a unit with no state is a skip, not a failure" 0 "$rc"
         ckt "  and names the paths it skipped" grep -q 'slice/999 in this checkout' err
         oid=$(cut -f1 out)
@@ -916,6 +950,51 @@
         ckt "  nothing of any unit is in it" \
           test -z "$(grep -E '25[34]|999' list || true)"
         ckt "  and the uncommitted work still is" grep -qx 'notes.md' list
+
+        # ------------------------------------------------ the other origin
+        #
+        # The same text at a checkout nobody confined (NOTES item 42). What
+        # changes is not the tree-builder but the premise under one sentence of
+        # item 32: untracked-but-not-ignored is *the agent's* work in a guest,
+        # where one agent works on one thing, and is whatever is lying around in
+        # a human's checkout. So the sweep is an argument, and it has no default
+        # because the value one would fall back to is the failure.
+        rc=0; bash ${snapshot} implementation 254 >out 2>err || rc=$?
+        ck "refuses an origin it was not told" 1 "$rc"
+        ckt "  and names both of them" grep -q "'all'" err
+        rc=0; bash ${snapshot} implementation 254 sideways >out 2>err || rc=$?
+        ck "refuses an origin that is neither" 1 "$rc"
+
+        rc=0; bash ${snapshot} implementation 254 declared >out 2>err || rc=$?
+        ck "takes a host origin scoped to the declared paths" 0 "$rc"
+        oid=$(cut -f1 out)
+        entries "$oid"
+        ckt "  the unit's runtime tier is still in it" \
+          grep -qx '.doctrine/state/slice/254/phase-01.md' list
+        ckt "  the unit's authored tree is still in it" \
+          grep -qx '.doctrine/slice/254/spec.md' list
+        # The sentence that goes silently false at a host origin: this file is a
+        # scratch note on somebody's desk and not an agent's work in progress.
+        ckt "  and the desk around it is not" \
+          test -z "$(grep -x 'notes.md' list || true)"
+        ckt "  nor another unit's state" test -z "$(grep 253 list || true)"
+        # The same leak by the other route: `dirty.diff` is a whole-repo patch,
+        # which from a capsule is one agent's work and from here is everything
+        # this host happens to have open.
+        git -C src cat-file -p "$oid:.capsule/dirty.diff" >diff
+        ckt "  the diff carries the declared path's edit" \
+          grep -q 'slice/254/spec.md' diff
+        ckt "  and nothing outside it" test -z "$(grep 'src.txt' diff || true)"
+        git -C src cat-file commit "$oid" >msg
+        ckt "  and the dirty count is the scoped one" grep -qx 'dirty: 1' msg
+
+        # Same unit, same checkout, two origins, and the pair is the point: a
+        # capsule takes the desk along with it and a host origin has nothing to
+        # take at all.
+        rc=0; bash ${snapshot} implementation 999 declared >out 2>err || rc=$?
+        ck "a host origin with no declared path present takes nothing" 0 "$rc"
+        ckt "  and reports no commit" test "$(cut -f1 out)" = -
+        ckt "  and says why" grep -q 'takes nothing outside them' err
 
         [ "$fail" = 0 ] || exit 1
         cp "$log" $out
@@ -1677,7 +1756,7 @@
     # a run-time argument now. `socat` is bare here: a probe has it in
     # `runtimeInputs`, where a unit has no PATH to trust.
     nsPrograms = import ./host/programs.nix {
-      inherit pkgs lib net target policies workBranch;
+      inherit pkgs lib net target capsules policies workBranch;
       access = guestSsh.viaSocket {
         socat = "socat";
         socket = socketOf ''"$capsule"'';

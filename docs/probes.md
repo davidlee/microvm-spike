@@ -1168,6 +1168,57 @@ dirty guest worktree, or discarding guest commits) before suggesting `--force`.
 that refusal enforces is the whole reason collect precedes fetch precedes
 provision.
 
+## A state half authored on this host — the origin that is not a capsule
+
+[Item 42](./ledger/042-a-state-half-no-capsule-has-held.md), the outbound half,
+taken on **doctrine's live checkout** at `f49314de8` for unit **251**. No
+capsule, no guest, no door: this is `host/state-snapshot.nix`'s own text at
+`target.path` instead of `target.guestPath` — the third instantiation of one
+tree-builder — run directly, with its ref dropped either side as the verb does.
+
+| | |
+| --- | --- |
+| entries | **30** |
+| bytes | **566 960** (554 KiB) |
+| wall clock | **27–38 ms**, two runs |
+| ceiling it is measured against | 64 MiB (`target.nix`'s `stateMaxBytes`) — 0.8% of it |
+| tree, run 1 vs run 2 | `8d42fc756…`, **identical** |
+
+**The number the item asked for is the last row, not the first.** The size was
+never in question — same paths, same checkout — and what a host origin has that
+a guest origin does not is *somebody working in it*. Two runs seconds apart on a
+checkout with an editor and an agent pointed at it produced the same tree, which
+is the property a brief needs: the commit is a function of the worktree and of
+nothing else that happens to be running.
+
+**And the counterfactual is the whole argument for scoping the sweep**, measured
+in the same breath by running the same text at `all` — the value a capsule
+passes — against the same checkout and unit:
+
+| scope | entries | outside the declared paths |
+| --- | --- | --- |
+| `declared` (a host origin) | 30 | — |
+| `all` (a capsule) | 34 | an untracked observations record, and **three stray files this session had written into the checkout seconds earlier** |
+
+Four extra entries, three of them a *different process's* leavings picked up
+because they happened to be in the tree when the snapshot ran. That is item 32's
+sentence — "the agent's uncommitted work, and it is the point" — failing exactly
+as [item 42](./ledger/042-a-state-half-no-capsule-has-held.md) predicted it
+would: sound in a guest where one agent works on one thing, and false on a desk.
+`dirty.diff` is the same leak by the other route and is scoped with it; the
+message reads `dirty: 0` here because the count is now of the declared paths and
+not of the repository.
+
+**The sequencing constraint arrived unprompted.** The snapshot's `code-oid` is
+`f49314de8`, this checkout's HEAD; slot `c` was provisioned at `de32c856b`. So a
+brief of this tree into `c` is refused today by the control item 35 built, with
+no change to anything — which is the price item 42 chose over passing the
+provisioned commit in as `code-oid` and making the control pass on the false case
+too. **Provision at the commit the checkout is on, then brief.**
+
+Not measured, because it needs a live guest: the push, the guest's layout, and
+what the whole verb costs end to end.
+
 ## What freshness.sh explicitly does not measure
 
 The **cold build**. The namespace has no upstream at all, so nothing in the

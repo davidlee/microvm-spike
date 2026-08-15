@@ -6,7 +6,38 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **`capsule <slot> policy <name>` reached root
+Last updated 2026-08-15, after **the sideband arc got an origin that is not a
+capsule** — [item 42](./ledger/042-a-state-half-no-capsule-has-held.md), built
+and measured, with nothing delivered to a guest yet. `capsule-brief --from-host`
+takes a unit's out-of-band state out of `target.path` using
+`host/state-snapshot.nix`'s own text — the third instantiation of one
+tree-builder, at the human's checkout instead of a guest's — and pushes it in
+over the door a brief already had. **Two decisions were owed and both are made.**
+A quarantine is **what a capsule sent back**, not a place state lives, so this
+keeps *no archive at all*: the ref is dropped either side of the delivery, the
+objects it writes are gc's, and `briefCheckSpec` refuses any source that is not a
+declared slot. And the untracked sweep is an **argument with no default**, because
+"one agent's uncommitted work" is a property of a capsule and is a desk on a
+host. Measured on doctrine's live checkout for `SL-251`: **30 entries, 554 KiB,
+27–38 ms, and the same tree twice** on a checkout being worked in — with the
+counterfactual in the same breath, 34 entries at `all`, three of the four extras
+written into the tree by a different process seconds earlier
+([probes](./probes.md#a-state-half-authored-on-this-host--the-origin-that-is-not-a-capsule)).
+`snapshotCases` is 29 → **43**, `briefCases` 14 → **23**, both watched going red
+on a mutation. The item's own first suggestion — `GIT_DIR` at a quarantine — is
+**refuted**: a quarantine's HEAD is unborn, so it makes `ls-files -o` call the
+whole checkout untracked. **Owed: a delivery** — slot `c` is provisioned at
+`de32c856b` and this checkout is at `f49314de8`, so a brief refuses until `c` is
+re-provisioned at the commit the checkout is on. Writing that sequence down found
+one defect before it was run: `briefDeliver` pushes before the guest speaks,
+which from a capsule is harmless (a retry pushes the *same* commit) and from a
+host origin is not, because there is no archive and so **every run is a new root
+commit** — a refused attempt would leave a ref the retry cannot fast-forward, and
+the retry would fail naming a cause that is not the cause. There is a host-side
+`code-oid` precheck now, one round trip ahead of the snapshot, so a mismatch
+writes nothing anywhere; the guest's refusal stays the control and is now
+reachable only by HEAD moving mid-flight. Before that,
+after **`capsule <slot> policy <name>` reached root
 unattended for the first time, which finishes
 [item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md) and takes
 [item 36](./ledger/036-a-policy-is-selected-not-named.md)'s last owed
@@ -223,6 +254,63 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 6 has nothing outstanding ([item 24](./ledger/024-set-u-not-login-shell.md)).
 
 ## Where it got to
+
+- **A state half no capsule has ever held, and the two decisions it was waiting
+  on.** [Item 42](./ledger/042-a-state-half-no-capsule-has-held.md). Items 32–35
+  built the sideband arc whole *in the direction it was built for* — one agent
+  auditing another — and the other direction arrived first with no motion at all:
+  a fresh capsule needs state that has never been inside a capsule, and every
+  inbound motion here read from a quarantine, which only a collect makes.
+
+  **The verb is an origin, not a program.** A brief already *is* the inbound
+  direction, so what it lacked was somewhere other than a capsule to read from:
+  `capsule-brief --from-host [--stage <name>] [--unit <token>]`, with everything
+  downstream of *which commit and what code was it of* factored into one
+  `briefDeliver` that both origins share — the thing being factored is a security
+  control, which is `host/exhibit.nix`'s own reason for existing.
+
+  **A quarantine is what a capsule sent back.** That is the reading the item
+  refused to choose between, and choosing it means a host-authored tree has
+  nowhere in `collect/` to be — so this keeps **no archive**. The snapshot's ref
+  is dropped before *and* after the delivery (before, because a leftover from an
+  interrupted run would become the next commit's parent, and an accidental chain
+  is an archive nobody decided to keep), and the objects left in the human's
+  repository are unreferenced. The alternative reading would have made
+  `collect/` silently stop meaning one thing, with a name convention as the only
+  thing between a host tree and slot `a`'s exhibit — the class items 37–44 are
+  seven instances of. Choosing it also makes the hole item 42 found cheap to
+  close: `briefCheckSpec` refuses a source that is not a declared slot.
+
+  **The sweep is an argument with no default.** Item 32 takes
+  untracked-but-not-ignored files unscoped because one agent in one capsule works
+  on one thing — *a property of a capsule*, which does not travel with the
+  program. `snapshotFor`'s text gains `all` or `declared` in argv, exactly as
+  `stage` and `unit` already are, and `declared` takes **no sweep at all** rather
+  than a narrower one, since `git add -f` over a declared directory already
+  stages everything inside it. `dirty.diff` and the `dirty:` count are bounded by
+  the same pathspec, being the same whole-repo read by another route.
+
+  **Measured, and the counterfactual is the argument**
+  ([probes](./probes.md#a-state-half-authored-on-this-host--the-origin-that-is-not-a-capsule)):
+  doctrine's live checkout, `SL-251`, 30 entries and 554 KiB at `declared`
+  against 34 at `all` — and three of the four extras were files a *different
+  process* had written into the checkout seconds before. The figure the item
+  actually asked for is that two runs on a checkout being worked in produced the
+  **same tree**.
+
+  **The item's own first suggestion is wrong.** "`GIT_DIR` at a quarantine,
+  `--work-tree` at the checkout" breaks every read that precedes the temporary
+  index: a quarantine's HEAD is unborn, so `git ls-files -o --exclude-standard`
+  calls every tracked file untracked and the snapshot takes the whole checkout.
+  One command to refute, and it is the trap `host/state-snapshot.nix` already
+  orders itself around one level down.
+
+  **Owed: a delivery, and it is guaranteed to be refused first.** `code-oid`
+  stays a reading of HEAD rather than becoming a claim, so the price is
+  sequencing — provision `c` at the commit this checkout is on, then brief. As
+  things stand `c` is at `de32c856b` and the checkout is at `f49314de8`. Taking
+  that refusal deliberately is worth more than avoiding it: it is a refusal
+  nothing has ever triggered from this origin.
 
 - **Two slots up, two policies, and the first `capsule-proxy-<slot>` ever to
   serve a capsule.** Closes item 36 and proves

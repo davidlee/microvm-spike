@@ -31,6 +31,17 @@
 # host reaches only by driving a real unit of work in a real capsule, so
 # `snapshotCases` instantiates this same text against a throwaway checkout in a
 # build sandbox. One text, two instantiations, no second copy of an invariant.
+#
+# **And a third instantiation, at `target.path`** (NOTES item 42): a capsule
+# taking on a *fresh* unit of work needs the state that unit already has, which
+# is in the human's checkout and has never been inside anything. That is the same
+# tree-builder at another checkout and not a second one — but one sentence of
+# item 32's stops being true when it moves, so the scope of the sweep is an
+# **argument** rather than a constant. Untracked-but-not-ignored is *the agent's
+# uncommitted work* in a guest, where one agent works on one thing; in a human's
+# checkout it is whatever is lying around. Same text, third argument, and the
+# argument is required because the value a missing one would fall back to is the
+# failure (item 28).
 {
   pkgs,
   lib,
@@ -79,6 +90,12 @@
       max=${toString stateMaxBytes}
       stage=''${1:-implementation}
       unit=''${2:-}
+      # Which origin this is, spelled as what it *does* rather than as where it
+      # runs: `all` sweeps the whole checkout for uncommitted work and `declared`
+      # takes nothing outside the paths above. No default — the value one would
+      # fall back to is the whole of a human's checkout, which is the failure the
+      # argument exists to prevent (NOTES items 28, 42).
+      scope=''${3:-}
       declared=(${lib.escapeShellArgs statePaths})
       # A variable rather than a literal in the pattern below: `${hole}` contains
       # a `}`, and bash ends a parameter expansion at the first unquoted one — so
@@ -101,6 +118,17 @@
         fi
       ''}
 
+      case "$scope" in
+        all | declared) ;;
+        *)
+          echo "capsule-state: scope '$scope' — one of 'all' (a capsule, where" >&2
+          echo "  uncommitted work is one agent's) or 'declared' (a host origin," >&2
+          echo "  where it is whatever is lying around). An argument error, not a" >&2
+          echo "  skip: nothing is collected either way." >&2
+          exit 1
+          ;;
+      esac
+
       cd "$work" 2>/dev/null || {
         echo "capsule-state: no checkout at $work" >&2
         printf -- '-\t0\t0\n'
@@ -120,13 +148,6 @@
       # untracked and `git status` rewrites the index it was pointed at. Both are
       # silent, and both produce a plausible wrong answer.
       head=$(git rev-parse HEAD 2>/dev/null || echo -)
-      dirty=$(git status --porcelain 2>/dev/null | wc -l)
-
-      # The modified-tracked half, which no path list can carry: a file the agent
-      # edited but did not commit is neither in a code ref nor untracked.
-      tmpdiff=$(mktemp)
-      trap 'rm -f "$tmpdiff" ''${GIT_INDEX_FILE:-}' EXIT
-      git diff HEAD > "$tmpdiff" 2>/dev/null || : > "$tmpdiff"
 
       # What exists of the declared set, with the unit substituted in. A path a
       # target declares and this capsule does not have is normal — the target says
@@ -137,15 +158,45 @@
       # The token is `[A-Za-z0-9._-]+` minus `.` and `..`, checked host-side
       # before this is pushed, so the substitution cannot introduce a separator
       # and cannot climb: it names an instance and never widens the perimeter.
+      #
+      # **Ahead of the two reads below**, which it did not used to be: under
+      # `declared` they are asked about exactly these paths, so they cannot be
+      # taken before the paths are known. Still ahead of `GIT_INDEX_FILE` — see
+      # below — because that is the ordering that is load-bearing, and this loop
+      # consults no index at all.
       take=()
+      present=()
       for t in "''${declared[@]}"; do
         p=''${t//"$hole"/"$unit"}
         if [ -e "$p" ]; then
           take+=("$p")
+          present+=("$p")
         else
           echo "capsule-state: no $p in this checkout — skipped" >&2
         fi
       done
+
+      # What the two reads below are asked *about*, and the whole of what differs
+      # between the two origins (NOTES item 42). A capsule's answer is the whole
+      # checkout; a host origin's is the declared paths and nothing else, because
+      # "everything uncommitted" is one agent's work in a guest and is a human's
+      # desk here.
+      if [ "$scope" = declared ] && [ ''${#present[@]} -eq 0 ]; then
+        echo "capsule-state: none of the declared paths are in this checkout, and" >&2
+        echo "  this origin takes nothing outside them." >&2
+        printf -- '-\t0\t0\n'
+        exit 0
+      fi
+      scoped=()
+      [ "$scope" = declared ] && scoped=(-- "''${present[@]}")
+
+      dirty=$(git status --porcelain ''${scoped[@]+"''${scoped[@]}"} 2>/dev/null | wc -l)
+
+      # The modified-tracked half, which no path list can carry: a file the agent
+      # edited but did not commit is neither in a code ref nor untracked.
+      tmpdiff=$(mktemp)
+      trap 'rm -f "$tmpdiff" ''${GIT_INDEX_FILE:-}' EXIT
+      git diff HEAD ''${scoped[@]+"''${scoped[@]}"} > "$tmpdiff" 2>/dev/null || : > "$tmpdiff"
 
       # Untracked-but-not-ignored: work the agent has not committed. Generic — "not
       # yet committed" is nobody's project's concept — and precisely the class a
@@ -156,9 +207,17 @@
       # put a hole in and no host policy that could say which of it belongs to
       # which unit. An agent working on one thing in one capsule is what makes
       # that sound, and it is the same assumption `dirty.diff` already rests on.
-      while IFS= read -r f; do
-        [ -n "$f" ] && take+=("$f")
-      done < <(git ls-files -o --exclude-standard)
+      #
+      # **And it is exactly that premise a host origin does not have**, so
+      # `declared` takes no sweep at all rather than a narrower one: `git add -f`
+      # over a declared directory already stages everything inside it, ignored
+      # files included, so what a scoped sweep would add is nothing and what an
+      # unscoped one would add is the rest of somebody's desk.
+      if [ "$scope" = all ]; then
+        while IFS= read -r f; do
+          [ -n "$f" ] && take+=("$f")
+        done < <(git ls-files -o --exclude-standard)
+      fi
 
       if [ ''${#take[@]} -eq 0 ]; then
         echo "capsule-state: nothing declared is present and nothing is uncommitted" >&2

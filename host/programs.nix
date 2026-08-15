@@ -35,6 +35,13 @@
   # value each of them looks up separately is a value one of them can look up
   # differently.
   policies,
+  # The slots this host declares (capsules.nix). Read by one program for one
+  # refusal — `capsule-brief` will not take state from a name that is not a slot,
+  # because a quarantine is what a capsule sent back (NOTES item 42) — and
+  # threaded here rather than looked up there for `policies`' reason: three call
+  # sites build this set, and a value each of them resolves separately is a value
+  # one of them can resolve differently.
+  capsules,
   # The guest's branch, a constant threaded from `flake.nix` rather than a
   # target's field: only the git channel reads it, but both this file's callers
   # have to hand it the same one the guest was built with.
@@ -154,6 +161,16 @@
       import ./brief.nix {
         inherit pkgs lib guestExec guestHost guestRepo gitSsh quarantine exhibit;
         workdir = target.guestPath;
+        # The fourth corner, and the one whose origin is not a capsule at all
+        # (NOTES item 42). `hostSnapshot` is the third instantiation of one
+        # text — the same function of a checkout `snapshotCases` uses — so a
+        # tree authored on this host is built by the program that builds every
+        # other one, and `slots` is what lets a source name be refused for not
+        # being a capsule.
+        hostCheckout = target.path;
+        hostSnapshot = stateSnapshot.snapshotFor target.path;
+        inherit (stateSnapshot) needsUnit;
+        slots = builtins.attrNames capsules.instances;
       };
 
   gitChannel = import ./git-channel.nix {
@@ -216,6 +233,15 @@ in {
     if briefHook == null
     then null
     else briefHook.runnerFor;
+
+  # Which names may be a source of a brief, as a runnable text (host/brief.nix).
+  # Exported for `briefCases` beside the runner, and for the same reason: the
+  # refusal that decides a quarantine is what a capsule sent back needs no guest,
+  # so nothing about it should wait for a host (NOTES item 42).
+  briefSpecChecker =
+    if briefHook == null
+    then null
+    else briefHook.specChecker;
 
   # The outbound half's equivalent, and exported for the same reason
   # `briefRunner` is: `snapshotCases` runs this text against a checkout the

@@ -1059,6 +1059,33 @@ in
             work "$name" collect ''${1+"$@"}
             ;;
 
+          ${lib.optionalString stateNeedsUnit ''
+          # Intercepted for the same one thing, in the one direction that needs
+          # it: state taken from *this host's checkout* is scoped by a unit the
+          # program may not read (NOTES items 20, 42), exactly as a collect's is.
+          # A brief from a capsule is not — the exhibit in that quarantine was
+          # already scoped when it was collected, and re-scoping it here would be
+          # a second answer to a question that is settled.
+          brief)
+            fromHost=no
+            unitGiven=no
+            for a in ''${1+"$@"}; do
+              case "$a" in
+                --from-host) fromHost=yes ;;
+                --unit | --unit=*) unitGiven=yes ;;
+              esac
+            done
+            if [ "$fromHost" = yes ] && [ "$unitGiven" = no ]; then
+              recordedUnit=$(recordField "$name" unit)
+              if [ "$recordedUnit" != - ]; then
+                set -- --unit "$recordedUnit" ''${1+"$@"}
+              fi
+            fi
+            work "$name" brief ''${1+"$@"}
+            ;;
+
+        ''}
+
           *) work "$name" "$verb" ''${1+"$@"} ;;
         esac
       '';

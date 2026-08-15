@@ -433,7 +433,12 @@
         # collect or a broken one depending on what it was scoped by.
         scope=""
         ${lib.optionalString snapshot.needsUnit ''scope=" (unit $unit)"''}
-        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" < ${snapshot.script}); then
+        # `all`: this origin is a capsule, so uncommitted work anywhere in the
+        # checkout is the one agent's and is the point (NOTES item 32). Spelled
+        # at the call site rather than defaulted in the script, because the other
+        # origin is a human's desk and a default would make that one the quiet
+        # case (NOTES item 42).
+        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" all < ${snapshot.script}); then
           IFS=$'\t' read -r oid stateBytes stateFiles <<<"$line"
           if [ "$oid" = - ]; then
             echo "capsule-collect: no state snapshot this run (see above)."

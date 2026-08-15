@@ -535,8 +535,13 @@ which shape nearly every decision here:
   watch in the foreground as you; `host/services.nix` runs the same proxy as a
   unit under `capsule-proxy`, and installs the same two git-channel programs
   wrapped with its own paths. Don't grow a second implementation for either — if
-  a unit needs something, it comes from the same program. `capsule-provision` is
-  the only thing that reads the real repo, and it always runs as the human.
+  a unit needs something, it comes from the same program. **Two programs read the
+  real repo** — `capsule-provision`, and `capsule-brief --from-host` for a unit
+  no capsule has driven yet (NOTES item 42) — and both always run as the human.
+  The second writes one ref there and drops it again: it **keeps no archive**,
+  because a quarantine is what a capsule sent back rather than a place state
+  lives, which is the same decision that makes a source name which is not a
+  declared slot a refusal.
 - **The guest's tool set has two owners, and which one a tool has decides where
   it goes.** `compose(floor, extras)`: the **floor** is the target's —
   `target.nix`'s `toolsPackage`, for doctrine `packages.dev-tools` — so a tool

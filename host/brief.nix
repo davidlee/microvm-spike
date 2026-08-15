@@ -50,6 +50,30 @@
   exhibit,
   # The guest's checkout, which is where the tree lands.
   workdir,
+  # ---------------------------------------------------------------- host origin
+  #
+  # The three below are [item 42](../docs/ledger/042-a-state-half-no-capsule-has-held.md):
+  # a capsule taking on a *fresh* unit of work needs state that has never been
+  # inside a capsule, so this verb grows an origin that is not one. Everything
+  # downstream of "which commit, and what code was it of" is the sequence that
+  # already existed.
+  #
+  # The human's own checkout — `target.path`. Read here and by
+  # `capsule-provision`, both always as the human (NOTES item 11).
+  hostCheckout,
+  # The same text as the guest's snapshot, instantiated at that checkout
+  # (host/state-snapshot.nix). A store path run locally rather than pushed on
+  # stdin, because there is no door in front of this one.
+  hostSnapshot,
+  # Whether this target's state paths are scoped to a unit of work, which decides
+  # whether `--unit` is required here exactly as it decides it for a collect.
+  needsUnit,
+  # Every slot this host declares, for one refusal: a source that is not one of
+  # them is not briefable, because **a quarantine is what a capsule sent back**
+  # and not a place state lives. That is the reading item 42 had to choose
+  # between, and choosing it is what makes a host origin need somewhere else to
+  # be rather than a name in `collect/`.
+  slots,
 }: let
   # Pushed at each call rather than baked into the guest's closure, for
   # `host/guest-exec.nix`'s three reasons — and for this file's own: a capsule
@@ -187,6 +211,19 @@ in rec {
   # included: a case suite that ran an unlinted render would be asserting about
   # a program this repo does not ship.
   runnerFor = w: guestExec.checked (runner w);
+
+  # `briefCheckSpec` on its own, for `briefCases`. The rest of this file needs a
+  # guest, a door and a quarantine; **which names may be a source** needs none of
+  # them, and it is the half item 42 decided — so it is the half worth pinning in
+  # a build rather than on a host. The fragment's own text, called with the
+  # caller's argument: a suite asserting about a re-spelling of it would be
+  # asserting about a program this repo does not ship.
+  specChecker = pkgs.writeText "capsule-brief-spec-check" ''
+    set -uo pipefail
+    capsule=''${CAPSULE_NAME:-dest}
+    ${fragment}
+    briefCheckSpec "$1" "''${2:---state}"
+  '';
   # The whole of it as one shell function, so `capsule-provision --state` and
   # `capsule-brief` are one construction and not two careful ones. It needs
   # `$capsule` and `ssh_cmd` in scope, which every transport fragment sets, and
@@ -207,8 +244,10 @@ in rec {
     # two spellings — `capsule-provision --state a` and `capsule-brief a` — and a
     # refusal that quotes the wrong one sends the reader looking in the wrong
     # place. That is the whole reason `checkToken` takes a `shown` at all.
+    briefSlots=(${lib.escapeShellArgs slots})
+
     briefCheckSpec() {
-      local spec="$1" flag="''${2:---state}"
+      local spec="$1" flag="''${2:---state}" d found=no
       briefSrc="''${spec%%:*}"
       briefStage=implementation
       case "$spec" in *:*) briefStage="''${spec#*:}" ;; esac
@@ -221,11 +260,94 @@ in rec {
         echo "  provision." >&2
         return 1
       fi
+
+      # **A quarantine is what a capsule sent back** (NOTES item 42). Without
+      # this, a directory of the right shape and any name at all is briefable,
+      # which is a forgery of provenance with nothing to notice it by — and the
+      # check is cheap only because the alternative reading was rejected: if a
+      # quarantine were *a place state lives*, this refusal would be the seam a
+      # host origin was built on instead of the thing that sends it elsewhere.
+      for d in "''${briefSlots[@]}"; do
+        [ "$briefSrc" = "$d" ] && found=yes
+      done
+      if [ "$found" = no ]; then
+        echo "capsule-brief: '$briefSrc' is not a capsule on this host, and a" >&2
+        echo "  quarantine is what a capsule sent back rather than a place state" >&2
+        echo "  lives — so a source here names a slot that has collected, and" >&2
+        echo "  nothing else. This host's own checkout is '--from-host'." >&2
+        echo "  declared: ''${briefSlots[*]}" >&2
+        return 1
+      fi
+    }
+
+    # Which code a state commit was the state *of*, out of the message the
+    # snapshot wrote (host/state-snapshot.nix). Read with the shell rather than
+    # with `sed`, so a refusal never depends on a tool being on PATH. Sets
+    # `codeOid`, which every caller declares `local`.
+    briefCodeOid() {
+      local q="$1" commit="$2" l
+      codeOid=""
+      while IFS= read -r l; do
+        case "$l" in "code-oid: "*) codeOid="''${l#code-oid: }" ;; esac
+      done < <(git --git-dir="$q" show -s --format='%B' "$commit")
+      if [ -z "$codeOid" ] || [ "$codeOid" = - ]; then
+        echo "capsule-brief: that state commit names no code-oid, so there is" >&2
+        echo "  nothing to check this capsule's checkout against — and the check is" >&2
+        echo "  the whole reason a tree of someone else's worktree may land here." >&2
+        return 1
+      fi
+    }
+
+    # Validate, push, lay out — everything downstream of *which commit*, which is
+    # the only thing the two origins differ in. One construction rather than two
+    # careful ones, and emphatically so here: the thing being factored is a
+    # security control, which is what `host/exhibit.nix` exists to say.
+    #
+    # `origin` and `hand` are display only, and `hand` is a second argument
+    # rather than a clause because the closing sentence is a claim: from a
+    # capsule the difference is *the other agent's uncommitted work*, and from
+    # this host it is the operator's own — the same count meaning two things.
+    briefDeliver() {
+      local q="$1" commit="$2" codeOid="$3" stage="$4" origin="$5" hand="$6"
+      local line files dirty
+
+      # Before the push, not after it: the check is upstream of every write on
+      # both sides of the door.
+      readExhibit "$q" "$commit"
+      refuseExhibit "$q" "$commit"
+      echo "capsule-brief: $origin $(git --git-dir="$q" rev-parse --short "$commit") -> $capsule"
+      echo "  $total entries ($blobs files, $links symlinks), $bytes bytes, of code $codeOid"
+
+      # Into the guest's own outbound namespace, under the stage it already had.
+      # Not forced: a destination that has collected at this stage has its own
+      # commit there, and overwriting one capsule's chain with another's is not
+      # something a flag should make easy. It also means a later collect from
+      # this capsule at this stage chains onto what it was given, which is the
+      # provenance record item 32 described and reserved.
+      if ! git --git-dir="$q" push --quiet ${lib.escapeShellArg guestRepo} \
+        "$commit:refs/capsule/state/$stage"; then
+        echo "capsule-brief: could not push that commit into $capsule — is the VM" >&2
+        echo "  up, and has it already got a commit at '$stage'? A collect of its" >&2
+        echo "  own puts one there, and so does an earlier brief the guest then" >&2
+        echo "  refused. The second kind is cleared by deleting" >&2
+        echo "  refs/capsule/state/$stage in the guest's checkout." >&2
+        return 1
+      fi
+
+      if ! line=$("''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} 'bash -s' -- \
+        "$commit" "$codeOid" < ${script}); then
+        echo "capsule-brief: the guest refused to lay that state out (above)." >&2
+        return 1
+      fi
+      IFS=$'\t' read -r files dirty <<<"$line"
+      echo "capsule-brief: $files files into $capsule's checkout, which now differs"
+      echo "  from its HEAD in $dirty paths — that difference is $hand uncommitted"
+      echo "  work, and it is the point rather than a mess."
     }
 
     briefState() {
       local spec="$1" flag="''${2:---state}"
-      local src stage q commit codeOid line files dirty l
+      local src stage q commit codeOid
       briefCheckSpec "$spec" "$flag" || return 1
       src="$briefSrc"
       stage="$briefStage"
@@ -246,49 +368,121 @@ in rec {
         return 1
       fi
 
-      # Which code this state was the state of, out of the commit message the
-      # snapshot wrote (host/state-snapshot.nix). Read with the shell rather than
-      # with `sed`, so a refusal never depends on a tool being on PATH.
-      codeOid=""
-      while IFS= read -r l; do
-        case "$l" in "code-oid: "*) codeOid="''${l#code-oid: }" ;; esac
-      done < <(git --git-dir="$q" show -s --format='%B' "$commit")
-      if [ -z "$codeOid" ] || [ "$codeOid" = - ]; then
-        echo "capsule-brief: that state commit names no code-oid, so there is" >&2
-        echo "  nothing to check this capsule's checkout against — and the check is" >&2
-        echo "  the whole reason a tree of someone else's worktree may land here." >&2
+      briefCodeOid "$q" "$commit" || return 1
+
+      briefDeliver "$q" "$commit" "$codeOid" "$stage" \
+        "$src state/$stage" "the other agent's"
+    }
+
+    # The other origin, and the whole of what is new (NOTES item 42): a unit of
+    # work whose out-of-band state has never been inside a capsule, because no
+    # capsule has driven it yet. The tree is built by the same text the guest
+    # runs, at `target.path` instead of the guest's checkout.
+    #
+    # **No archive.** A capsule's exhibit is kept because it is evidence of what
+    # a confined thing did; a tree authored here is evidence of nothing that is
+    # not still on this host's disk, and the original is the checkout it was read
+    # from. So the ref the snapshot writes is dropped either side of the delivery
+    # and nothing persists — which is also what keeps `collect/` meaning exactly
+    # one thing, and what lets `briefCheckSpec` refuse every name that is not a
+    # slot. Deleting it *before* is not tidiness: a leftover from an interrupted
+    # run would become this commit's parent, and an accidental chain is an
+    # archive nobody decided to keep.
+    #
+    # The objects it writes into the human's repository are garbage the moment
+    # the ref goes, and `git gc` reaps them. The index is never touched — the
+    # snapshot builds in one of its own, which is the contamination item 32
+    # actually guarded against.
+    briefDropHostRef() {
+      git -C ${lib.escapeShellArg hostCheckout} update-ref -d \
+        "refs/capsule/state/$1" 2>/dev/null || true
+    }
+
+    briefHostState() {
+      local stage="''${1:-implementation}" unit="''${2:-}"
+      local q line commit bytes files codeOid guestHead hostHead rc=0
+      ${quarantine.checkToken ''"$stage"'' "'--stage $stage'"}
+      ${lib.optionalString needsUnit ''
+      # The same rule as `capsule-collect --unit`, refused here for the same
+      # reason and one step earlier: an empty token substitutes into the middle
+      # of every declared path and collapses it onto its parent, so the unscoped
+      # tree would wear the scoped one's name (NOTES items 28, 32).
+      if [ -z "$unit" ]; then
+        echo "capsule-brief: this target's state paths are scoped to one unit of" >&2
+        echo "  work, so a host origin has to say which. 'capsule $capsule unit" >&2
+        echo "  <token>' records it, or pass --unit." >&2
+        return 1
+      fi
+      ${quarantine.checkToken ''"$unit"'' "'--unit $unit'"}
+    ''}
+
+      if ! q=$(git -C ${lib.escapeShellArg hostCheckout} rev-parse --absolute-git-dir 2>/dev/null); then
+        echo "capsule-brief: ${hostCheckout} is not a git repository, so there is" >&2
+        echo "  no checkout here to take a unit's state out of." >&2
         return 1
       fi
 
-      # Before the push, not after it: the check is upstream of every write on
-      # both sides of the door.
-      readExhibit "$q" "$commit"
-      refuseExhibit "$q" "$commit"
-      echo "capsule-brief: $src state/$stage $(git --git-dir="$q" rev-parse --short "$commit") -> $capsule"
-      echo "  $total entries ($blobs files, $links symlinks), $bytes bytes, of code $codeOid"
+      # The `code-oid` mismatch, refused **here** and not only in the guest —
+      # which is not a second copy of the control but a fix for an ordering this
+      # origin makes reachable. `briefDeliver` pushes before the guest speaks,
+      # because the guest needs the commit to lay it out; from a capsule a
+      # refused brief is retried with the *same* commit, so the stranded ref is
+      # the same object and the second push is a no-op. A host origin mints a
+      # **new root commit every run**, so a refused attempt leaves a ref the
+      # retry cannot fast-forward, and the retry fails naming a cause that is not
+      # the cause. Cheapest fix is to not push a doomed commit: one round trip,
+      # ahead of the snapshot, so a mismatch writes nothing anywhere.
+      #
+      # Advisory, and the guest's refusal stays the control: this reads HEAD
+      # twice — here and in the snapshot — and a HEAD that moves between them is
+      # exactly what the confined side is there to catch. A guest that cannot be
+      # asked falls through to the push, which has its own message.
+      if guestHead=$("''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} \
+        "git -C ${lib.escapeShellArg workdir} rev-parse HEAD" 2>/dev/null); then
+        hostHead=$(git -C ${lib.escapeShellArg hostCheckout} rev-parse HEAD 2>/dev/null || echo -)
+        if [ "$guestHead" != "$hostHead" ]; then
+          echo "capsule-brief: this checkout is at $hostHead and $capsule is at" >&2
+          echo "  $guestHead. A state tree is worktree content, so it is only ever" >&2
+          echo "  the state of one commit; laying it over different code composes a" >&2
+          echo "  worktree nobody ever had. Nothing was taken and nothing was" >&2
+          echo "  pushed." >&2
+          echo "  Provision $capsule at $hostHead first — 'capsule $capsule" >&2
+          echo "  provision $hostHead' — then brief it." >&2
+          return 1
+        fi
+      fi
 
-      # Into the guest's own outbound namespace, under the stage it already had.
-      # Not forced: a destination that has collected at this stage has its own
-      # commit there, and overwriting one capsule's chain with another's is not
-      # something a flag should make easy. It also means a later collect from
-      # this capsule at this stage chains onto what it was given, which is the
-      # provenance record item 32 described and reserved.
-      if ! git --git-dir="$q" push --quiet ${lib.escapeShellArg guestRepo} \
-        "$commit:refs/capsule/state/$stage"; then
-        echo "capsule-brief: could not push that commit into $capsule — is the VM" >&2
-        echo "  up, and has it already collected a state of its own at '$stage'?" >&2
+      briefDropHostRef "$stage"
+      # `declared`: this origin is a human's desk, so nothing outside the
+      # target's declared paths travels (host/state-snapshot.nix, NOTES item 42).
+      if ! line=$(bash ${hostSnapshot} "$stage" "$unit" declared); then
+        echo "capsule-brief: no state snapshot of this host's checkout (above)." >&2
+        briefDropHostRef "$stage"
+        return 1
+      fi
+      IFS=$'\t' read -r commit bytes files <<<"$line"
+      if [ "$commit" = - ]; then
+        echo "capsule-brief: there is nothing to brief $capsule with — see above." >&2
+        echo "  A brief that cannot happen is a failure and not a skip: the caller" >&2
+        echo "  asked for this state, and a capsule that silently did not get it is" >&2
+        echo "  one an agent will answer from anyway." >&2
+        briefDropHostRef "$stage"
         return 1
       fi
 
-      if ! line=$("''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} 'bash -s' -- \
-        "$commit" "$codeOid" < ${script}); then
-        echo "capsule-brief: the guest refused to lay that state out (above)." >&2
+      # A reading of HEAD and never a claim about it. Passing the provisioned
+      # commit in here instead would turn the guest's check into one that passes
+      # on the false case too — the price being the sequencing this verb inherits:
+      # provision at the commit this checkout is on, then brief (NOTES item 42).
+      if ! briefCodeOid "$q" "$commit"; then
+        briefDropHostRef "$stage"
         return 1
       fi
-      IFS=$'\t' read -r files dirty <<<"$line"
-      echo "capsule-brief: $files files into $capsule's checkout, which now differs"
-      echo "  from its HEAD in $dirty paths — that difference is the other agent's"
-      echo "  uncommitted work, and it is the point rather than a mess."
+
+      briefDeliver "$q" "$commit" "$codeOid" "$stage" \
+        "this host's checkout state/$stage" "this checkout's own" || rc=$?
+      briefDropHostRef "$stage"
+      return "$rc"
     }
   '';
 
@@ -298,22 +492,54 @@ in rec {
   # this and no push. It is also how the thing is exercised without a provision.
   program = pkgs.writeShellApplication {
     name = "capsule-brief";
-    runtimeInputs = [pkgs.git pkgs.openssh pkgs.coreutils];
+    # `bash` explicitly: the host origin runs the snapshot text here rather than
+    # pushing it through a door, and a program that resolves its own interpreter
+    # off an ambient PATH is one that works until it is run from a unit.
+    runtimeInputs = [pkgs.git pkgs.openssh pkgs.coreutils pkgs.bash];
     text = ''
       ${gitSsh}
       ${fragment}
 
       usage() {
         echo "usage: capsule-brief [--capsule <name>] <source>[:<stage>]"
+        echo "       capsule-brief [--capsule <name>] --from-host [--stage <name>]${lib.optionalString needsUnit " [--unit <token>]"}"
         echo
         echo "  Puts <source>'s collected state into this capsule's checkout, so a"
         echo "  second agent can read the first one's working state. Both capsules"
         echo "  must be at the same commit; the stage defaults to 'implementation'."
+        echo
+        echo "  --from-host takes the same state out of ${hostCheckout} instead,"
+        echo "  for a unit of work no capsule has driven yet. Nothing is archived:"
+        echo "  the checkout it came from is the original."
       }
 
       spec=""
+      fromHost=no
+      stage=implementation
+      unit=""
       while [ "$#" -gt 0 ]; do
         case "$1" in
+          --from-host) fromHost=yes ;;
+          --stage)
+            shift
+            [ "$#" -gt 0 ] || {
+              echo "--stage needs a name" >&2
+              exit 1
+            }
+            stage="$1"
+            ;;
+          --stage=*) stage="''${1#--stage=}" ;;
+          ${lib.optionalString needsUnit ''
+        --unit)
+          shift
+          [ "$#" -gt 0 ] || {
+            echo "--unit needs a token" >&2
+            exit 1
+          }
+          unit="$1"
+          ;;
+        --unit=*) unit="''${1#--unit=}" ;;
+      ''}
           -*)
             usage >&2
             exit 1
@@ -328,13 +554,34 @@ in rec {
         esac
         shift
       done
-      if [ -z "$spec" ]; then
-        echo "capsule-brief: which capsule's state? An exhibit comes from one." >&2
-        usage >&2
+
+      # Two origins, and naming both is two answers to one question. The capsule
+      # form carries its stage in the spec (`a:audit`), so the flags belong to
+      # the other one and saying so is cheaper than a flag that is silently
+      # ignored.
+      if [ "$fromHost" = yes ] && [ -n "$spec" ]; then
+        echo "capsule-brief: '--from-host' and '$spec' are two origins. State comes" >&2
+        echo "  from one capsule or from this host's checkout, not from both." >&2
         exit 1
       fi
-
-      briefState "$spec" capsule-brief
+      if [ "$fromHost" = no ]; then
+        if [ -z "$spec" ]; then
+          echo "capsule-brief: which state? A capsule that has collected, by name," >&2
+          echo "  or '--from-host' for a unit no capsule has driven yet." >&2
+          usage >&2
+          exit 1
+        fi
+        if [ "$stage" != implementation ] || [ -n "$unit" ]; then
+          echo "capsule-brief: a capsule's stage rides its name ('$spec:<stage>')," >&2
+          echo "  and its unit is whatever that exhibit was collected under — both" >&2
+          echo "  are readings of what is in the quarantine, not choices to make" >&2
+          echo "  here. --stage and --unit are '--from-host' arguments." >&2
+          exit 1
+        fi
+        briefState "$spec" capsule-brief
+      else
+        briefHostState "$stage" "$unit"
+      fi
     '';
   };
 }
