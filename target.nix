@@ -203,7 +203,7 @@ rec {
   # ahead of what the host pushed, so re-provisioning it wants `--force`. That is
   # the same override re-provisioning over an agent's commits already wants, and
   # `capsule-provision`'s refusal already names it.
-  refresh = "doctrine boot";
+  refresh = "doctrine install --agent claude --agent pi -y";
 
   # The guest is sized for this target's build, not for the host.
   #

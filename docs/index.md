@@ -19,6 +19,7 @@ architecture invariants and the gotchas that have already cost time, is
 | ...and what would implementing that touch? | [plan-c-implementation.md](./plan-c-implementation.md) |
 | what does administering a fleet of them cost — across projects, refs and slices? | [plan-d-fleet.md](./plan-d-fleet.md) |
 | how would this work without firecracker, or on macOS? | [plan-b-other-jails.md](./plan-b-other-jails.md) |
+| what would a guest that is *not* a capsule cost — several people ssh'd into one shared box? | [plan-e-room.md](./plan-e-room.md) |
 | which hypervisor, and why this one? | [eval-hypervisors.md](./eval-hypervisors.md) |
 | why doesn't the capsule port to macOS? | [eval-macos.md](./eval-macos.md) |
 | what does doctrine want from *this round* of probes? | [import-doctrine.md](./import-doctrine.md) — disposable packet |

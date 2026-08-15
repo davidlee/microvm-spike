@@ -13,11 +13,14 @@ measured figure, so link to it rather than copying a number out.
 
 Plans are scoping, not commitments: `plan-b-other-jails.md` is the
 non-firecracker shapes, `plan-c-multi-capsule.md` is what N capsules on one host
-would cost. Do not put present-tense state in a plan; that is `status.md`'s job.
+would cost, `plan-e-room.md` is a guest that is **not** a capsule — several
+people ssh'd into one shared box — and is the first test of whether the
+machinery underneath is separable from the product. Do not put present-tense
+state in a plan; that is `status.md`'s job.
 
 ## Working here
 
-capsule a has finished driving a production workload (doctrine's SL-254).
+capsule C is driving a production workload (doctrine's SL-251).
 
 **Be judicious about running nix builds or evals.** The user runs those
 in ~/flakes for system builds themselves. Builds for this project are fine. 

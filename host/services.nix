@@ -527,7 +527,7 @@ in {
           message = "services.capsule-perimeter is enabled but capsules.nix declares no capsules.";
         }
         # **A rule is granted by being in the file and effective by being the
-        # last line that matches** (NOTES item 42), and every instrument this
+        # last line that matches** (NOTES item 43), and every instrument this
         # repo had answered the first question. `hostModuleUnits` asserts the
         # rule is declared; `sudo -n -l <cmd>` answers whether the command is
         # *permitted*, never which of the matching lines won, so it printed the
@@ -577,7 +577,7 @@ in {
         in {
           # No grant at all is `unrestartable`'s finding, not this one.
           assertion = lastGrant == -1 || shadows == [];
-          message = "services.capsule-perimeter: the sudoers rule permitting `capsule <slot> policy <name>` to restart its proxy is shadowed — sudoers is last-match-wins and ${toString (lib.length shadows)} later line(s) match the same command untagged, so the grant is present and inert and the verb will undo every selection it is asked for: ${lib.concatMapStringsSep "; " (e: lib.concatStringsSep " " (words e.line)) shadows}. Order that rule before this one, or drop it if the NixOS sudo module's own `%wheel ALL=(ALL:ALL) ALL` (mkOrder 600) already covers it (NOTES item 42).";
+          message = "services.capsule-perimeter: the sudoers rule permitting `capsule <slot> policy <name>` to restart its proxy is shadowed — sudoers is last-match-wins and ${toString (lib.length shadows)} later line(s) match the same command untagged, so the grant is present and inert and the verb will undo every selection it is asked for: ${lib.concatMapStringsSep "; " (e: lib.concatStringsSep " " (words e.line)) shadows}. Order that rule before this one, or drop it if the NixOS sudo module's own `%wheel ALL=(ALL:ALL) ALL` (mkOrder 600) already covers it (NOTES item 43).";
         })
       ];
 
@@ -613,14 +613,14 @@ in {
       # module made, and sudoers wildcards are a classic way to permit more than
       # was meant.
       #
-      # The path is `/run/current-system/sw/bin/systemctl` and **not** a store
-      # path, because sudo resolves the command against its own `secure_path`
-      # before matching: `sudo -n -l systemctl restart capsule-proxy-b` on this
-      # host answers with exactly that path. A rule naming `${pkgs.systemd}` would
-      # be correct-looking and would never match.
+      # The command is `./proxy-restart.nix`'s and is not spelled here, because
+      # sudo matches by the path the *caller* resolves and this host sets no
+      # `secure_path`: a rule and an invocation that merely look alike are two
+      # commands (NOTES item 44). One construction, three consumers — this, the
+      # front end that runs it, and `flake.nix`'s `unrestartable`.
       #
       # **`mkAfter`, and it is the whole difference between granted and
-      # effective** (NOTES item 42). sudoers is last-match-wins, so a narrow
+      # effective** (NOTES item 43). sudoers is last-match-wins, so a narrow
       # NOPASSWD rule only holds while nothing broader follows it — and a plain
       # definition here lands at priority 1000 alongside every other module's,
       # where *merge order* decides. On this host `~/flakes` contributes its own
@@ -633,7 +633,7 @@ in {
           users = [cfg.owner];
           commands =
             map (c: {
-              command = "/run/current-system/sw/bin/systemctl restart capsule-proxy-${c.name}";
+              command = import ./proxy-restart.nix "capsule-proxy-${c.name}";
               options = ["NOPASSWD"];
             })
             instances;

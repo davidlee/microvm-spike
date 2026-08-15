@@ -89,9 +89,16 @@
   #
   # Two functions rather than two command strings, because each call needs a
   # *result*: whether the proxy is up, and whether the bounce worked.
+  #
+  # The restart is spelled by `./proxy-restart.nix` and not here, because the
+  # rule permitting it is spelled in `host/services.nix`: sudo matches a command
+  # by the path it resolves to, and with no `secure_path` on this host that is
+  # the one `runtimeInputs` put on `PATH` — a store path, which no rule names
+  # (NOTES item 44). The query beside it stays unqualified on purpose: it needs
+  # no privilege, so nothing has to agree with it.
   proxyControl ? ''
     proxyActive() { systemctl is-active --quiet "$1"; }
-    proxyRestart() { sudo systemctl restart "$1"; }
+    proxyRestart() { sudo ${import ./proxy-restart.nix "\"$1\""}; }
   '',
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.

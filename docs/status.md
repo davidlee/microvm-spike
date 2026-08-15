@@ -6,7 +6,68 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **the switch landed and two slots came up with
+Last updated 2026-08-15, after **`capsule <slot> policy <name>` reached root
+unattended for the first time, which finishes
+[item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md) and takes
+[item 36](./ledger/036-a-policy-is-selected-not-named.md)'s last owed
+exercise.** `sudo -K`, then `capsule b policy sealed` — no prompt, the proxy
+restarted, generation 21 — and `capsule b policy build` back again at 22: the
+**in-place restoration**, one slot, out and back, nothing moving but the proxy.
+Nothing warm carried it, since no password was typed after the `-K` and a
+`NOPASSWD` match records no timestamp. `b` is on `build`.
+
+It took two faults to get there and both were found by running that one
+exercise, neither visible to anything in this repo that reads a declaration:
+[item 43](./ledger/043-a-grant-that-was-present-and-inert.md), the grant present
+and shadowed, and [item 44](./ledger/044-a-rule-matches-a-path-not-a-name.md),
+the rule naming a command the program does not run. The instrument common to
+both is `sudo -n -l`, which printed a command back three times and meant nothing
+each time: it answers *some rule permits this*, never *which matching line won*
+and never *whether it would run free*. Before that, after **item 43's switch
+landed, the verb prompted anyway, and the reason is
+[item 44](./ledger/044-a-rule-matches-a-path-not-a-name.md): the rule names a
+command the program does not run.** The rendered sudoers is now exactly right —
+no blanket, the grant last — and `capsule b policy sealed` on a cold ticket still
+answered `sudo: a password is required` and rolled back. This host sets no
+`Defaults secure_path`, so sudo resolves an unqualified command against the
+**caller's** `PATH`, and `writeShellApplication` prepends `runtimeInputs`: the
+front end's `systemctl` is `/nix/store/…-systemd-261.1/bin/systemctl` and the
+rule names `/run/current-system/sw/bin/systemctl`. Two commands.
+[Item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md) wrote that reason
+down backwards and the paragraph is annotated in place; its *choice* of path
+stands, because a store-path rule would lapse at the next systemd bump, silently
+and fail-open. **The command is one value now** — `host/proxy-restart.nix`,
+imported by the front end that runs it, the module that grants it and
+`flake.nix`'s `unrestartable`, which had been green because it paired the module
+against itself and never saw the program. Built and confirmed in the built text:
+`proxyRestart() { sudo /run/current-system/sw/bin/systemctl restart "$1"; }`.
+**Switch owed**, and only a call can settle it — `sudo -n -l` has now printed a
+command back and meant nothing three items running. Item 41's rollback has fired
+twice, correctly, and is the reason neither fault ever half-applied a selection.
+Before that, after **the switch carrying items 39, 40 and 41 landed,
+[item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md)'s rollback fired
+for real, and the reason it had to fire is
+[item 43](./ledger/043-a-grant-that-was-present-and-inert.md): the grant was
+present and inert.** With the ticket deliberately cold, `capsule b policy sealed`
+answered `sudo: a password is required` and then `capsule: capsule-proxy-b would
+not restart, so the selection was undone.` — link back, no document, the refusal
+true rather than nearly true, which is item 41's whole claim proven on a host and
+the first time that branch has been taken deliberately. The `NOPASSWD` rule it
+was supposed to have was in the rendered sudoers, matched the command, and was
+listed back by `sudo -n -l`; a `%wheel ALL=(ALL:ALL) ALL` one line below it took
+every match, because **sudoers is last-match-wins and a plain definition lands at
+priority 1000, where module merge order decides**. The module's rule is
+`lib.mkAfter` now, and a third assertion reads the *rendered*
+`security.sudo.configFile` and throws on any later untagged line covering the
+owner — vacuous in `hostModuleUnits`' standalone eval and firing at the switch,
+because the shadowing line belongs to a config this repo does not own. Watched
+red at `mkOrder 1600` and green at 1000. **Switch owed, and it has a `~/flakes`
+half**: the blanket in `modules/nixos/security.nix` is redundant against nixpkgs'
+own `%wheel ALL=(ALL:ALL) ALL` at `mkOrder 600`, and its only effect on this host
+is to shadow every `NOPASSWD` rule another module contributes. Until both land,
+the `policy` verb still prompts and still rolls back, so a narrowing needs a warm
+ticket and every selection is verifiable by reading whether the document was
+written. Before that, after **the switch landed and two slots came up with
 working proxies for the first time, which finishes
 [item 36](./ledger/036-a-policy-is-selected-not-named.md) and proves
 [item 39](./ledger/039-a-bind-is-not-a-traversal.md)**. `a` on `build` answered
@@ -22,7 +83,7 @@ across both slots, and running it found
 and it worked today only on a ticket a `just up` left warm — so the verb item 36
 built to be *delegable* ended in a privilege the assigner has not got, and a
 failed restart left the record and link narrowed while the wire stayed wide.
-**Fixed and asserted the same evening, switch owed**: the restart moved inside
+**Fixed and asserted the same evening, and switched since**: the restart moved inside
 the record's hook, whose failure is defined to leave nothing moved, so a proxy
 that will not bounce puts the link back and writes no document; the module grants
 exactly that one restart per declared slot; `policyCases` is 32 → 44 with the
@@ -39,8 +100,8 @@ everything stopped has none — so every row took the direct arm and paid a full
 the tap now, which is that arm's actual precondition; a ten-slot status is
 **0.375 s** against 10.06 s for one row before, with the output unchanged. The
 refusal it should have taken instead had never once fired, which is the class
-[HANDOVER](../HANDOVER.md) guessed would come next. **This is a `~/flakes` switch
-short of reaching the host, like item 39 below, and the two land together.**
+[HANDOVER](../HANDOVER.md) guessed would come next. **On the host since, with
+item 41 in the same switch**: `capsule all status` for two slots is 0.55 s.
 Before that, after **starting a slot for the first time since item 36
 was switched found that its proxy unit has never once run**
 ([item 39](./ledger/039-a-bind-is-not-a-traversal.md), below): the allowlist each

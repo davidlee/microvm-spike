@@ -1,6 +1,17 @@
 # NOTES item 41 — a delegable verb that ends in root, and the half-write when it cannot
 
-*State: **fixed and asserted, switch owed**. The restart moved inside the
+*State: **done — the verb reaches root unattended, and the rollback has fired for
+real twice on the way there**. `sudo -K`, `capsule b policy sealed`, no prompt,
+generation 21; and back to `build` at 22. It took two further faults to get
+there, [43](./043-a-grant-that-was-present-and-inert.md) and
+[44](./044-a-rule-matches-a-path-not-a-name.md), each found by running this
+exercise and each invisible to everything that reads a declaration. On a
+cold ticket `capsule b policy sealed` answered `sudo: a password is required` and
+then `capsule: capsule-proxy-b would not restart, so the selection was undone.`:
+link back, no document, the refusal true rather than nearly true. It fired
+because the grant this item added was shadowed in the rendered sudoers, which is
+[item 43](./043-a-grant-that-was-present-and-inert.md) — so the exercise that
+proves this half is also the one that found the next fault. The restart moved inside the
 record's hook, so a proxy that will not bounce undoes the selection instead of
 half-applying it; the module grants exactly that one restart per declared slot;
 and both halves are pinned — `policyCases` is 44 assertions (was 32) with the
@@ -118,6 +129,17 @@ declared slot, `NOPASSWD`, no wildcard. The path is
 resolves against its own `secure_path` before matching — a store-path rule reads
 correctly and never fires, which is what the eval check below was watched
 catching.
+
+> **This paragraph is wrong, and wrong in the direction that made the rule
+> inert** ([item 44](./044-a-rule-matches-a-path-not-a-name.md)). This host sets
+> no `secure_path`, so sudo resolves against the *caller's* `PATH` — which
+> `writeShellApplication` starts with `runtimeInputs`, so the front end's
+> `systemctl` is a store path and it is the `/run` rule that never fires. The
+> choice of path stands for a different reason (a store-path rule lapses at the
+> next systemd bump, silently and fail-open); what had to change is the
+> *program*, which now spells the same absolute path from
+> `host/proxy-restart.nix`. Kept in place rather than corrected, because the
+> mistake is the item.
 
 **Both are pinned.** `host/cli.nix` gained a `proxyControl` argument with a
 default, for the reason `moduleState` has one: `pkgs.systemd` is in

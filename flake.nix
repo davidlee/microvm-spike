@@ -1358,7 +1358,7 @@
         lib.concatMap (r: map (c: c.command or c) r.commands)
         host.config.security.sudo.extraRules;
       unrestartable =
-        lib.filter (n: !(lib.elem "/run/current-system/sw/bin/systemctl restart ${n}" sudoCommands))
+        lib.filter (n: !(lib.elem (import ./host/proxy-restart.nix n) sudoCommands))
         (lib.filter (lib.hasPrefix "capsule-proxy-") units);
 
       # Refused before either derivation is named, so a `nix build` of the
