@@ -24,6 +24,8 @@
 # (docs/probes.md) — the probe builds its own links because it must run without
 # the units, so the names differ there and the shape does not.
 let
+  policies = import ./policies.nix;
+
   # The slots. Names, not a count — and the index is *declared*, not taken from
   # list position: deriving it from position means deleting a name renumbers its
   # neighbours, and an existing volume, socket and uplink /30 all silently change
@@ -49,17 +51,70 @@ let
   # halves are measured: 3% of a module eval, and one page of PID 1 for the
   # seventy-two units the eight new slots added
   # (docs/probes.md#what-ten-declared-slots-cost).
+  # `policy` is the host operator's declared choice for a slot nobody has
+  # assigned, and `policies` is the set an assigner may select within — two
+  # fields because they are two statements, and the second is what makes
+  # `capsule <slot> policy <name>` safe to delegate (NOTES item 36, item 25).
+  #
+  # A declared default is not item 28 softening. A slot's *name* has no default
+  # because a name that means nothing cannot be guessed on a human's behalf. A
+  # slot's *policy* has one because **absence is not a state a perimeter may be
+  # in**: a slot whose record names none must still run something, and the
+  # operator's declaration is the only candidate that is not the assigner's.
+  #
+  # `everything` is this host being a dev host out loud, rather than by nobody
+  # having thought about it.
   declared = {
-    a = {index = 0;};
-    b = {index = 1;};
-    c = {index = 2;};
-    d = {index = 3;};
-    e = {index = 4;};
-    f = {index = 5;};
-    g = {index = 6;};
-    h = {index = 7;};
-    i = {index = 8;};
-    j = {index = 9;};
+    a = {
+      index = 0;
+      policy = "build";
+      policies = policies.everything;
+    };
+    b = {
+      index = 1;
+      policy = "build";
+      policies = policies.everything;
+    };
+    c = {
+      index = 2;
+      policy = "build";
+      policies = policies.everything;
+    };
+    d = {
+      index = 3;
+      policy = "build";
+      policies = policies.everything;
+    };
+    e = {
+      index = 4;
+      policy = "build";
+      policies = policies.everything;
+    };
+    f = {
+      index = 5;
+      policy = "build";
+      policies = policies.everything;
+    };
+    g = {
+      index = 6;
+      policy = "build";
+      policies = policies.everything;
+    };
+    h = {
+      index = 7;
+      policy = "build";
+      policies = policies.everything;
+    };
+    i = {
+      index = 8;
+      policy = "build";
+      policies = policies.everything;
+    };
+    j = {
+      index = 9;
+      policy = "build";
+      policies = policies.everything;
+    };
   };
 
   # Carved into a /30 per capsule by index, so the aggregator's route and NAT
@@ -76,8 +131,16 @@ let
   # an instance and must not invent a second convention for the same path.
   socketOf = name: "/run/capsule/${name}/ssh.sock";
 
-  recordOf = name: {index}: {
-    inherit name index;
+  # `policy` and `policies` are optional *here* and required of a real slot by the
+  # assertion below, so the one caller that constructs instances which are not
+  # slots — `guardCases`'s fixture, which is about namespaces and knows nothing
+  # about controls — stays two lines.
+  recordOf = name: {
+    index,
+    policy ? null,
+    policies ? [],
+  }: {
+    inherit name index policy policies;
     ns = "${capLink}${name}";
     socket = socketOf name;
     uplink = {
@@ -99,6 +162,20 @@ let
   rejected =
     builtins.filter (n: builtins.stringLength n > 11 || n == "egress") names;
 
+  # A slot naming a policy the vocabulary does not declare, or one outside its
+  # own declared set, is a perimeter nobody can resolve — the first dangles the
+  # symlink the proxy reads, and the second says two different things about who
+  # may choose. Both are eval-time refusals: a declaration that cannot be
+  # satisfied should never reach a host.
+  undeclared =
+    builtins.filter
+    (n: let
+      d = declared.${n};
+    in
+      !(builtins.elem (d.policy or null) policies.everything)
+      || !(builtins.elem d.policy (d.policies or [])))
+    names;
+
   # An index is what carves a capsule's /30 out of `uplinkNet`, so two capsules
   # sharing one is two capsules on one wire — silently, and only once both are
   # up. Refuse at eval instead.
@@ -114,7 +191,10 @@ in
   assert rejected
   == []
   || throw "capsules.nix: '${builtins.head rejected}' cannot name a slot — over 11 characters (IFNAMSIZ), or the aggregator's own name";
-  assert !reused || throw "capsules.nix: two slots declare the same index, so they would share an uplink /30"; {
+  assert !reused || throw "capsules.nix: two slots declare the same index, so they would share an uplink /30";
+  assert undeclared
+  == []
+  || throw "capsules.nix: slot '${builtins.head undeclared}' names no policy, or names one policies.nix does not declare, or one outside its own `policies` set"; {
     inherit uplinkNet socketOf;
 
     instances = instancesOf declared;

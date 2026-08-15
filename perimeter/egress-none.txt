@@ -1,0 +1,3 @@
+# The sealed policy: nothing is allowlisted, so every request 403s. A real file
+# rather than an absent one, because a proxy that fails to start is a perimeter
+# nobody is watching rather than a tight one (NOTES item 36).
