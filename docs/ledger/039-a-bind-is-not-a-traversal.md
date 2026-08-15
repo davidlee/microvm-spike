@@ -1,6 +1,14 @@
 # NOTES item 39 — a bind is mounted as root and opened as the user
 
-*State: **fixed, asserted at eval, and switched-owed**. Every `capsule-proxy-<slot>`
+*State: **fixed, asserted at eval, switched, and proven by a running slot**. Both
+`a` and `b` came up with their proxies reading `running` rather than
+`auto-restart`, and each served a real request through its own unit —
+[probes](../probes.md#what-the-units-own-perimeter-answered-the-first-time-one-ran).
+That is the evidence this item said nothing in this repo could produce, and it is
+the first time any `capsule-proxy-<slot>` has served a capsule. What follows is
+the fault as found.*
+
+*Every `capsule-proxy-<slot>`
 unit was unable to start: `BindReadOnlyPaths` named its allowlist under
 `stateDir`, which is `0750 owner:users`, and the proxy runs as `capsule-proxy` —
 so the mount succeeded as root and the open failed as the unit. The link lives in

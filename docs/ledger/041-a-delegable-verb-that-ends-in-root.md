@@ -1,0 +1,113 @@
+# NOTES item 41 — a delegable verb that ends in root, and the half-write when it cannot
+
+*State: **open, found by running the branch for the first time**. `capsule <slot>
+policy <name>` is the verb [item 36](./036-a-policy-is-selected-not-named.md)
+built so that an assigner may select within a slot's declared set, and
+[item 11](./011-host-side-runs-as-you.md) says everything host-side
+runs as you. Its last step is `sudo systemctl restart capsule-proxy-<slot>`, and
+this host has no rule permitting it — only `nft list table inet capsule-forward`
+and `rtcwake` are `NOPASSWD`. It went unnoticed because that branch had never
+run: every previous call found the proxy inactive and took the other one. It ran
+today only because a `just up` minutes earlier had left a sudo ticket warm. **The
+failure mode is fail-open in the one direction that matters**: the record and the
+link move under the lock, the restart fails after them, and a slot narrowed from
+`build` to `sealed` reads `sealed` everywhere while the wire still serves
+`build`.*
+One item of the [ledger](./index.md) — the number is the citation, and it
+never moves.
+
+## What happened
+
+The two owed exercises of item 36 both ran (`probes.md`), and between them:
+
+```
+$ sudo -n -l
+    (ALL : ALL) SETENV: NOPASSWD: …/rtcwake
+    (ALL : ALL) NOPASSWD: /run/current-system/sw/bin/nft list table inet capsule-forward
+```
+
+Nothing for `systemctl restart capsule-proxy-*`. The human here also has
+unrestricted `(ALL : ALL) ALL` with a password, so at a terminal the verb works
+and prompts; from anything without a tty it does not, and for the *assigner* the
+verb was designed for — someone who may say which project a slot holds and may
+not say what it may talk to — it does not exist at all.
+
+## Why this is not a packaging detail
+
+The verb writes two things and then asks for a third:
+
+1. the allowlist link, re-pointed — **inside** the record's `flock`;
+2. the record, `.policy = $want` — the same lock, link first;
+3. `systemctl restart capsule-proxy-<slot>` — **outside** it, and outside this
+   user's authority.
+
+(1) and (2) are one atomic pair on purpose, so the record and the link cannot
+disagree. (3) is what makes either of them true of the wire, because the proxy
+renders its config at start and holds it. So the invariant the lock protects is
+*the record agrees with the link*, and the thing anyone actually cares about is
+*the wire agrees with the record* — which no lock covers.
+
+`writeShellApplication` sets `-e`, so a failed `sudo` aborts the program after
+both writes. The output is not silent — the `restarting …` line has already
+printed and sudo says its piece — but the *state* is: two halves moved, the third
+did not, exit nonzero, and `capsule all status` reports the new policy because it
+reads the record.
+
+**Direction decides severity, and it is the wrong way round.**
+
+| selection | record + link | wire until a restart | |
+| --- | --- | --- | --- |
+| `sealed` → `build` | `build` | `sealed` | fail-closed; confusing, harmless |
+| `build` → `sealed` | `sealed` | **`build`** | fail-open; the perimeter is wider than every reader of it says |
+
+A narrowing that half-lands is exactly the case a policy verb exists for.
+
+## Three fixes, and which one is the shape
+
+**Refuse before writing anything.** The verb can ask whether it will be able to
+restart — `sudo -n` against the exact unit — and refuse the whole selection
+before the lock is taken. This is the repo's own discipline extended one step: a
+selection that cannot reach the wire is not a selection, and the existing order
+(link first, then record, under one lock) already says the half-state is the
+thing to design against. Cheap, no privilege granted, and it converts a
+fail-open into a refusal.
+
+**Let the module grant exactly that restart.** The module declares the
+`capsule-proxy-<slot>` units, so a `security.sudo.extraRules` naming them —
+`systemctl restart capsule-proxy-a`, one literal per declared slot, no wildcard —
+belongs in `host/services.nix` and not in `~/flakes`. It is proportionate: an
+assigner may already select the policy, and the only new power is bouncing a
+proxy, which is a brief fail-closed egress outage. This makes the verb actually
+delegable rather than merely shaped that way.
+
+**Take the human out of it: a path unit.** `systemd.paths` watching
+`allowlistDir` and restarting that slot's proxy would make step (3) systemd's,
+triggered by step (1). Attractive and it is *not* the same claim — it makes the
+wire eventually agree rather than agree, and it introduces a restart nobody
+asked for, on a directory a human can also edit by hand. It also inverts the
+direction the perimeter is supposed to flow: a control that reacts to a file is a
+control taking instructions from the filesystem, which is a weaker version of
+what item 36 refused when it kept the proxy from reading the assignment record.
+
+Recommendation: the first two together — refuse when it cannot be done, and make
+it possible for the person the verb was built for. Not the third.
+
+## What this belongs to
+
+The same family as the four before it, and the one the last of them predicted.
+[Item 37](./037-a-teardown-that-only-unnames.md) found programs nothing built,
+[38](./038-a-probe-that-became-a-borrower.md) an assertion nothing ran,
+[39](./039-a-bind-is-not-a-traversal.md) a unit nothing started, and
+[40](./040-no-doors-is-not-the-other-shape.md) a refusal nothing had triggered.
+This is a **branch nothing had taken** — `is-active` was false every previous
+time — and it was taken today under a borrowed sudo ticket, which is the sort of
+thing that makes a first run look like a pass.
+
+`policyCases` cannot catch it: the cases stub the host and run as one uid, and
+this is a privilege. It is the fourth instance of *a case suite proves logic and
+never authority*, after the guard's `CAP_SYS_PTRACE` (item 30) and the proxy's
+traversal (item 39) — both of which were answered by pairing two of the module's
+own declarations and throwing at eval. The same answer is available here and is
+better than an assertion: if the module grants the rule, the pairing is
+`capsule-proxy-<slot>` exists ⇒ a sudoers rule names its restart, and both halves
+are in this repo.

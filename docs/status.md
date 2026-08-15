@@ -6,7 +6,23 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-15, after **`capsule all status` was found to spend ten
+Last updated 2026-08-15, after **the switch landed and two slots came up with
+working proxies for the first time, which finishes
+[item 36](./ledger/036-a-policy-is-selected-not-named.md) and proves
+[item 39](./ledger/039-a-bind-is-not-a-traversal.md)**. `a` on `build` answered
+`HTTP/1.1 200 Connection established` in the same breath as `b` on `sealed`
+answered `HTTP/1.1 403 Filtered`, through `capsule-proxy-a` and
+`capsule-proxy-b` — **the units, not a probe's proxy**, which is the one thing
+every egress figure before today was missing. `b` came back to `200` on `build`.
+`capsule b collect` was refused by `mayCollect`, unreachable on a stopped slot
+and never triggered before. The `policy` verb's restart branch ran six times
+across both slots, and running it found
+[item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md), **open**: that
+branch is `sudo systemctl restart capsule-proxy-<slot>`, this host permits no
+such rule, and it worked today only on a ticket a `just up` left warm — so the
+verb item 36 built to be *delegable* ends in a privilege the assigner has not
+got, and a failed restart leaves the record and link narrowed while the wire
+stays wide. Before that, after **`capsule all status` was found to spend ten
 seconds a row proving that this host is not the shape it is**
 ([item 40](./ledger/040-no-doors-is-not-the-other-shape.md), below):
 `host/cli.nix`'s `door` decided which transport reaches a capsule by asking
@@ -131,6 +147,41 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **Two slots up, two policies, and the first `capsule-proxy-<slot>` ever to
+  serve a capsule.** Closes item 36 and proves
+  [item 39](./ledger/039-a-bind-is-not-a-traversal.md);
+  [probes](./probes.md#what-the-units-own-perimeter-answered-the-first-time-one-ran)
+  has the transcript. `a` on `build` → `200 Connection established`, `b` on
+  `sealed` → `403 Filtered`, at the same moment, both *HTTP* answers from live
+  tinyproxies rather than the ambiguous `deny` a dead proxy also produces. Then
+  `b` on `build` → `200`, so the answer follows the policy on one slot as well as
+  between two. **Every egress figure in this repo before today was taken through
+  a probe's own proxy** — same construction, which is the argument
+  `perimeter/` takes injected fragments to make, but an argument is not a run.
+
+  Also run for the first time: `mayCollect`'s refusal (`capsule b collect` under
+  `sealed`, which a stopped slot cannot reach because the transport's socket
+  check precedes the policy parse), and the `policy` verb's proxy-restart branch,
+  six times.
+
+  **What it cost: [item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md),
+  open.** That restart branch is `sudo systemctl restart capsule-proxy-<slot>`.
+  This host has no rule permitting it — `sudo -n -l` lists `nft list table inet
+  capsule-forward` and `rtcwake`, nothing else — so the verb item 36 built for an
+  *assigner* to use ends in a privilege an assigner does not have, and it ran
+  today only because a `just up` minutes earlier had left a sudo ticket warm. The
+  record and the link move under one lock; the wire is a third thing outside it.
+  A failed restart is therefore **fail-open in the one direction that matters**:
+  `build` → `sealed` leaves every reader saying `sealed` while the proxy still
+  serves `build`. Recommended fix is two things — refuse before writing either
+  half, and let the module grant exactly that one restart for the slots it
+  declares — and explicitly not a path unit, which would make the perimeter react
+  to the filesystem.
+
+  Still not taken, and it is two commands: the **in-place** restoration on one
+  slot, `sealed` and back with nothing moving but the proxy. `b`'s two answers
+  span a stop and a start.
+
 - **A fallback selected by absence, and the ten seconds a status row spent on
   it.** [Item 40](./ledger/040-no-doors-is-not-the-other-shape.md). `door` in
   `host/cli.nix` picks the way in to a capsule: its relay socket if it has one,
@@ -230,7 +281,8 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   `mayCollect` — the injected fragment's socket check sits ahead of the policy
   parse, so a slot with no door never gets as far as the policy that would have
   refused it. Both are one boot of `b` away, and `b` is left on `sealed` so they
-  cost one.
+  cost one. **Both have since run, on that boot** — the `mayCollect` refusal and
+  the restart branch, above.
 
   **The two reds are a third instance of the same class, one level down.** The
   probe asserted a collect landed at `refs/capsule/<name>/<branch>`;
@@ -1320,14 +1372,25 @@ It is in flight rather than finished, and one of the two is cheap.
 
 ## Open, and nothing should claim these closed
 
-- **Which of build / run / start / *trigger* does the evidence cover?** Four
-  findings in two days, each green everywhere it was looked at: item 37 found
-  programs nothing built, item 38 an assertion nothing ran, item 39 a unit
-  nothing started, item 40 **a refusal nothing had ever triggered**. The last is
-  the largest remaining seam — a branch can be built, evaluated, shellchecked and
-  shipped while the condition selecting it has never once been true, and nothing
-  in this repo distinguishes that from a branch that works. The list of refusals
-  in that state is further down this section and it is long.
+- **The `policy` verb ends in a privilege the assigner has not got**
+  ([item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md)). `sudo
+  systemctl restart capsule-proxy-<slot>`, with no rule on this host permitting
+  it; it worked the first time it ever ran only because of a warm sudo ticket.
+  A failed restart leaves the record and the link narrowed and the wire wide.
+  Nothing is broken here today — the human has full sudo at a terminal — and the
+  verb is not delegable until it is fixed, which is the thing item 36 built it
+  for. Recommendation in the item; unimplemented.
+- **Which of build / run / start / trigger / *take* does the evidence cover?**
+  Five findings in two days, each green everywhere it was looked at: item 37
+  found programs nothing built, item 38 an assertion nothing ran, item 39 a unit
+  nothing started, item 40 **a refusal nothing had ever triggered**, item 41 **a
+  branch nothing had ever taken**. That last pair is the largest remaining seam —
+  a branch can be built, evaluated, shellchecked and shipped while the condition
+  selecting it has never once been true, and nothing here distinguishes that from
+  a branch that works. Worse, item 41's *first* run passed on an accident of
+  environment, which is what a first run is least likely to expose. The list of
+  refusals and branches in that state is further down this section and it is
+  long.
 - **A namespace teardown is instrumented as a *program* and not as a *unit*.**
   `probe/netns-restart.sh` runs `capsule-netns` directly, 33/33
   ([item 37](./ledger/037-a-teardown-that-only-unnames.md)). What is outside it

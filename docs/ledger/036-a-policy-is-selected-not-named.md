@@ -1,6 +1,18 @@
 # NOTES item 36 — a policy is selected from a declared set, never named by a project
 
-*State: **built, switched, and proven at the wire**. The vocabulary and each
+*State: **finished — built, switched, and proven at the wire by the units
+themselves**. The two claims this item was left owing both needed a running slot
+and both are made: `capsule b collect` was refused by `mayCollect` under
+`sealed`, and the `policy` verb's proxy-restart branch ran six times across two
+slots. `a` on `build` answered `200` in the same breath as `b` on `sealed`
+answered `403 Filtered` — through `capsule-proxy-a` and `capsule-proxy-b`, not a
+probe's proxy — and `b` came back to `200` when it was put on `build`
+([probes](../probes.md#what-the-units-own-perimeter-answered-the-first-time-one-ran)).
+Running that branch found [item 41](./041-a-delegable-verb-that-ends-in-root.md):
+the verb this item built to be delegable ends in a `sudo` nobody delegated. What
+follows is the design as decided.*
+
+*The vocabulary and each
 slot's set are declared, all three limbs have moved out of `target.nix`, `capsule
 <slot> policy <name>` selects within a slot's set, and 28 cases pin it. Switched
 on this host, which is also what materialised the per-slot symlinks: `a` and `b`

@@ -1179,6 +1179,110 @@ has now done that: **109 s**, above. So freshness's price is no longer "asserted
 but not priced"; the probe's own 22 assertions simply are not where the price
 comes from, and the two should not be conflated.
 
+## What the units' own perimeter answered, the first time one ran
+
+Not a probe — two declared slots on this host, both up at once, after
+[item 39](./ledger/039-a-bind-is-not-a-traversal.md)'s switch landed. Every
+egress figure above this line was taken through a *probe's* proxy, built by
+`probe/harness.sh`'s `proxy_up` in the probe's own namespace as the human. Same
+construction, which is the argument `perimeter/` takes injected fragments to be
+able to make — but an argument and not a run. This is the run.
+
+`a` on `build` and `b` on `sealed`, one `curl` each, at the same moment:
+
+```
+=== a (build)
+HTTP/1.1 200 Connection established
+Proxy-agent: tinyproxy
+
+=== b (sealed)
+HTTP/1.1 403 Filtered
+Server: tinyproxy
+```
+
+Both are *HTTP* answers from a live tinyproxy, which is the distinction stage 2b
+of [two-capsules](#what-two-capsulessh-established) had to assert explicitly: a
+dead proxy and a sealed one are the same `deny` to anything that only reads the
+exit status. `a` answering `200` in the same breath is what says `b`'s slot is
+refused rather than broken.
+
+Then the other half of the round, on `b` alone — because a denial is only worth
+what its restoration is worth:
+
+```
+=== b (build)
+HTTP/1.1 200 Connection established
+Proxy-agent: tinyproxy
+```
+
+Same slot, same guest, same unit, and the answer followed the policy.
+**Honestly: those two `b` readings span a stop and a start**, not only a proxy
+restart — the sequence was `policy sealed`, `stop`, `policy build` (which took
+the *inactive* branch and rendered nothing), `start`, `policy build` again for
+the restart. So it is the restoration round with a reboot inside it. The
+in-place form — one slot, `sealed` and back, with nothing moving but the proxy —
+is two commands and has not been taken.
+
+Three things that had never happened, in one boot:
+
+- **A `capsule-proxy-<slot>` unit served a capsule.** First time on any slot,
+  under any policy, since item 36 was switched — that is the whole of item 39's
+  evidence, and nothing in this repo could produce it.
+- **`sealed` was rendered by a declared slot's own proxy.** It had refused
+  `api.anthropic.com` for two probes' guests; now it refuses for `b`.
+- **`mayCollect` refused.** Unreachable on a stopped slot, because the transport
+  fragment's socket check sits ahead of the policy parse:
+
+  ```
+  capsule-collect: policy 'sealed' does not permit collecting, so
+    nothing leaves this capsule.
+  ```
+
+And the `policy` verb's **restart** branch ran — six times across both slots,
+generations 12 to 15 on `b` and 6 to 8 on `a`, each printing `restarting
+capsule-proxy-<n> — egress is down for the length of it`. Every previous call in
+this repo's history took the other branch, which is
+[item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md): it needs `sudo`,
+this host has no rule for it, and it ran here only because a `just up` minutes
+earlier had left a ticket warm.
+
+### Figures from the same boot
+
+Per-slot memory is each unit's own cgroup, which is the instrument `just load`
+settled on and the only one that does not double-count the single guest image.
+
+| | `a` (build) | `b` (sealed) |
+| --- | --- | --- |
+| `mem cur/peak` MiB, freshly booted and idle | 717/718 | 714/714 |
+| disk | 6% | 1% |
+
+**1431 MiB for two built slots at idle**, measured per-unit. `b` re-read
+**689/689** after its second boot of the same evening and `a` drifted to 719 —
+so a slot's idle figure reproduces to about 3.5%, and the spread is within one
+boot-to-boot, not between slots. The 1.0–1.2 GiB
+range in runs 3 and 4 of two-capsules is the same quantity read off host-wide
+`MemAvailable` on a host running other agents; this is the reading that does not
+have that problem, and it agrees with them.
+
+systemd's own accounting for `b`'s entire life, from its `ExecStop`:
+
+```
+microvm@b.service: Consumed 6.005s CPU time over 1min 43.008s wall clock time,
+723.2M memory peak, 268K read from disk, 4.4K incoming IP traffic,
+4.8K outgoing IP traffic.
+```
+
+6 s of CPU over 103 s wall is a boot plus idle. 723.2M against the cgroup's 714
+MiB is the same figure read twice — peak, including the stop.
+
+**The two IP counters are not the capsule's traffic and must not be quoted as
+it.** systemd's `IPAccounting` hooks the cgroup's *sockets*; the guest's bytes
+leave through a tap fd the VMM writes to, and its egress is a different unit
+(`capsule-proxy-b`) in a different cgroup. So 4.4K/4.8K is what the VMM process
+itself did over sockets, which is close to nothing, and a sealed capsule reading
+almost zero here would read the same on `build` with a build running. Anything
+that wants the guest's volume has to ask the tap or the proxy.
+
 ## What a fleet status costs
 
 Not a probe — `time` around the front end on this host, before and after
