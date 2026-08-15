@@ -11,9 +11,10 @@ only unname, and the check that should have caught the fix was found not to
 exist** ([item 37](./ledger/037-a-teardown-that-only-unnames.md), below). A
 `systemctl restart` of one slot's namespace unit failed and left wreckage that
 `systemctl stop` could not reach; both netns programs now roll back an aborted
-`up` and delete their veth peer explicitly, **switched and witnessed** — six
-restarts at a 1 ms gap where the pre-fix code failed at 4 s. The larger half is
-that
+`up` and delete their veth peer explicitly, **switched and instrumented** —
+`probe/netns-restart.sh`, 33/33, and 30/3 against a deliberately pre-fix
+program, which is also what withdrew this item's first reading of its own
+evidence. The larger half is that
 `hostModulePrograms` now builds every program the module's units name — nothing
 ever had, so shellcheck had never run on `capsule-netns`,
 `capsule-egress-ns` or `capsule-perimeter-guard`. Before that, the same day,
@@ -115,15 +116,25 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   Watched going red on an unused variable while `hostModuleUnits` stayed green,
   which is the demonstration that the gap was real.
 
-  **Switched and witnessed at the failure it repairs**: six consecutive
-  `systemctl restart capsule-netns-b` finished, at a 1 ms gap between `Stopped`
-  and `Starting`, where the pre-fix code failed at 4 s
-  ([probes](./probes.md#what-a-namespace-units-restart-costs-before-and-after-item-37)).
-  The timing *is* the assertion — a start that soon can only find the peer's
-  name free if `down` deleted the veth synchronously, so the second direction
-  needs no separate observation. Still owed is an instrument rather than a
-  claim: that was a human reading timestamps, and no case suite can hold a
-  namespace.
+  **Switched, and instrumented**: `probe/netns-restart.sh` drives the real
+  `capsule-netns` through the seam it already had — every per-capsule value comes
+  from its unit's `Environment=` — on addressing that is nobody's capsule. No VM,
+  no tap, no guest, under a second. **33/33, and 30/3 against a deliberately
+  pre-fix program** ([probes](./probes.md#what-netns-restartsh-established)).
+
+  **The probe withdrew the reasoning the fix was first recorded under.** Six
+  hand-run restarts at a 1 ms gap were taken as proof that `down` deletes the
+  veth synchronously, on the grounds that no reaper is that fast. It usually is:
+  the pre-fix program passes five up/down cycles at ~90 ms each. So the timing is
+  a cost figure, not evidence — and the two claims that discriminate are the two
+  the race has nothing to do with, an aborted `up` stranding a peer in the root
+  namespace and a `down` clearing a peer no namespace accounts for. Both fail
+  against the pre-fix program every time. The race is the least instrumentable
+  part of this bug and the smallest part of it.
+
+  Still owed: the same teardown driven by a **unit**. The probe runs the program,
+  and systemd's ordering, `ExecStop` semantics and start limit are what turned
+  this from a failed restart into a recovery.
 
 - **A policy is selected from a declared set now, and it is built.**
   [Item 36](./ledger/036-a-policy-is-selected-not-named.md) is Plan D D2's
@@ -1128,14 +1139,13 @@ It is in flight rather than finished, and one of the two is cheap.
 
 ## Open, and nothing should claim these closed
 
-- **A namespace unit's restart has been exercised, but not by anything that
-  runs again.** [Item 37](./ledger/037-a-teardown-that-only-unnames.md)'s fix is
-  witnessed — six restarts at 1 ms where 4 s used to fail — by a human reading
-  journal timestamps. Stubbing `ip` would assert the fix issues the right
-  commands in the right order, which is the implementation and not the
-  behaviour, so the instrument is a probe: up, down, up again immediately,
-  asserting the return *and the gap it returned across*. No guest needed, so it
-  is cheap, and it now has a figure to assert against rather than a hope.
+- **A namespace teardown is instrumented as a *program* and not as a *unit*.**
+  `probe/netns-restart.sh` runs `capsule-netns` directly, 33/33
+  ([item 37](./ledger/037-a-teardown-that-only-unnames.md)). What is outside it
+  is systemd: ordering, the fact that a unit failing in `ExecStart` never runs
+  `ExecStop`, and the start limit — two of which are what turned this bug from a
+  failed restart into a recovery. That is a live-host claim and probably not a
+  probe's shape.
 - ~~**The flavour composition has never been in an image.**~~ Built, refreshed
   onto slot `a`, and a real workload has built on it — and it cost **+0.5 GiB of
   closure and +100.9 MiB of erofs**, with no second toolchain, since

@@ -59,7 +59,22 @@ PLAN_C's addressing and isolation decisions rest on. They need root, so they are
 the user's to run (`sudo probe-netns`); `just build` shellchecks them. Write new
 ones the same way: assert both directions, since a denial-only network test
 passes for the wrong reason, and never borrow live addressing — a probe on the
-real `/30` tests the real capsule. `probe/harness.sh` is concatenated ahead of
+real `/30` tests the real capsule. **Nor a live *name*:** `probe/netns-egress.sh`
+sets `NSWAN=cap-egress`, the string `capsules.nix` declares for the live
+aggregator, so on a module-path host its "left over, delete it" refusal names a
+production namespace and instructs you to delete it. Doing so cost a guard
+failure and a recovery. **And a probe's set-up produces the state it needs
+rather than inheriting something that resembles it** (NOTES item 37, three
+faults in one file): `|| exit 1` on a set-up step kills the run with no report at
+exactly the moment the program under test is broken; tolerating a failed set-up
+lets residue — a link on its way out — satisfy the precondition and be reaped
+before the assertion, so the control passes for the wrong reason; and a round
+that inherits the previous round's wreckage makes every later red name the wrong
+round. Never ask the program under test to clean up after its own failure.
+**Mutate and re-run**: build the probe against a deliberately broken copy of
+what it tests and check *which* rounds go red — that is how all three of those
+were found, and how a round that resembles the real failure but never
+discriminates gets caught. `probe/harness.sh` is concatenated ahead of
 each probe by the `probe` builder in `flake.nix`, not sourced, so shellcheck
 sees one file; values from `net.nix`/`target.nix` reach a probe through that
 builder's `prelude` rather than being spelled in the script. **Quote them

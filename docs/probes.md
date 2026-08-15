@@ -12,6 +12,7 @@ them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 | probe | question | run | last result |
 | --- | --- | --- | --- |
 | `netns.sh` | is a netns per capsule sound? | `sudo probe-netns` (`--internet` for the egress stage) | 14 assertions green, seconds. Models two capsules and a guest that already has root — no VM |
+| `netns-restart.sh` | does a capsule's namespace survive being torn down and rebuilt? | `sudo probe-netns-restart` | **33/33 green**, and **30/3** against a deliberately pre-fix program. Drives the real `capsule-netns` on addressing that is nobody's capsule — no VM, no tap, no guest, seconds |
 | `netns-boot.sh` | does firecracker boot with its tap inside one? | `sudo probe-netns-boot` | 9/9 green (doctrine EVD-018). The real capsule, the real image |
 | `netns-egress.sh` | does the *perimeter* survive the move into one? | `sudo probe-netns-egress` | **33/33 green, run 3** — 27/27 for the perimeter, plus stage 2b's six, which is the first time a *selected* policy has reached a wire. The real capsule with the real proxy joined to its namespace; allowed **and** denied both asserted, in both rounds |
 | `freshness.sh` | what does a fresh capsule cost, and which of REQ-450's five axes hold? | `sudo probe-freshness [REF]` | 22/22 green, twice (doctrine EVD-019) — figures below |
@@ -160,16 +161,68 @@ reason: the guest image has `net.nix` in it, so the real capsule is the subject.
 Everything it adds is on its own addressing (10.100/16, 10.101/30) and it
 refuses to start on an overlap.
 
+## What netns-restart.sh established
+
+**33/33 against the shipped program, 30/3 against a pre-fix one.** The instrument
+[item 37](./ledger/037-a-teardown-that-only-unnames.md) owed, and it drives the
+**real** `capsule-netns` rather than a copy: the program takes every per-capsule
+value from its unit's `Environment=`, deliberately, so that `systemctl cat` shows
+a boundary's addressing — and that is a seam a probe can supply a whole capsule's
+worth of nobody's addressing through. Same shape as `guardCases`' `tools`,
+pointed at a probe instead of a build. No VM, no tap, no guest, nothing in the
+root namespace, seconds to run.
+
+**Three of the five rounds discriminate, and they are not the three you would
+pick.** Against the pre-fix program:
+
+| round | assertion | pre-fix |
+| --- | --- | --- |
+| 2 | the peer is gone from the aggregator, with no wait | **coin flip** — passed in two mutation runs, failed in one |
+| 3 | an aborted `up` stranded no peer in the root namespace | **always red** |
+| 4 | five up/down cycles back to back | **always green** |
+| 4 | no peer survives the cycles | **red** |
+| 5 | `down` clears a peer no namespace accounts for | **always red** |
+
+The two that never flip are the two the race has nothing to do with. A failed
+`ip link set … netns` leaves the link where it was, so the **strand** is not
+timing at all; and an **orphan** has no namespace whose deletion could reap it as
+a side effect, so nothing but the program can remove it. Everything else here is
+the kernel's reaper being fast, which is exactly why this bug was intermittent
+enough to reach production — and why round 4, the round that most resembles what
+a human does, is the round that proves least.
+
+Five up/down cycles cost **0.40–0.66 s** across runs, so `up` plus `down` is
+under 130 ms.
+
+**Three probe-design faults were paid for here**, each found by a mutation run
+rather than by reading, and all three are about set-up rather than assertions:
+
+- `|| exit 1` on a set-up step made the probe die with no report at all, at
+  exactly the moment the program under test was broken.
+- Tolerating a failed set-up let *residue* stand in for the plant it needed.
+  Residue is a link on its way out: it satisfied "the name is taken", was reaped
+  before the next line, and the control then passed for the wrong reason.
+- A round that inherits the previous round's wreckage makes every later red name
+  the wrong round — three of one run's six failures were downstream of one
+  control that had not fired.
+
+Together: **a probe's set-up must produce the state it needs, not inherit
+something that resembles it, and must not ask the program under test to clean up
+after its own failure.**
+
 ## What a namespace unit's restart costs, before and after item 37
 
-Not a probe — a human at a terminal with no guest running, which is why
-[item 37](./ledger/037-a-teardown-that-only-unnames.md) still owes an
-instrument. The figures live here anyway, because the whole claim *is* a figure.
+Not a probe — a human at a terminal with no guest running. `probe/netns-restart.sh`
+is the instrument that followed, and it is what corrected the paragraph below
+the table.
 
 | | gap between `Stopped` and `Starting` | result |
 | --- | --- | --- |
 | before | **4 s** | `Error: An interface with the same name exists in the target netns.` |
 | after | **1 ms**, six consecutive restarts | `Finished` every time |
+
+Read the "before" row as *the race can be lost even at four seconds*, not as a
+threshold. The probe loses it at 4 s and wins it at 90 ms in the same session.
 
 ```
 15:34:02.653471  Stopped network namespace for capsule b.
@@ -178,11 +231,22 @@ instrument. The figures live here anyway, because the whole claim *is* a figure.
 15:34:02.769816  Stopping network namespace for capsule b...
 ```
 
-**The timing is the assertion, and it is the stronger of the two that were
-going to be made separately.** A start 1 ms after a stop can only find the
-peer's name free if `down` deleted the veth *synchronously*; no kernel reaper is
-that fast, and demonstrably was not at four seconds. So "the peer is gone from
-the aggregator in between" needs no second observation.
+**What this does not show, and the first version of this section claimed it
+did.** The reasoning recorded here was: a start 1 ms after a stop can only find
+the peer's name free if `down` deleted the veth synchronously, since no kernel
+reaper is that fast. `probe/netns-restart.sh`'s mutation run refuted that — the
+**pre-fix** program passes five up/down cycles at ~90 ms each, and passes "the
+peer is gone from the aggregator, with no wait" as well. The reaper is usually
+that fast on this host, which is also why the bug was intermittent enough to
+reach production.
+
+So the six clean restarts are consistent with the fix *and* with luck, and they
+are kept as a cost figure rather than as evidence. What the fix actually buys is
+that the outcome no longer depends on winning that race — and the claims that
+**do** discriminate are the two the race has nothing to do with: an aborted `up`
+must strand no peer in the root namespace, and a `down` must clear a peer that
+no namespace accounts for. Both are in the probe, and both fail against the
+pre-fix program every time.
 
 `up` costs ~100 ms and `down` ~60 ms, which is what makes six restarts fit in
 three seconds — and therefore what trips systemd's `StartLimitBurst=5` in
@@ -994,9 +1058,11 @@ comes from, and the two should not be conflated.
   chain`, which is the probe reporting that it did *not* need its public-resolver
   fallback. The fallback stays, because it is what makes the difference legible
   rather than silent.
-- **A namespace unit's restart, by anything that runs again.** The
-  [timings above](#what-a-namespace-units-restart-costs-before-and-after-item-37)
-  are a human reading a journal — they settle the claim and instrument nothing.
-  Up, down, up immediately, asserting the return *and the gap*, needing no
-  guest ([item 37](./ledger/037-a-teardown-that-only-unnames.md)).
+- ~~**A namespace unit's restart, by anything that runs again.**~~ Instrumented:
+  `probe/netns-restart.sh`, 33/33, above. It also **withdrew the reasoning** the
+  hand-run timings were recorded under — the gap was never the assertion, and
+  the two claims that discriminate turned out to be the two with no race in
+  them ([item 37](./ledger/037-a-teardown-that-only-unnames.md)). What is *not*
+  covered is the same teardown under a **unit**: the probe runs the program, and
+  systemd's ordering, `ExecStop` semantics and start limit are not in it.
 - Throughput over the unix socket. The tap did ~100 MiB/s each way.
