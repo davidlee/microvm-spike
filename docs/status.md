@@ -78,7 +78,16 @@ probe-netns-egress` 33/33 (below). One guest, two policies in sequence, the
 answer changing and coming back. Two capsules on two policies *at once* is still
 uninstrumented. It also cost one real bug in `vm-stop`, which reported a
 module-path capsule as down while it ran
-([item 20](./ledger/020-which-capsule-a-program-means.md)) — fixed, unexercised.
+([item 20](./ledger/020-which-capsule-a-program-means.md)) — fixed, and **now
+exercised**: `vm-stop b` against a running module-path slot refuses instantly and
+names `capsule b stop`. The exercise cost a demonstration of the store-path trap
+in the same breath, worth more than the refusal: the `vm-stop` on the devshell
+`PATH` was a **store path predating the fix**, and it did not fail — it spent ten
+seconds on `ssh: connect to host 10.99.0.2 port 22: Connection timed out` and
+then reported `vm-stop: b is down` **about a capsule that was running**, which is
+the exact failure the refusal exists to prevent. Both copies are called
+`vm-stop`, and only the one built after the fix has it. Build it, or ask the
+installed program.
 Before that, the same day, after **the pool — `capsules.nix` declares `a`…`j`,
 which is [Plan D](./plan-d-fleet.md) D2's declaration half** (below): built,
 switched, and costing 3% of an eval and one page of PID 1 at rest — with the
