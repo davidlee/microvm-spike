@@ -1,0 +1,29 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 3
+slug = "the-relay-costs-nothing-on-bulk-and-clumped-every-keystroke"
+title = "The relay costs nothing on bulk and clumped every keystroke"
+record_kind = "evidence"
+status = "captured"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+datum = "Git over the relay socket runs 93.7 MiB/s out and 117.9 MiB/s back, the same order as the tap directly; keystroke echo was 18-20 ms a character from Nagle, and the post-fix figure is unmeasured."
+provenance = "experiment"
+confidence = "medium"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)
+
+[[relation]]
+label = "supports"
+target = "CON-004"

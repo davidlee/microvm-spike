@@ -9,6 +9,17 @@ figures the first time one of them is edited.
 All of them need root, so they are the user's to run. `just build` shellchecks
 them. How to write one is in [CLAUDE.md](../CLAUDE.md).
 
+**Seven figures are also knowledge records, and this file is still their
+source.** Where another record load-bears on a number — a question it would
+answer, a constraint it prices — that number is minted as an `EVD` so the edge
+can be drawn (`doctrine knowledge list`, and `supports` edges onto `QUE-004`,
+`QUE-005`, `CON-001`, `CON-004`). `EVD-001` the ratchet, `EVD-002`
+time-to-interactive, `EVD-003` the relay, `EVD-004` probe totals, `EVD-005` disk,
+`EVD-006` the scoped exhibit, `EVD-007` the flavour composition. **That is a
+citation, not a copy**: each says which section here it came from, and a re-taken
+figure is edited here and the record superseded. Do not mint an `EVD` for a
+figure nothing points at — this file is where a number lives by default.
+
 **`CAPSULE_KEEP=1` is what a red run wants.** A probe that makes its own state
 directory removes it afterwards, and the guest console log lives *inside* it — so
 by the time anybody wants a console log, the ordinary run has deleted it. Every

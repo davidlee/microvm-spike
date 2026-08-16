@@ -1,0 +1,29 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 5
+slug = "disk-is-the-practical-limit-and-this-filesystem-has-no-reflink"
+title = "Disk is the practical limit, and this filesystem has no reflink"
+record_kind = "evidence"
+status = "captured"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+datum = "166 GiB available of 1.78 TiB under /var/lib, 91% used, on ext4 with no reflink - so a cloned volume copies the source's allocated blocks, its high-water mark rather than its current usage."
+provenance = "inspection"
+confidence = "high"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)
+
+[[relation]]
+label = "supports"
+target = "QUE-004"

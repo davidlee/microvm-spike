@@ -1,0 +1,25 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 6
+slug = "a-scoped-collect-took-36-entries-against-1886"
+title = "A scoped collect took 36 entries against 1886"
+record_kind = "evidence"
+status = "captured"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+datum = "The same exhibit is 1886 entries whole (1633 files, 253 symlinks, 18.6 MiB) and 36 entries scoped by the assignment's unit token."
+provenance = "inspection"
+confidence = "high"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)

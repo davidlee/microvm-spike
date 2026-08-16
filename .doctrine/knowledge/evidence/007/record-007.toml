@@ -1,0 +1,29 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 7
+slug = "the-flavour-composition-costs-half-a-gigabyte-of-closure"
+title = "The flavour composition costs half a gigabyte of closure"
+record_kind = "evidence"
+status = "captured"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+datum = "The agents + dev-facilities composition costs +0.5 GiB closure and +100.9 MiB erofs on top of the target's floor; the guest image closure is 12.4 GiB, ~99% shared."
+provenance = "inspection"
+confidence = "high"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)
+
+[[relation]]
+label = "supports"
+target = "CON-001"

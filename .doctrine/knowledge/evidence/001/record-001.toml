@@ -1,0 +1,29 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 1
+slug = "the-ratchet-a-capsule-holds-most-of-its-ceiling-until-stopped"
+title = "The ratchet - a capsule holds most of its ceiling until stopped"
+record_kind = "evidence"
+status = "captured"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+datum = "A capsule's cgroup charged anon 6141 MiB while free -m inside that guest reported 481 MiB used; a slot holds ~7.5 GiB of this host's 60.4 GiB, and a 2048 MiB ceiling cut moved anon by 46 MiB."
+provenance = "experiment"
+confidence = "high"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)
+
+[[relation]]
+label = "supports"
+target = "QUE-004"
