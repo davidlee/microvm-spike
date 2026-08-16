@@ -47,8 +47,8 @@ flowchart TB
     A --> VA[persistent volume a]
     B --> VB[persistent volume b]
 
-    A --> SA[/run/capsule/a/ssh.sock]
-    B --> SB[/run/capsule/b/ssh.sock]
+    A --> SA["/run/capsule/a/ssh.sock"]
+    B --> SB["/run/capsule/b/ssh.sock"]
 ```
 
 Slots are deliberately abstract names. They do not mean “Doctrine”, “implementation”, or “spare”. Each slot gets its own namespace, volume, socket, and host state, while every slot can run the same guest image.
@@ -67,11 +67,11 @@ Source: [`capsules.nix`](../capsules.nix), [`host/services.nix`](../host/service
 flowchart TB
     subgraph G[Firecracker guest]
         AG[agent user]
-        REPO[/work/doctrine]
-        CACHE[/work caches + HOME]
+        REPO["/work/doctrine"]
+        CACHE["/work caches + HOME"]
         GIT[git]
         SSH[sshd]
-        PX[HTTP(S)_PROXY]
+        PX["HTTP(S)_PROXY"]
 
         AG --> REPO
         AG --> GIT
@@ -163,7 +163,7 @@ Source: [`perimeter/default.nix`](../perimeter/default.nix), [`perimeter/egress-
 
 ```mermaid
 flowchart LR
-    H[Human / capsule CLI] --> S[/run/capsule/a/ssh.sock]
+    H[Human / capsule CLI] --> S["/run/capsule/a/ssh.sock"]
     S --> R[socat relay<br/>inside cap-a]
     R --> SSH[guest 10.99.0.2:22]
 
@@ -251,8 +251,8 @@ flowchart TB
 
     M --> S[sideband snapshot]
 
-    T1[.doctrine/state/slice/{unit}] --> T
-    T2[.doctrine/slice/{unit}] --> T
+    T1[".doctrine/state/slice/{unit}"] --> T
+    T2[".doctrine/slice/{unit}"] --> T
 ```
 
 The target declares an explicit allowlist of state paths. It is **not derived from `.gitignore`**, because ignored content routinely includes credentials, caches and machine-local data.
@@ -301,7 +301,7 @@ flowchart TB
     CLOSURE[Guest closure / image<br/>rebuildable]
     VOL[Per-slot /work volume<br/>persistent]
     HOST[Host quarantine + records<br/>persistent]
-    RUN[/run sockets + namespaces<br/>ephemeral]
+    RUN["/run sockets + namespaces<br/>ephemeral"]
 
     CLOSURE --> VM[Running capsule]
     VOL --> VM

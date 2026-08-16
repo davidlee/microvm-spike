@@ -22,7 +22,7 @@ but will work with any project which satisfies its
 project and framework semantics.
 
 Design rationale and known gaps live in [docs/](./docs/index.md). Here's 
-a [walkthrough with diagrams](./architecture-walkthrough.md).
+a [walkthrough with diagrams](./docs/architecture-walkthrough.md).
 
 This file describes how to use it.
 
