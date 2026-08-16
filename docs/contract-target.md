@@ -137,9 +137,24 @@ per-target shape (item 51, decision 3). A *program* holds exactly one profile an
 does branch on it, which is why `capsule-collect --unit` has two refusals and
 `capsule-brief`'s usage line has two shapes.
 
-**What has *not* moved, and it is the honest limit.** The document is a store
-path, so a second target is still a rebuild away — what has stopped being a
-rebuild apart is the programs, all of them, in every sense.
+**And the document is no longer a store path**
+([item 52](./ledger/052-the-document-leaves-the-store.md)). It is installed into
+`/var/lib/capsule-profiles` at activation, so a second target is **a file in a
+directory** rather than a rebuild — and a producer that is not nix can put one
+there, which is what making a target run-time state was for. Two consequences a
+target's author should know. Every rule about a document is checked **when it is
+read**, by the same validator on every path, so a hand-written document gets the
+same refusals a rendered one does — `capsule-profile-check <file>` is that
+validator as a program, and is what to run before dropping a document in. And a
+document under a name this host renders from `target.nix` is **overwritten at
+every activation**: `target.nix` is the source and the file is a render, so an
+edit in place is reverted.
+
+**What has *not* moved, and it is the honest limit.** The guest **image** still
+knows the project's name — the seed builds the checkout directory from the
+build-time half — so a second target on one host is still a second image
+([Plan D](./plan-d-fleet.md) §6.2). What has stopped being a rebuild apart is
+everything host-side.
 
 **Two of those rows are struck out, and that is what the column was for.**
 `allowlist` and `collectMaxPackBytes` were host controls — what a capsule may
@@ -332,7 +347,7 @@ Environment, in the order a program consults it:
 | --- | --- |
 | `CAPSULE_NAME` | which capsule, when `--capsule` is not given. There is no default — `capsules.default` was deleted ([item 28](./ledger/028-a-slot-has-no-default.md)) and a program refuses without a name |
 | `CAPSULE_PROFILE` | which target, when `--profile` is not given. No default, for `CAPSULE_NAME`'s reason and one sharper: on a host with two documents a fallback would run a verb against the wrong project's paths and report success ([item 51](./ledger/051-the-target-in-four-store-paths.md), decision 4) |
-| `CAPSULE_PROFILE_DIR` | where the rendered documents are. Defaults to what this host built, so nothing has to set it |
+| `CAPSULE_PROFILE_DIR` | which directory holds the documents. The module's copies are wrapped with `/var/lib/capsule-profiles`, where the activation installs them ([item 52](./ledger/052-the-document-leaves-the-store.md)); the devshell's baked default is this host's own render, so that path needs no environment either. One function looks in one place, which is why the switch out of the store cost a default and not a caller |
 | `CAPSULE_REPO` | overrides the profile's `path` for `capsule-provision` and `capsule <slot> fetch`. It still wins: what the lookup replaced is the *baked default*, not the environment |
 | `CAPSULE_ROOT` | this checkout, for resolving a policy's allowlist file and the default state directory |
 | `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise. Written by `capsule-collect`, read by `capsule-adopt` and `capsule-brief`; one definition, `host/quarantine.nix` |

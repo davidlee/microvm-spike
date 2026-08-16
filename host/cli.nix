@@ -943,17 +943,59 @@ in
           # already namespaced by its name, so N quarantines fetch into one repo
           # without colliding. **Which** repo is now a per-slot answer: two slots on
           # two targets fetch into two checkouts, which is the whole of item 51.
+          #
+          # **Each half is fetched on its own and answered for on its own**, and
+          # the reason is that they can disagree: a slot's second assignment
+          # diverges from its first in the code half, while the state half
+          # fast-forwards straight across the reassignment, because the guest
+          # parents each snapshot on the ref on its own volume and a provision
+          # does not touch it (NOTES item 50). One refspec is then refused and the
+          # other taken, and one exit status for the pair says only that something
+          # went wrong — so the repository is left holding one assignment's code
+          # beside another's state, under two names that say they belong together,
+          # by a verb that exited 1 and named neither.
+          #
+          # The remedy printed is the archive rather than a force: `+` here would
+          # make the first assignment unreachable in the one place it is durable,
+          # which is what the slot-keyed namespace already costs the quarantine
+          # (NOTES item 50).
+          #
+          # A sweep keeps going and fails at the end, for `aggregable`'s reason:
+          # N answers on one screen, and a slot that cannot fetch is a line rather
+          # than a decision about the others.
           fetch)
+            fetchRc=0
             for t in "''${targets[@]}"; do
               if q=$(quarantineOf "$t"); then
                 profileNameFor "$t" || exit 1
                 profileLoad "$profileName" || exit 1
-                git -C "''${CAPSULE_REPO:-$profile_path}" fetch "$q" \
-                  'refs/capsule/*:refs/capsule/*'
+                repo=''${CAPSULE_REPO:-$profile_path}
+                refused=()
+                for half in code state; do
+                  case "$half" in
+                    code) ns=${quarantine.codeRefsOf ''"$t"''} ;;
+                    *) ns=${quarantine.stateRefsOf ''"$t"''} ;;
+                  esac
+                  if git -C "$repo" fetch "$q" "$ns/*:$ns/*"; then
+                    echo "capsule $t: $half: landed"
+                  else
+                    echo "capsule $t: $half: refused" >&2
+                    refused+=("$half")
+                  fi
+                done
+                if [ "''${#refused[@]}" -gt 0 ]; then
+                  fetchRc=1
+                  echo "  the quarantine's refs are not a descendant of this repo's, which is" >&2
+                  echo "  a second assignment to '$t' meeting the first one's (NOTES item 50)." >&2
+                  echo "  Archive what this repo holds under" >&2
+                  echo "  refs/capsule/$t/gen/$(recordField "$t" generation)/, then fetch again —" >&2
+                  echo "  forcing loses the first assignment where it is durable." >&2
+                fi
               else
                 echo "nothing collected yet — capsule $t collect" >&2
               fi
             done
+            exit "$fetchRc"
             ;;
 
           ssh | admin)

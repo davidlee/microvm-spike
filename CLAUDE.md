@@ -245,7 +245,14 @@ Break these and the confinement stops meaning anything:
   tools package, caches, sizes. Its build-time half is threaded the same way; its
   **run-time half is a rendered document** (`host/profile.nix`) that every
   host-side program loads at run time, taking `--profile <name>` where it takes
-  `--capsule <name>` and refusing without one (NOTES item 51). Which name a verb
+  `--capsule <name>` and refusing without one (NOTES item 51). **The documents are
+  not in the store** (item 52): the module installs one per declared target into
+  `profileDir` at activation, overwriting the names it renders and leaving any
+  other name alone, so a second target is a file rather than a rebuild — and
+  **every rule about a document is the reader's**, one validator, run by the
+  render itself and shipped as `capsule-profile-check` for a document nix did not
+  write. Don't put a document predicate in nix; it would then hold for the
+  documents that never needed it. Which name a verb
   on a slot means is resolved by the **front end** — explicit flag, then the
   slot's record, then the one profile this host declares, refusing when several —
   because a program that reads host state to pick a target is item 20's mistake.
@@ -433,6 +440,16 @@ which shape nearly every decision here:
   derivations, one eval: `just units` stays seconds, `just build` gains the
   build. Adding a program to a unit needs no edit there; adding one that no unit
   references still needs a flake output.
+  **The same hole had two more rooms, found by item 52.** An `ExecStart` is not
+  the only place a program hides: the module's **activation scripts** are in
+  neither the unit graph nor `systemPackages`, and the **`wrap`pers** in
+  `systemPackages` were only ever *forced* — five programs whose entire text is
+  the environment this host's copies run with, never shellchecked. Both are in
+  `hostModulePrograms` now, selected by `capsule` name prefix rather than
+  hand-listed. The general form, and the one to carry forward: **forcing proves a
+  derivation evaluates; only building proves its text is a program.** Anything
+  the module produces that is neither a unit's `ExecStart` nor a flake output
+  needs a line there or nothing builds it.
 - **A hardened unit that may not read `/proc` gets a short answer, not an
   error.** `ip netns pids <ns>` works by reading `/proc/<pid>/ns/net` for every
   process, which `ptrace_may_access` gates on **`CAP_SYS_PTRACE`** for anything

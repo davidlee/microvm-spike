@@ -1,6 +1,24 @@
 # NOTES item 50 — a quarantine is keyed by a slot, and a slot outlives an assignment
 
-*State: **run, and the reading below it was half wrong.** Two assignments to slot
+*State: **the third finding is fixed and green; the key is still the slot.**
+`capsule <slot> fetch` fetches the two ref namespaces separately and answers for
+each on its own line, so the half that landed and the half that did not are both
+named, and it prints the archive that unblocks it — `refs/capsule/<slot>/gen/<n>/`,
+off the record's own generation — rather than the `+` that would make the first
+assignment unreachable where it is durable. A sweep now runs every slot and fails
+at the end, which `set -e` on a rejected fetch used to cut short wherever it had
+got to. Six rounds in `policyCases`, built from two commits off one base and a
+state chain that fast-forwards over them, because reaching it on a host costs two
+assignments to one slot; three mutations, each red on its own rounds, and a fourth
+was rejected by shellcheck before the suite ran — which reads exactly like nothing
+went red. Run on this host against slot `e` both ways: `code: landed / state:
+landed` on the current pair, and the refusal naming `refs/capsule/e/gen/7/` with
+the divergent one restored under it. **What is not fixed is the key**: a slot's
+second assignment still overwrites the first's refs in the quarantine, and the
+archive above is a thing a human does after being told to, in the repository
+rather than in the quarantine — which is the disposition
+[item 53](./053-three-coarse-verbs.md) decided and made a prerequisite of its
+`handoff`. Before that: **run, and the reading below it was half wrong.** Two assignments to slot
 `e`, one quarantine: the **code** half behaved exactly as predicted — forced,
 non-fast-forward, the first assignment's name gone and its commit left
 unreachable — and the **state** half did not, because it was never forced at all.

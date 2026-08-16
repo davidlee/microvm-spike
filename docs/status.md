@@ -50,7 +50,49 @@ measured, which is what says the run-time fork resolves where the build-time one
 did. **What it does not close, and the item says so**: the documents are a store
 path, so two targets are still a rebuild apart, and the guest image still knows
 the project's name (§6.2). Step 5 belongs to the commit that takes the documents
-out of the store. Before that, the same day, after **that item's
+out of the store.
+
+**That commit is [item 52](./ledger/052-the-document-leaves-the-store.md), and its
+first two steps are built and green.** All three decisions are taken; two of them
+were already taken in the contracts rather than by that item. **The documents are
+out of the store** and in `/var/lib/capsule-profiles`, which `host/services.nix`
+declares, tmpfiles makes and an activation script fills with one document per
+declared target — overwriting, because copy-if-absent would make a `target.nix`
+edit invisible after the first boot, and a name nix does not render belongs to
+whoever wrote it. That carries **item 51's owed step 5**, `CAPSULE_PROFILE_DIR` in
+`wrap`; the devshell path is untouched, since its baked default is still this
+host's render and it needs no environment. **Every predicate about a document is
+the reader's now** — eleven `throw`s left `host/profile.nix`, nine of them as one
+jq program giving the first failing reason, and the render is a build that *runs*
+the shipped validator over what it wrote. `host/profile.nix` split into a
+**validator** and a **locator** to make that possible, which turned out to be the
+decomposition the file wanted: the whole plain-file switch touches the second and
+not one predicate in the first. A **twelfth** rule appeared that only this commit
+could need — a document is addressed by its filename and also names itself, and
+until now nix rendered every one. `just cases` **384**. Three mutations; the one
+that neutered the grammar reddened 17 rounds, and the shape of the 17 is the
+finding: the newline rule went red on its **reason only**, because the document is
+still refused downstream by the `mapfile` count — a suite asserting exit status
+alone would have called it green. Two things are built and **not** asserted, said
+rather than covered by a round that would not discriminate: that the render
+invokes the checker, and that `wrap` exports the right directory. The second
+turned up item 37's class a third time — `installed` forces the wrappers'
+outPaths and builds nothing, so five programs whose entire text is an environment
+had never been shellchecked; `hostModulePrograms` now embeds them and the module's
+activation scripts, which also makes the rendered document a build input.
+**Step 3, `profile_snapshot`, is owed** and matters more after this commit than
+before it: while the documents were in the store nothing could edit one.
+
+**The host has been switched** onto step 6's programs, and asked
+rather than read: the installed `capsule-collect` refuses without `--profile`, all
+eight verbs are on `PATH`, and `capsule all status` prints ten rows and the `unit`
+column with `d` still driving SL-251. One step-6 leftover came out of that —
+`host/services.nix` still wrapped four of those programs in
+`lib.optional (… != null)`, a claim that a host may lack `capsule-brief`, which is
+the *same* claim decision 3 refused one layer up and which nothing can now make
+true. Removed; `hostModuleUnits` names all eight.
+
+Before that, the same day, after **that item's
 step 4 was built and its fourth decision taken**: **every host-side program reads
 the target's run-time half out of a document now**, so not one of them is a
 function of which project this host confines. `capsule-provision`,
@@ -1864,6 +1906,15 @@ capsules were named after names that no longer exist:
 [contract-assignment.md](./contract-assignment.md), switched, and run** (above).
 §0's four-hot recommendation is rewritten, since a fleet plan that sizes slots by
 ceiling was sizing them wrong.
+
+**D7's first task is done as far as one commit can take it**
+([item 51](./ledger/051-the-target-in-four-store-paths.md), closed), and its
+remainder is scoped as
+[item 52](./ledger/052-the-document-leaves-the-store.md) — the documents out of
+the store, which is what §6.1's controller needs and what makes a second target a
+file rather than a rebuild. Nothing of 52 is built. It is not a prerequisite for
+D2 and D2 is not one for it; 52 is the cheaper of the two and the one whose
+decisions are already taken.
 
 Next: **D2, the pool. Its half of L12 is built, switched and run — L12 is closed**
 ([item 30](./ledger/030-a-pool-audits-what-exists.md)): the guard holds one

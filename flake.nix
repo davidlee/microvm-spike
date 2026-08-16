@@ -515,10 +515,12 @@
     # optional on anything (host/profile-cases.nix).
     profileCases = import ./host/profile-cases.nix {
       inherit pkgs lib;
-      inherit (hostProfile) fragment select inputs dir name;
-      # The same construction this host's own profile comes from, so the suite
-      # can watch the render *refuse* a target. A throw is not a build, so it is
-      # read at eval and asserted in the shell — `hostModuleUnits`' arrangement.
+      inherit (hostProfile) fragment select inputs dir name check;
+      # The same construction this host's own profile comes from, so a fixture
+      # document has the key set a real one has rather than the key set this
+      # suite remembered. Since item 52 it is used for `.json` alone: the eleven
+      # document rules are the *reader's*, so they are refusals to run rather
+      # than throws to evaluate.
       inherit render;
     };
 
@@ -586,6 +588,38 @@
       installed =
         lib.filter (lib.hasPrefix "capsule")
         (map (p: builtins.seq p.outPath (p.pname or p.name))
+          host.config.environment.systemPackages);
+
+      # **The same hole again, one shelf over** (NOTES item 52). An activation
+      # script is in neither the unit graph nor `systemPackages`, so the one that
+      # installs the profile documents could name a missing attribute and only a
+      # host rebuild would say so — which is exactly what `installed` above exists
+      # to stop happening to a program. Selected by name prefix rather than
+      # hand-listed, so the next `capsule*` activation script is checked without
+      # this line being touched, and NixOS's own dozens stay out of it.
+      activations =
+        lib.filter (lib.hasPrefix "capsule")
+        (lib.attrNames host.config.system.activationScripts);
+      activationText = map (n: let
+        v = host.config.system.activationScripts.${n};
+      in
+        if builtins.isString v
+        then v
+        else v.text)
+      activations;
+
+      # Item 37's class a third time, and `installed` above is the half that
+      # cannot close it: forcing an outPath evaluates a derivation and builds
+      # nothing, so `host/services.nix`'s `wrap` — five programs whose entire text
+      # is the environment this host's copies run with — had never been
+      # shellchecked by anything. That matters more since item 52 put
+      # `CAPSULE_PROFILE_DIR` in there. Paths and not names, which is the whole
+      # difference between this derivation and the other. Still unasserted, and
+      # item 52 says so: that the wrapper exports the *right* directory. Building
+      # it proves only that it parses.
+      wrappers =
+        map (p: "${p}")
+        (lib.filter (p: lib.hasPrefix "capsule" (p.pname or p.name or ""))
           host.config.environment.systemPackages);
 
       # The guard reads `/proc/<pid>/ns/net` for processes owned by `microvm`, and
@@ -728,6 +762,9 @@
 
         programs:
         ${lib.concatStringsSep "\n" installed}
+
+        activation:
+        ${lib.concatStringsSep "\n" activations}
       '');
 
       # **The exact inversion of the rule one comment up**, and deliberately a
@@ -740,9 +777,18 @@
       #
       # Every serviceConfig literal, not a hand-listed set, so a program added
       # to a unit tomorrow is checked without this line being touched.
-      programs =
-        checked (pkgs.writeText "capsule-module-programs.txt"
-          (lib.concatStringsSep "\n" (lib.concatMap directives units)));
+      #
+      # The activation scripts' text belongs on *this* side and not the other,
+      # for the same reason and with one addition: it names the rendered profile
+      # directory, so putting the text here makes that document a build input and
+      # `just build` renders it — and rendering it now runs the reader over it
+      # (host/profile.nix, NOTES item 52). A document nothing builds is a document
+      # nothing checks (item 37).
+      #
+      # And the *wrappers* — see `wrappers` in the `let` above.
+      programs = checked (pkgs.writeText "capsule-module-programs.txt"
+        (lib.concatStringsSep "\n"
+          (lib.concatMap directives units ++ activationText ++ wrappers)));
     };
 
     hostModuleUnits = hostModule.units;

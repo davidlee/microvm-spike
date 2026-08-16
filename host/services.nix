@@ -92,6 +92,17 @@
   # the perimeter must read lives outside the directory the human's state is in.
   # Which is item 36's own rule, made true of the filesystem rather than only of
   # the code: the proxy has no way to the record, instead of no reason to read it.
+  # One declaration of what `profileDir` is, read by the tmpfiles rule that makes
+  # it at boot and by the activation script that fills it at switch — CLAUDE.md's
+  # rule, since two carefully-equal spellings are the thing that drifts. 0755 for
+  # `allowlistDir`'s reason: a document says which paths a target has and what
+  # they may grow to, and every one of them is in a file this repo commits.
+  profileDirOwner = {
+    mode = "0755";
+    user = cfg.owner;
+    group = "users";
+  };
+
   allowlistOf = c: "${cfg.allowlistDir}/${c.name}";
   policyFile = name: "${cfg.policyDir}/${policies.policies.${name}.allowlist}";
 
@@ -171,6 +182,7 @@
         export CAPSULE_REPO=${cfg.repo}
         export CAPSULE_POLICY_DIR=${cfg.policyDir}
         export CAPSULE_ALLOWLIST_DIR=${cfg.allowlistDir}
+        export CAPSULE_PROFILE_DIR=${cfg.profileDir}
         exec ${lib.getExe program} "$@"
       '';
     };
@@ -468,6 +480,30 @@ in {
       '';
     };
 
+    profileDir = lib.mkOption {
+      type = lib.types.path;
+      default = "/var/lib/capsule-profiles";
+      description = ''
+        Holds one rendered profile document per target, `<name>.json`, read at
+        run time by every host-side program through `profileLoad`
+        (host/profile.nix). Outside the store on purpose (NOTES item 52): while
+        the documents were a store path, adding a target was a rebuild and a
+        switch, and no producer but nix could write one — which is the whole of
+        what making a target run-time state was for (Plan D §6.1's controller
+        that never runs `nixos-rebuild`).
+
+        **This module owns the names it renders and nothing else here.** The
+        activation script installs one document per target `target.nix` declares
+        and overwrites it every time, because copy-if-absent would make an edit
+        to `target.nix` invisible forever after the first boot — item 22's
+        write-if-absent payload rule applied to a *derived* payload, which Plan D
+        §6.3 already names as the thing to get right. A document under any other
+        name is its writer's and nothing here touches it. So a document edited in
+        place under this host's own target name is reverted at the next
+        activation: `target.nix` is the source and the file is a render.
+      '';
+    };
+
     allowlistDir = lib.mkOption {
       type = lib.types.path;
       default = "/var/lib/capsule-allowlist";
@@ -684,6 +720,18 @@ in {
           # which policy a slot is on, and every policy is already declared in a
           # file this repo commits.
           "d ${cfg.allowlistDir} 0755 ${cfg.owner} users -"
+          # Traversable for the same reason one layer over: a document says which
+          # paths a target has and what they may grow to, and every one of them is
+          # already in a file this repo commits. Owned by `owner` rather than root
+          # because the point of the documents leaving the store (NOTES item 52)
+          # is that a producer which is not nix can put one here — and the
+          # directory is what grants that, since the documents themselves are
+          # installed read-only. It is declared here as well as installed by the
+          # activation script below so that `hostModuleUnits`' traversal pairing
+          # (item 39) sees it the day a *unit* binds a document; no unit reads one
+          # today, and an assertion with no failure mode would be a round that
+          # never discriminates.
+          "d ${cfg.profileDir} ${profileDirOwner.mode} ${profileDirOwner.user} ${profileDirOwner.group} -"
           # The directory is made; the key is not. `z` only corrects what is
           # already there, so a host that has not been given a stop key is refused
           # at VM start with a message, rather than handed a generated key that
@@ -704,6 +752,28 @@ in {
         ])
         instances;
 
+      # The documents themselves, **installed rather than linked** (NOTES item 52,
+      # decision 1). A symlink into the store would keep nix authoritative and
+      # give up the whole point, since nobody can write the target of one; a
+      # copy-if-absent would make an edit to `target.nix` invisible forever after
+      # the first boot. So they are overwritten at every activation, and only
+      # under the names this host renders — a document called anything else
+      # belongs to whoever wrote it and nothing here touches it.
+      #
+      # Read-only files in a writable directory: the *set* of documents is a
+      # controller's to add to, and each document nix renders is nix's. An
+      # activation as well as the tmpfiles rule above because the two run at
+      # different times — tmpfiles at boot, this at switch — and a first switch on
+      # a host that has never booted this module would otherwise install into a
+      # directory that does not exist. Both read `profileDirOwner`, so the
+      # directory has one declaration and two consumers rather than two
+      # declarations.
+      system.activationScripts.capsuleProfiles = ''
+        install -d -m ${profileDirOwner.mode} -o ${profileDirOwner.user} -g ${profileDirOwner.group} ${cfg.profileDir}
+        install -m 0444 -o ${profileDirOwner.user} -g ${profileDirOwner.group} \
+          ${hostPrograms.profile.dir}/*.json ${cfg.profileDir}/
+      '';
+
       # Only the three that touch host state need wrapping; `capsule-inject`,
       # `capsule-baseline` and `capsule-refresh` write nothing host-side, so they
       # go on PATH as they are. All of them but `capsule-adopt` reach the guest
@@ -712,28 +782,35 @@ in {
       # and there is no fallback: a slot's name says nothing about what is in it,
       # so a program with a default acts on a slot nobody chose. `capsule` itself
       # resolves an unnamed invocation from what is running (host/cli.nix).
-      environment.systemPackages =
-        [
-          # Wrapped for the same reason the two stateful programs are, and it is the
-          # same wrapper: `capsule <name> fetch` writes into `repo` and `capsule
-          # <name> status` counts refs in `stateDir`, and both of those are this
-          # host's rather than `target.nix`'s — a host whose human is not this one
-          # has a different home. Wrapping keeps the CLI itself one store path.
-          (wrap "capsule" cli)
-          (wrap "capsule-provision" hostPrograms.provision)
-          (wrap "capsule-collect" hostPrograms.collect)
-          hostPrograms.inject
-        ]
-        ++ lib.optional (hostPrograms.baseline != null) hostPrograms.baseline
-        ++ lib.optional (hostPrograms.refresh != null) hostPrograms.refresh
+      #
+      # **Every verb, unconditionally** (NOTES item 51 step 6). These four were
+      # `lib.optional (… != null)` while a program's existence was a function of
+      # what `target.nix` declared; that gate is gone — a host builds every verb
+      # and a verb refuses at run time naming the profile that declares nothing.
+      # A conditional here would be the *same* claim decision 3 refused one layer
+      # up, and it would now read as "this host may lack `capsule-brief`" while
+      # nothing can make that true.
+      environment.systemPackages = [
+        # Wrapped for the same reason the two stateful programs are, and it is the
+        # same wrapper: `capsule <name> fetch` writes into `repo` and `capsule
+        # <name> status` counts refs in `stateDir`, and both of those are this
+        # host's rather than `target.nix`'s — a host whose human is not this one
+        # has a different home. Wrapping keeps the CLI itself one store path.
+        (wrap "capsule" cli)
+        (wrap "capsule-provision" hostPrograms.provision)
+        (wrap "capsule-collect" hostPrograms.collect)
+        hostPrograms.inject
+        hostPrograms.baseline
+        hostPrograms.refresh
         # Wrapped like the other two that keep state: it reads the quarantine
         # `capsule-collect` wrote, so it needs the same `CAPSULE_STATE` and must
         # not derive one from `$PWD`.
-        ++ lib.optional (hostPrograms.adopt != null) (wrap "capsule-adopt" hostPrograms.adopt)
+        (wrap "capsule-adopt" hostPrograms.adopt)
         # Wrapped for the quarantine's sake like the other three, and it is the
         # only one that reads a quarantine belonging to a capsule other than the
         # one it acts on — which is the whole verb (NOTES item 35).
-        ++ lib.optional (hostPrograms.brief != null) (wrap "capsule-brief" hostPrograms.brief);
+        (wrap "capsule-brief" hostPrograms.brief)
+      ];
 
       # Rotated rather than truncated: it is the record of every egress attempt
       # (NOTES open item 15). copytruncate, so tinyproxy needs no signal. One

@@ -20,14 +20,19 @@
 # for. One document for the whole host would be less work today and a second
 # thing to migrate the moment a host confines two projects.
 #
-# **A store path, to start** (decision 2). The two properties cannot both hold:
-# a store path is checked at build for free and puts two targets a rebuild apart;
-# a plain file outside the store reaches a controller that never runs
-# `nixos-rebuild`, and is then validated by nobody unless somebody writes the
-# validator. `perimeter/egress-allow.txt` is the standing precedent for the
-# second and `policies.nix` says why. So: rendered here, read through
-# **one** function, and `CAPSULE_PROFILE_DIR` is where that function looks — the
-# switch is a change to this file rather than to every caller.
+# **A store path to start, and now a directory the host owns**
+# ([item 52](../docs/ledger/052-the-document-leaves-the-store.md)). Item 51's
+# decision 2 took the store first and said what it did not buy: two targets a
+# rebuild apart, and no producer but nix able to write a document. Item 52 moved
+# them — `host/services.nix`'s `profileDir`, installed at every activation, with
+# nix owning the names it renders and nothing else in there. The switch cost one
+# default, because there is **one** function and `CAPSULE_PROFILE_DIR` is where it
+# looks: the module's `wrap` sets it, and the baked default below stays this
+# host's render so the devshell path needs no environment at all.
+#
+# What moved with it, and it is the larger half: **every predicate about a
+# document is the reader's now**. Eleven of them were `throw`s here. See
+# `validator` below.
 #
 # **The document's keys are `target.nix`'s field names.** Identity, on purpose:
 # a renamed key is a second vocabulary and a place the two can disagree. `path`
@@ -40,13 +45,13 @@
 # document naming them would describe an image the running slot may not be. The
 # sharp edge that leaves is item 51's own — `guestPath` has two producers, this
 # document and `vm/capsule.nix`'s seed, and they can disagree the moment the
-# document is edited after a slot booted. The assertion below is half an answer:
-# it pins the derivation (`guestPath` *is* `volumePath`/`name`) so the two cannot
-# drift by construction here. Pinning a *slot* to the profile it was built with
-# is `profile_snapshot` in the assignment record (host/record.nix), and step 4
-# did **not** fill it: what step 4 pins is the *name*, which the record has
-# carried since item 29 and which nothing read until now. Bytes in a record would
-# be a second place `profileLoad` looks, which is the one thing decision 2 bought.
+# document is edited after a slot booted. The grammar below is half an answer: it
+# pins the derivation (`guestPath` *is* `volumePath`/`name`) so no single document
+# can disagree with itself. Pinning a *slot* to the profile it was built with is
+# `profile_snapshot` in the assignment record (host/record.nix) and is still
+# **owed** — item 52 step 3. It matters more now than it did: while the documents
+# were in the store nothing could edit one, and a directory a human can write is
+# a directory where "later" and "what this slot was assigned" come apart.
 {
   pkgs,
   lib,
@@ -66,138 +71,25 @@
     stateMaxBytes = target.stateMaxBytes or 0;
   };
 
-  # ------------------------------------------------------------------ checks
-  #
-  # Free, because nix is what renders this — which is exactly the property
-  # decision 2 says a plain file gives up, and the reason this half of the item
-  # starts in the store. Every one of these is a refusal the reader cannot make
-  # cheaply or at all: it sees one document and cannot know what the guest image
-  # was built from.
-  absolute = p: lib.hasPrefix "/" p;
-
-  # A value crossing this boundary is read back a line at a time (`mapfile`) and
-  # a column at a time, so a newline or a tab inside one is a value that comes
-  # back as two. Forbidden here rather than escaped there: the reader stays
-  # simple because the render is strict.
-  oneLine = s: !(lib.hasInfix "\n" s || lib.hasInfix "\t" s);
-
   # The one hole a state path may hold, and it is `host/state-snapshot.nix`'s
   # spelling. Named again rather than imported because that file takes it as a
-  # convention of this repo and not as a value of the target's; what is checked
-  # here is only that a template holds at most one, since the substitution is a
-  # single pass.
+  # convention of this repo and not as a value of the target's.
   hole = "{unit}";
-  holes = p: builtins.length (lib.splitString hole p) - 1;
 
-  strings = [target.name target.path target.guestPath target.volumePath];
-
-  checks =
-    [
-      {
-        ok = target.name != "" && !(lib.hasInfix "/" target.name);
-        why = "`name` is a document's filename, so it must be a name and not a path";
-      }
-      {
-        ok = lib.all absolute [target.path target.guestPath target.volumePath];
-        why = "`path`, `guestPath` and `volumePath` are absolute paths";
-      }
-      {
-        ok = target.guestPath == "${target.volumePath}/${target.name}";
-        why = "`guestPath` must stay derived from `volumePath` and `name` — the guest's seed builds that directory from the same two values, and a document that spells a third answer names a checkout the running image never made (item 51)";
-      }
-      {
-        ok = lib.all (p: absolute p && lib.hasPrefix "${target.volumePath}/" p) document.cachePaths;
-        why = "every `cachePaths` entry lives under `volumePath`, because that is the only writable filesystem a capsule has";
-      }
-      {
-        ok = lib.all (p: !(absolute p)) document.statePaths;
-        why = "`statePaths` are templates relative to the checkout, never absolute";
-      }
-      {
-        ok = lib.all (p: !(builtins.elem ".." (lib.splitString "/" p))) document.statePaths;
-        why = "no `statePaths` template escapes the checkout with `..`";
-      }
-      {
-        ok = lib.all (p: holes p <= 1) document.statePaths;
-        why = "a `statePaths` template holds at most one `${hole}`, since the substitution is one pass";
-      }
-      {
-        ok = document.statePaths == [] || document.stateMaxBytes > 0;
-        why = "a target that declares `statePaths` declares a `stateMaxBytes` ceiling over them";
-      }
-      {
-        ok = lib.all (n: builtins.isInt document.sizes.${n} && document.sizes.${n} > 0) ["vcpu" "mem" "volume"];
-        why = "`sizes.vcpu`, `sizes.mem` and `sizes.volume` are positive integers";
-      }
-      {
-        ok = document.baseline != "" && document.refresh != "";
-        why = "`baseline` and `refresh` are a command line or `null` — an empty string is a command that silently succeeds";
-      }
-    ]
-    ++ map (s: {
-      ok = oneLine s;
-      why = "no value carries a newline or a tab: `${s}` does, and the reader takes them a line at a time";
-    }) (strings
-      ++ document.cachePaths
-      ++ document.statePaths
-      ++ lib.optional (document.baseline != null) document.baseline
-      ++ lib.optional (document.refresh != null) document.refresh);
-
-  failed = builtins.filter (c: !c.ok) checks;
-
-  checked =
-    if failed == []
-    then document
-    else throw "host/profile.nix: ${(builtins.head failed).why}";
-
-  file = pkgs.writeText "${target.name}.json" (builtins.toJSON checked);
-
-  dir = pkgs.runCommand "capsule-profiles" {nativeBuildInputs = [pkgs.jq];} ''
-    mkdir -p "$out"
-    # Pretty-printed and key-sorted, so a human can read the thing a program
-    # resolves — and parsed by jq at build, which is the render asserting for
-    # itself that the reader's parser will accept it.
-    jq -S . ${file} > "$out/${target.name}.json"
-  '';
-in {
-  inherit dir document;
-  inherit (target) name;
-
-  # The same predicate as `profileNeedsUnit` below, at eval, and it has **one
-  # caller**: `probe/two-capsules.sh`'s command line in `flake.nix`. A probe is
-  # evidence about the real capsule on this host, so it is allowed to know this
-  # host's real target — `probe/netns-boot.sh` is the standing exception for the
-  # same reason. No *program* reads this, which is the whole of step 6; it lives
-  # here so the probe's spelling of `${hole}` is this file's and not a third one
-  # ([item 38](../docs/ledger/038-a-probe-that-became-a-borrower.md) is what a
-  # separately-maintained copy of a live value costs).
-  needsUnit = lib.any (lib.hasInfix hole) document.statePaths;
-
-  # Callers add these to their own `runtimeInputs`, so the dependency is visible
-  # at each call site rather than assumed — `host/record.nix`'s arrangement, for
-  # its reason.
-  inputs = [pkgs.jq pkgs.coreutils];
-
-  # **A fragment, not a program**, and the same argument `host/record.nix` makes:
-  # the programs that will read this are already separate store paths for reasons
-  # that have nothing to do with profiles, and a profile *program* would be one
-  # more thing to install that each of them would still have to call. One
-  # definition of where the documents are, what a name may be, and what a valid
-  # one holds.
+  # ------------------------------------------------------------- the validator
   #
-  # **One function, because the switch to a plain file is a change to where it
-  # looks.** `profileLoad <name>` validates once and sets every value; there is
-  # no per-field accessor, so no caller can read a field this file has not
-  # checked, and a document is opened once per invocation instead of once per
-  # value.
-  fragment = ''
-    # `CAPSULE_PROFILE_DIR` over a baked default: exactly `CAPSULE_REPO`'s shape
-    # (host/git-channel.nix), which item 51 names as the precedent this
-    # generalises from an override to a lookup. The default is what this host
-    # rendered, so the devshell path needs no environment at all and the module
-    # path can point at a directory it owns.
-    profileDir() { printf '%s' "''${CAPSULE_PROFILE_DIR:-${dir}}"; }
-
+  # What a document *is*, in one place — half of `fragment`, and the half that
+  # knows nothing about where documents live. It takes a file. That is item 52's
+  # seam, and it is also what makes `check` above buildable at all: a validator
+  # carrying a default directory would depend on the directory that running it
+  # produces.
+  #
+  # **Every predicate about a document is here now, including the eleven that
+  # were nix's** (item 52, decision 2). All of them were intra-document — item 51
+  # step 3 established that and named it as the thing that would make this cheap
+  # — so nothing is lost by moving them, and what is gained is that a document
+  # nix did not write is held to the same rule as one it did.
+  validator = ''
     profileFail() { echo "capsule-profile: $1" >&2; }
 
     # Sets, on success: profile_name, profile_path, profile_guest_path,
@@ -208,29 +100,15 @@ in {
     # An absent optional (`baseline`, `refresh`) arrives as the empty string and
     # is not a failure; an absent *required* field is, because the two are
     # different documents and only one of them is broken.
-    profileLoad() {
-      local n="''${1:-}" pdir file doc f
-      pdir=$(profileDir)
+    profileRead() {
+      local file="''${1:-}" doc f reason
 
-      # The name reaches a path, so it is checked before the filesystem is
-      # touched — a policy's allowlist is a filename and never a path for the
-      # same reason (policies.nix), one directory up.
-      case "$n" in
-        "")
-          profileFail "no profile name. A profile is named, never defaulted (item 28)."
-          return 1
-          ;;
-        */* | . | ..)
-          profileFail "profile name '$n' is a path, and a name is not one"
-          return 1
-          ;;
-      esac
-
-      file="$pdir/$n.json"
+      if [ -z "$file" ]; then
+        profileFail "no document to read"
+        return 1
+      fi
       if [ ! -f "$file" ]; then
-        profileFail "no profile named '$n' in $pdir"
-        profileFail "  A profile is <name>.json there, rendered from target.nix"
-        profileFail "  (host/profile.nix). CAPSULE_PROFILE_DIR chooses the directory."
+        profileFail "no document at $file"
         return 1
       fi
 
@@ -254,10 +132,55 @@ in {
         fi
       done
 
+      # The grammar, which until item 52 was eleven `throw`s in this file. One jq
+      # program rather than a shell rule per line, because every one of them is a
+      # predicate over JSON and shell would be reading the two arrays back a
+      # second time to ask. `try`/`catch`, so a field of the wrong type is a
+      # refusal naming the document rather than a jq stack trace on stderr. First
+      # failure wins: the reasons are not independent, and a human fixes one
+      # thing at a time.
+      reason=$(printf '%s' "$doc" | jq -r 'try (
+        . as $d
+        | [ (if ($d.name | length) == 0 or ($d.name | test("/")) then
+               "`name` is a document filename, so it must be a name and not a path"
+             else empty end),
+            (if ([$d.path, $d.guestPath, $d.volumePath] | any(startswith("/") | not)) then
+               "`path`, `guestPath` and `volumePath` are absolute paths"
+             else empty end),
+            (if $d.guestPath != ($d.volumePath + "/" + $d.name) then
+               "`guestPath` must stay derived from `volumePath` and `name` — the guest seed builds that directory from the same two values, and a document that spells a third answer names a checkout the running image never made (item 51)"
+             else empty end),
+            (if (($d.cachePaths // []) | any(startswith($d.volumePath + "/") | not)) then
+               "every `cachePaths` entry lives under `volumePath`, because that is the only writable filesystem a capsule has"
+             else empty end),
+            (if (($d.statePaths // []) | any(startswith("/"))) then
+               "`statePaths` are templates relative to the checkout, never absolute"
+             else empty end),
+            (if (($d.statePaths // []) | any(split("/") | any(. == ".."))) then
+               "no `statePaths` template escapes the checkout with `..`"
+             else empty end),
+            (if (($d.statePaths // []) | any((split("${hole}") | length) > 2)) then
+               "a `statePaths` template holds at most one `${hole}`, since the substitution is one pass"
+             else empty end),
+            (if ($d.baseline == "" or $d.refresh == "") then
+               "`baseline` and `refresh` are a command line or null — an empty string is a command that silently succeeds"
+             else empty end),
+            (if ([$d.name, $d.path, $d.guestPath, $d.volumePath, ($d.baseline // ""), ($d.refresh // "")]
+                 + ($d.cachePaths // []) + ($d.statePaths // []) | any(test("[\n\t]"))) then
+               "no value carries a newline or a tab, because the reader takes them a line at a time"
+             else empty end)
+          ] | first // ""
+      ) catch "holds a value of the wrong type"')
+
+      if [ -n "$reason" ]; then
+        profileFail "$file: $reason"
+        return 1
+      fi
+
       # One jq call, one line per value, because a tab-separated row loses an
       # empty column: bash treats tab as IFS *whitespace*, so two adjacent
       # separators collapse and every later field shifts up by one. No value
-      # holds a newline — host/profile.nix refuses one at render.
+      # holds a newline — the grammar above has just refused one.
       local -a scalars
       mapfile -t scalars < <(printf '%s' "$doc" | jq -r '
         [ .name, .path, .guestPath, .volumePath,
@@ -306,10 +229,10 @@ in {
         esac
       done
 
-      # The pairing, checked here as well as at render: a ceiling is what keeps
-      # an over-budget state half from taking a collect's code refs down with it
-      # (host/state-snapshot.nix), so declared paths with no ceiling is a
-      # document to refuse rather than a default to invent.
+      # The pairing: a ceiling is what keeps an over-budget state half from
+      # taking a collect's code refs down with it (host/state-snapshot.nix), so
+      # declared paths with no ceiling is a document to refuse rather than a
+      # default to invent.
       if [ "''${#profile_state_paths[@]}" -gt 0 ] && [ "$profile_state_max_bytes" -le 0 ]; then
         profileFail "$file declares state paths and no stateMaxBytes over them"
         return 1
@@ -328,7 +251,8 @@ in {
     # (host/state-snapshot.nix's `perUnit`) and that is deliberate rather than a
     # duplicate: one end reads a document and the other reads its own arguments,
     # which is the pair that has to agree. What must not exist is a *third*
-    # spelling of `${hole}`, so this reads the one above.
+    # spelling of `${hole}`, so this and the grammar above read the one in
+    # host/profile.nix.
     #
     # SC2329, `profileQuote`'s reason exactly: a program that reads a profile and
     # has no scope to decide — `capsule-baseline`, `capsule-refresh` — never calls
@@ -346,16 +270,14 @@ in {
     }
 
     # What was loaded, one `key<TAB>value` per line, arrays one line per entry.
-    # For a human and for the suite beside this file — and it is also what keeps
-    # every variable above referenced within the fragment, since a library
-    # spliced into a program that uses three of them is otherwise SC2034 seven
-    # times over. (A comment whose first word is the linter's name is a
-    # *directive* to it, and an unparseable one is a build failure: this
-    # paragraph cost one.)
+    # For a human — `capsule-profile-check` is this and a read — and for the suite
+    # beside this file; and it is also what keeps every variable above referenced
+    # within the fragment, since a library spliced into a program that uses three
+    # of them is otherwise SC2034 seven times over. (A comment whose first word is
+    # the linter's name is a *directive* to it, and an unparseable one is a build
+    # failure: this paragraph cost one.)
     # SC2329: a library's function is not called by every program that splices
-    # the library. This one is read by the suite beside this file and by a human;
-    # what it is *for* inside a program is keeping every variable above
-    # referenced, which is the SC2034 half of the same problem (item 51 step 3).
+    # the library.
     # shellcheck disable=SC2329
     profileShow() {
       printf 'name\t%s\n' "$profile_name"
@@ -376,25 +298,6 @@ in {
       for p in "''${profile_state_paths[@]}"; do printf 'statePath\t%s\n' "$p"; done
     }
 
-    # Which documents this host has rendered, one name per line. Read by the
-    # **front end** and by nothing else: resolving what an *unassigned* slot
-    # means is an answer about host state, which is a front end's latitude and
-    # never a program's (item 20, host/cli.nix). A program that listed this
-    # directory to pick a name would be probing for which target it means.
-    #
-    # SC2329, and the honest reason: exactly one caller, in the shared fragment
-    # because it is `profileDir`'s directory and no second definition of that may
-    # drift from this one.
-    # shellcheck disable=SC2329
-    profileNames() {
-      local f n
-      for f in "$(profileDir)"/*.json; do
-        [ -e "$f" ] || continue
-        n=''${f##*/}
-        printf '%s\n' "''${n%.json}"
-      done
-    }
-
     # A filter, one value per line in and one per line out, for values on their
     # way into a guest-pushed script's argument list. The rule is
     # host/guest-exec.nix's and the arithmetic is one lower than it used to be: a
@@ -404,9 +307,9 @@ in {
     # only parse left, and one `%q` is exactly right. Two would arrive
     # backslashed.
     #
-    # Line-based, which is sound only because the render refuses a newline in any
-    # value — the same fact `profileLoad`'s `mapfile` rests on, read at the other
-    # end.
+    # Line-based, which is sound only because the grammar refuses a newline in
+    # any value — the same fact `profileRead`'s `mapfile` rests on, read at the
+    # other end.
     #
     # SC2329: a program that reads a profile and pushes nothing into a guest —
     # `capsule-provision`, whose values all stay on this host — has nothing to
@@ -417,6 +320,179 @@ in {
       while IFS= read -r v; do printf '%q\n' "$v"; done
     }
   '';
+
+  # -------------------------------------------------------------- the locator
+  #
+  # Where documents live, and how a name reaches one. The other half of
+  # `fragment`, and the whole of what item 52 moves: a plain-file switch is a
+  # change to `profileDir`'s default and to nothing else here, and to no predicate
+  # at all in the validator above.
+  locator = ''
+    # `CAPSULE_PROFILE_DIR` over a baked default: exactly `CAPSULE_REPO`'s shape
+    # (host/git-channel.nix), which item 51 names as the precedent this
+    # generalises from an override to a lookup. The default is what this host
+    # rendered, so the devshell path needs no environment at all and the module
+    # path points at a directory it owns (host/services.nix's `wrap`).
+    profileDir() { printf '%s' "''${CAPSULE_PROFILE_DIR:-${dir}}"; }
+
+    profileLoad() {
+      local n="''${1:-}" pdir file
+      pdir=$(profileDir)
+
+      # The name reaches a path, so it is checked before the filesystem is
+      # touched — a policy's allowlist is a filename and never a path for the
+      # same reason (policies.nix), one directory up.
+      case "$n" in
+        "")
+          profileFail "no profile name. A profile is named, never defaulted (item 28)."
+          return 1
+          ;;
+        */* | . | ..)
+          profileFail "profile name '$n' is a path, and a name is not one"
+          return 1
+          ;;
+      esac
+
+      file="$pdir/$n.json"
+      if [ ! -f "$file" ]; then
+        profileFail "no profile named '$n' in $pdir"
+        profileFail "  A profile is <name>.json there, rendered from target.nix"
+        profileFail "  (host/profile.nix). CAPSULE_PROFILE_DIR chooses the directory."
+        return 1
+      fi
+
+      profileRead "$file" || return 1
+
+      # The one check that needs both halves, and it is new with item 52: a
+      # document is addressed by its filename and also names itself, and while
+      # every document was rendered by this file nothing could make those two
+      # disagree. A producer that is not nix can — and `foo.json` calling itself
+      # `bar` would have every program report a target nobody named, which is
+      # decision 4's silent-wrong-target failure arriving by another door.
+      if [ "$profile_name" != "$n" ]; then
+        profileFail "$file calls itself '$profile_name', and a document is named by its filename"
+        return 1
+      fi
+    }
+
+    # Which documents this host has, one name per line. Read by the **front end**
+    # and by nothing else: resolving what an *unassigned* slot means is an answer
+    # about host state, which is a front end's latitude and never a program's
+    # (item 20, host/cli.nix). A program that listed this directory to pick a name
+    # would be probing for which target it means.
+    #
+    # SC2329, and the honest reason: exactly one caller, and it is here rather
+    # than in `host/cli.nix` because it is `profileDir`'s directory and no second
+    # definition of that may drift from this one.
+    # shellcheck disable=SC2329
+    profileNames() {
+      local f n
+      for f in "$(profileDir)"/*.json; do
+        [ -e "$f" ] || continue
+        n=''${f##*/}
+        printf '%s\n' "''${n%.json}"
+      done
+    }
+  '';
+
+  # ---------------------------------------------------------------- the render
+  #
+  # No checks here any more, and that is item 52's decision 2: eleven of them
+  # used to live at this level, throwing at eval, and every one turned out to be
+  # *intra-document* (item 51 step 3 found this and wrote it down as what would
+  # make the switch cheap). Once a document may arrive from a producer that is not
+  # nix — which is the whole of item 52 — a predicate spelled here protects only
+  # the documents that never needed protecting, and a predicate spelled at both
+  # levels is two spellings of one rule in two languages
+  # ([item 38](../docs/ledger/038-a-probe-that-became-a-borrower.md) is what that
+  # costs). So they are the reader's, once, and the render **runs the reader**:
+  # `check` below is the shipped validator's own text, and `dir` cannot be built
+  # without it passing. A broken `target.nix` is therefore a failed build rather
+  # than a failed eval, which is a worse message and a better boundary.
+  # A fixed store name, not `${target.name}.json`: what names the document is the
+  # file the render installs, and a `name` that is not a filename is a *document*
+  # to refuse rather than a store path to fail on. Getting that the wrong way
+  # round would make one of the eleven rules unreachable — `writeText "a/b.json"`
+  # throws before anything can read it.
+  json = pkgs.writeText "profile.json" (builtins.toJSON document);
+
+  dir = pkgs.runCommand "capsule-profiles" {nativeBuildInputs = [pkgs.jq];} ''
+    # Pretty-printed and key-sorted, so a human can read the thing a program
+    # resolves — and parsed by jq at build, which is the render asserting for
+    # itself that the reader's parser will accept it.
+    jq -S . ${json} > profile.json
+    # Then read by the reader that programs use, which is the only check this
+    # file makes (item 52, decision 2). It prints what it loaded, so a build log
+    # says what this host declares rather than merely that it declared something.
+    # **Before the install and not after**: the name is what the file is called,
+    # so a document that fails is one this derivation never writes.
+    ${lib.getExe check} profile.json
+    mkdir -p "$out"
+    cp profile.json "$out/${target.name}.json"
+  '';
+
+  # The validator as a program: `capsule-profile-check <file>` loads a document
+  # and prints it, or refuses and says why. Three callers and each is a reason it
+  # is a program rather than a fourth splice of the fragment — the render above,
+  # `host/profile-cases.nix`, and **a human or a controller with a document to
+  # drop into `profileDir`**, which is the one that makes it a shipped program
+  # instead of a build helper. `profile.nix` argues against a profile *program*
+  # for the six readers and that stands: this one resolves no name and holds no
+  # policy about which target anything means.
+  #
+  # It splices `validator` and not `fragment`, which is what keeps this out of a
+  # cycle: `locator` bakes `dir` as its default, `dir` is built by running this,
+  # and a checker that knew where documents live by default would be a checker
+  # nix could not build.
+  check = pkgs.writeShellApplication {
+    name = "capsule-profile-check";
+    runtimeInputs = [pkgs.jq pkgs.coreutils];
+    text = ''
+      ${validator}
+      profileRead "''${1:-}"
+      profileShow
+    '';
+  };
+in {
+  inherit dir document json check;
+  inherit (target) name;
+
+  # The same predicate as `profileNeedsUnit` below, at eval, and it has **one
+  # caller**: `probe/two-capsules.sh`'s command line in `flake.nix`. A probe is
+  # evidence about the real capsule on this host, so it is allowed to know this
+  # host's real target — `probe/netns-boot.sh` is the standing exception for the
+  # same reason. No *program* reads this, which is the whole of step 6; it lives
+  # here so the probe's spelling of `${hole}` is this file's and not a third one
+  # ([item 38](../docs/ledger/038-a-probe-that-became-a-borrower.md) is what a
+  # separately-maintained copy of a live value costs).
+  needsUnit = lib.any (lib.hasInfix hole) document.statePaths;
+
+  # Callers add these to their own `runtimeInputs`, so the dependency is visible
+  # at each call site rather than assumed — `host/record.nix`'s arrangement, for
+  # its reason.
+  inputs = [pkgs.jq pkgs.coreutils];
+
+  # **A fragment, not a program**, and the same argument `host/record.nix` makes:
+  # the programs that will read this are already separate store paths for reasons
+  # that have nothing to do with profiles, and a profile *program* would be one
+  # more thing to install that each of them would still have to call. One
+  # definition of where the documents are, what a name may be, and what a valid
+  # one holds.
+  #
+  # **One function, because the switch to a plain file is a change to where it
+  # looks.** `profileLoad <name>` validates once and sets every value; there is
+  # no per-field accessor, so no caller can read a field this file has not
+  # checked, and a document is opened once per invocation instead of once per
+  # value.
+  #
+  # **Two halves, and the seam is item 52's** — *validate a file* and *resolve a
+  # name to one*. They separate cleanly because only the second knows where
+  # documents live, and separating them is what lets `check` above be built at all
+  # (it splices the first, and the second names the directory that running `check`
+  # produces). It is also the better decomposition on its own terms: the whole of
+  # the plain-file switch is a change to the locator, and not one predicate in the
+  # validator moves.
+  fragment = validator + locator;
 
   # Which profile, spliced where `transport` already resolves which capsule — and
   # the same shape for the same reason (`selectCapsule`, host/guest-ssh.nix):

@@ -35,13 +35,17 @@
   # The directory this host rendered, and the name of the document in it.
   dir,
   name,
-  # The same file as a function of a target, for the *render's* own refusals —
-  # the third subject, and a fixture rather than this host's target for
-  # `guardCases`' reason: what is being pinned is a check that fires on a
-  # document nobody can render, so there is nothing shipped to run it against.
-  # One construction, handed down from `flake.nix`, so this is still not a second
-  # spelling of the file under test.
+  # The same file as a function of a target, used here only to *render fixture
+  # documents* — a fixture rather than this host's target for `guardCases`'
+  # reason, and rendered rather than spelled so a fixture cannot drift from the
+  # key set a real document has. One construction, handed down from `flake.nix`.
   render,
+  # The shipped validator as a program (host/profile.nix). Item 52 moved every
+  # document rule out of nix and into the reader, so what used to be eleven
+  # eval-time throws read here as eleven refusals from the program the render
+  # itself runs — the same subject a human validating a hand-written document
+  # gets.
+  check,
 }: let
   # A target that satisfies every check, so each mutation below differs from a
   # rendering document in exactly one thing. Nothing here is doctrine's: a
@@ -64,47 +68,54 @@
     };
   };
 
-  # Forcing the store path is what forces the checks: they guard the document on
-  # its way into `writeText`, so a render that is never asked for never throws.
-  renders = t: (builtins.tryEval (builtins.seq (render t).dir.outPath true)).success;
-
   # One invariant each, and the name is what the log prints — a suite that only
-  # counted refusals would pass with one check doing all the work.
+  # counted refusals would pass with one rule doing all the work. `saw` is the
+  # second half of every round: a refusal for the wrong reason is a different
+  # program passing.
   mutations = [
     {
       why = "a guestPath that is not derived from volumePath and name";
+      saw = "must stay derived from";
       t = base // {guestPath = "/vol/somewhere-else";};
     }
     {
       why = "a name that is a path";
+      saw = "must be a name and not a path";
       t = base // {name = "a/b";};
     }
     {
       why = "a relative host checkout";
+      saw = "are absolute paths";
       t = base // {path = "h/fixture";};
     }
     {
       why = "a cache outside the volume";
+      saw = "lives under `volumePath`";
       t = base // {cachePaths = ["/etc/cache"];};
     }
     {
       why = "a state template that escapes the checkout";
+      saw = "escapes the checkout with";
       t = base // {statePaths = ["../elsewhere/{unit}"];};
     }
     {
       why = "a state template that is absolute";
+      saw = "relative to the checkout";
       t = base // {statePaths = ["/etc/{unit}"];};
     }
     {
       why = "a state template holding two unit holes";
+      saw = "at most one";
       t = base // {statePaths = ["{unit}/x/{unit}"];};
     }
     {
       why = "declared state paths with no ceiling over them";
+      saw = "declares state paths and no stateMaxBytes";
       t = base // {stateMaxBytes = 0;};
     }
     {
       why = "a size that is not a positive integer";
+      saw = "is not a positive integer";
       t =
         base
         // {
@@ -113,29 +124,15 @@
     }
     {
       why = "a baseline that is an empty command line";
+      saw = "silently succeeds";
       t = base // {baseline = "";};
     }
     {
       why = "a value with a newline in it";
+      saw = "no value carries a newline or a tab";
       t = base // {path = "/h/two\nlines";};
     }
   ];
-
-  # `refused`/`RENDERED` per line, decided at eval and asserted in the shell —
-  # the same arrangement `hostModuleUnits` uses, for the same reason: what is
-  # being read is a *throw*, and a throw is not a build.
-  renderReport =
-    lib.concatMapStringsSep "\n"
-    (m: "${
-      if renders m.t
-      then "RENDERED"
-      else "refused"
-    } ${m.why}")
-    mutations;
-
-  # The control, so a render that refuses everything cannot be read as this
-  # suite passing (item 37: a round that never discriminates).
-  controlRenders = renders base;
 
   # The fragment plus the smallest `main` that exercises it: load, then print.
   # `profileShow`'s output is the contract every case below reads a field out
@@ -388,6 +385,20 @@ in
     saw "is a path, and a name is not one"
     ck "  without having read what it points at" 0 "$(grep -c alpha out || true)"
 
+    # New with item 52, and only reachable because the documents left the store:
+    # a document is addressed by its filename and also names itself, and a
+    # producer that is not nix can make those disagree. Loading it anyway is
+    # decision 4's wrong-target failure arriving by another door — every program
+    # would report a target nobody asked for.
+    # `guestPath` moves with the name, or the document fails the derivation rule
+    # first and this round would be pinning that one twice over.
+    jq -S '.name = "elsewhere" | .guestPath = "/work/elsewhere"' \
+      profiles/alpha.json > profiles/mislabelled.json
+    run mislabelled
+    ck "a document whose name is not its filename refuses" 1 "$rc"
+    saw "calls itself 'elsewhere'"
+    ck "  having read nothing out of it" "" "$(field path)"
+
     printf '%s' '{ "schema": 1, "name": "cut", "path": "/h/c"' > profiles/cut.json
     run cut
     ck "a half-written document refuses" 1 "$rc"
@@ -427,23 +438,24 @@ in
     ck "a ceiling that is not a byte count refuses" 1 "$rc"
     saw "is not a byte count"
 
-    # ------------------------------------------------------- what will not render
+    # -------------------------------------------------- the document's grammar
     #
-    # The other half of the file, and the half a reader cannot do: these are the
-    # checks that hold *because* nix is what renders the document, which is
-    # decision 2's whole argument for starting in the store. Each fixture differs
-    # from a rendering one in exactly one thing, and the control below is what
-    # stops "everything throws" from reading as a pass.
-    printf '%s\n' ${lib.escapeShellArg renderReport} > render
-    while read -r verdict why; do
-      ck "the render refuses $why" refused "$verdict"
-    done < render
-    ck "and a target that breaks nothing renders" true \
-      ${
-      if controlRenders
-      then "true"
-      else "false"
-    }
+    # Eleven rules that were eleven `throw`s in `host/profile.nix` until item 52,
+    # asserted here through the program the render itself runs — so what is
+    # pinned is one predicate rather than nix's copy of it, and a document from a
+    # producer that is not nix meets the same rule. Each fixture differs from a
+    # valid one in exactly one thing; the control below is what stops "the
+    # checker refuses everything" from reading as a pass (item 37).
+    ckdoc() { rc=0; ${lib.getExe check} "$1" >out 2>err || rc=$?; }
+    ${lib.concatMapStringsSep "\n        " (m: ''
+      ckdoc ${(render m.t).json}
+      ck "the reader refuses ${m.why}" 1 "$rc"
+      saw ${lib.escapeShellArg m.saw}'')
+    mutations}
+
+    ckdoc ${(render base).json}
+    ck "and a document that breaks nothing is read" 0 "$rc"
+    ck "  reporting what it holds" fixture "$(field name)"
 
     # ---------------------------------------------------------- the lookup itself
     #

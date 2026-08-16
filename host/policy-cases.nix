@@ -80,7 +80,7 @@
   buildFile = policies.policies.build.allowlist;
   sealedFile = policies.policies.sealed.allowlist;
 in
-  pkgs.runCommand "capsule-policy-cases" {nativeBuildInputs = [pkgs.jq];} ''
+  pkgs.runCommand "capsule-policy-cases" {nativeBuildInputs = [pkgs.jq pkgs.git];} ''
     export CASE_STATE=$PWD/state
     mkdir -p "$CASE_STATE" stub policies allow profiles
     touch policies/${buildFile} policies/${sealedFile}
@@ -313,6 +313,78 @@ in
     # never reorders one somebody typed.
     ckt "  and is not doubled either" \
       saw "collect argv: --capsule both --policy build --profile other"
+
+    # ----------------------------------- what a fetch says about each half
+    #
+    # A quarantine holds two ref namespaces and they are two different questions
+    # (host/quarantine.nix). A slot's second assignment diverges from its first
+    # in the code half, while the state half **fast-forwards across the
+    # reassignment** — the guest parents each snapshot on the ref on its own
+    # volume, which a provision does not touch (NOTES item 50, measured there and
+    # met again by hand since). So one refspec is refused and the other is taken,
+    # and the repository ends holding one assignment's code beside another's
+    # state under two names that say they belong together.
+    #
+    # Reaching that on a host costs two assignments to one slot and a capsule to
+    # fill them, which is what makes it this suite's: the fetch is git's, the
+    # *reporting* is the front end's, and only the second is what this pins.
+    export GIT_AUTHOR_NAME=case GIT_AUTHOR_EMAIL=case@example
+    export GIT_COMMITTER_NAME=case GIT_COMMITTER_EMAIL=case@example
+    repo=$PWD/repo
+    export CAPSULE_REPO=$repo
+    git init -q "$repo"
+    g() { git -C "$repo" "$@"; }
+    tree=$(g mktree < /dev/null)
+    base=$(g commit-tree "$tree" -m base)
+    first=$(g commit-tree "$tree" -p "$base" -m 'first assignment')
+    second=$(g commit-tree "$tree" -p "$base" -m 'second assignment')
+    st1=$(g commit-tree "$tree" -m 'state, first')
+    st2=$(g commit-tree "$tree" -p "$st1" -m 'state, second')
+
+    # `both` sorts before `one`, which is what makes the sweep below assert
+    # anything: with the refusing slot last, a loop that stops at the first
+    # failure passes the same round.
+    git init -q --bare "$CASE_STATE/collect/both.git"
+    g update-ref refs/capsule/both/heads/work "$first"
+    g update-ref refs/capsule/both/state/implementation "$st1"
+    g push -q "$CASE_STATE/collect/both.git" \
+      "$second:refs/capsule/both/heads/work" \
+      "$st2:refs/capsule/both/state/implementation"
+
+    run both fetch
+    ck "a fetch whose halves disagree refuses" 1 "$rc"
+    # Each half named on its own, because "it failed" is the answer that left
+    # the two refs disagreeing in the first place.
+    ckt "  naming the half that landed" saw "state: landed"
+    ckt "  and the half that did not" saw "code: refused"
+    ckt "  and the state half really did move" \
+      test "$(g rev-parse refs/capsule/both/state/implementation)" = "$st2"
+    ckt "  while the code half stayed where it was" \
+      test "$(g rev-parse refs/capsule/both/heads/work)" = "$first"
+    # The remedy is item 50's key, named for the generation this slot is on, so
+    # the message teaches the archive rather than the `--force` that loses it.
+    ckt "  pointing at the archive that unblocks it" saw "refs/capsule/both/gen/"
+
+    git init -q --bare "$CASE_STATE/collect/one.git"
+    g push -q "$CASE_STATE/collect/one.git" \
+      "$second:refs/capsule/one/heads/work" \
+      "$st2:refs/capsule/one/state/implementation"
+    run one fetch
+    ck "a fetch whose halves agree takes both" 0 "$rc"
+    ckt "  saying so for the code half" saw "code: landed"
+    ckt "  and for the state half" saw "state: landed"
+
+    # A sweep is N answers on one screen (`aggregable`, host/cli.nix), so a slot
+    # that cannot fetch must not decide another's outcome — `set -e` on a git
+    # that exits 1 used to end the loop wherever it had got to.
+    g update-ref -d refs/capsule/one/heads/work
+    g update-ref -d refs/capsule/one/state/implementation
+    run all fetch
+    ck "a sweep past a slot that refuses still fails" 1 "$rc"
+    ckt "  having fetched the slot that could" \
+      test "$(g rev-parse refs/capsule/one/heads/work)" = "$second"
+    ckt "  and named the one that could not" saw "both: code: refused"
+    unset CAPSULE_REPO
 
     # An unassigned slot on a host with **two** targets. Not a default and not
     # the first name: a slot's name says nothing about which project it holds, so
