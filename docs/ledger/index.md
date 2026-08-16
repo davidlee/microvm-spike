@@ -1,5 +1,12 @@
 # The ledger — one numbered item per question
 
+> **CLOSED ARCHIVE. Item 54 was the last; there is no item 55.**
+> New decisions go to `doctrine adr new`, durable gotchas to `doctrine memory
+> record`, latent work to `doctrine backlog new`, epistemic claims to `doctrine
+> knowledge new`. `NOTES item N` stays a valid citation form forever and nothing
+> here is renumbered or deleted; an item may still be **resolved in place**.
+> Why, and what the alternative cost: `ADR-002`.
+
 **Cited from source and from the other docs as `NOTES item N`.** That citation
 is an *id*, not a path: the numbers are frozen and append-only, a resolved item
 is struck or annotated in place, never deleted and never renumbered, and the
@@ -11,8 +18,8 @@ changing with it.
 1400 lines. The slug is a convenience and the number is the identity; if a slug
 ever misleads, rename the file and leave the number alone.
 
-**Adding one:** a new file with the next number, a row at the bottom of the
-table, and a state. Nothing else moves.
+**Adding one: no.** That was the rule while this was live, and it is recorded
+because the archive's shape is a consequence of it. Nothing is appended now.
 
 **The `state` column is a state, not an abstract** — a verdict plus at most one
 clause naming what is outstanding, and never more than about two lines. Every

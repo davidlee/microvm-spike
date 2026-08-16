@@ -2,7 +2,11 @@
 
 Usage is [README.md](../README.md). How to work in this repo, plus the
 architecture invariants and the gotchas that have already cost time, is
-[CLAUDE.md](../CLAUDE.md). Everything else is here.
+[CLAUDE.md](../CLAUDE.md). **Governance is
+[.doctrine/project-orientation.md](../.doctrine/project-orientation.md)** —
+onboarding, routing, and the two id spaces. This file maps question to file for
+the `docs/` tree, and that tree is now the *design* half: contracts, plans,
+evaluations, and the frozen ledger.
 
 | question | doc |
 | --- | --- |
@@ -13,7 +17,7 @@ architecture invariants and the gotchas that have already cost time, is
 | where does a guest's tool set come from, and how does it compose? | [contract-flavour.md](./contract-flavour.md) — composition built (`fragments.nix`), selection unbuilt |
 | what does doctrine ask of this, and supply to it? | [contract-doctrine.md](./contract-doctrine.md) |
 | what does the confinement actually claim? | [threat-model.md](./threat-model.md) |
-| why was *that* decided, and what was tried first? | [ledger/index.md](./ledger/index.md) — the numbered ledger |
+| why was *that* decided, and what was tried first? | [ledger/index.md](./ledger/index.md) — **closed archive**, items 1–54; new decisions are `doctrine adr new` |
 | what has been measured, and what is the number? | [probes.md](./probes.md) |
 | what would N capsules on one host cost? | [plan-c-multi-capsule.md](./plan-c-multi-capsule.md) |
 | ...and what would implementing that touch? | [plan-c-implementation.md](./plan-c-implementation.md) |
@@ -26,11 +30,14 @@ architecture invariants and the gotchas that have already cost time, is
 
 ## Conventions
 
-- **[the ledger](./ledger/index.md) is cited as `NOTES item N`**, from source
-  comments as well as from the other docs. The citation is an id, not a path:
-  the item lives in `ledger/NNN-slug.md`, one file each, and moving or renaming
-  a file changes nothing about how it is cited. Numbers are frozen and
-  append-only: resolve an item in place, never renumber, never delete.
+- **[the ledger](./ledger/index.md) is a closed archive, cited as `NOTES item
+  N`** — from source comments as well as from the other docs. The citation is an
+  id, not a path: the item lives in `ledger/NNN-slug.md`, one file each, and
+  moving or renaming a file changes nothing about how it is cited. Numbers are
+  frozen: resolve an item in place, never renumber, never delete. **It stops at
+  item 54 and takes no more** (`ADR-002`) — 238 of those citations are in source
+  files, so the ids had to survive whatever replaced the ledger. New decisions
+  are `doctrine adr new`.
 - **[probes.md](./probes.md) owns the figures.** Link to it instead of copying a
   number — the last time a measurement lived in three files, two of them were
   the harness's own patience rather than the capsule's.

@@ -5,14 +5,22 @@ If you have NOT seen `BOOT-SENTINEL: doctrine-governance-snapshot` anywhere in y
 
 Firecracker microVM used to confine a coding agent working on one target repo
 (`target.nix`; here `~/dev/doctrine`). [README.md](./README.md) is usage;
-everything else is [docs/](./docs/index.md), which maps question to file. Three
-of them before proposing changes: [docs/status.md](./docs/status.md) is where
-the work is up to, [docs/ledger/](./docs/ledger/index.md) is the numbered ledger
-of rationale and gaps, one file per item (`NNN-slug.md`) — **several
-obvious-looking ideas are already recorded there as considered-and-rejected**,
-and it is cited from source as `NOTES item N`, which is an id and not a path, so
-those numbers are frozen — and [docs/probes.md](./docs/probes.md) owns every
-measured figure, so link to it rather than copying a number out.
+everything else is [docs/](./docs/index.md), which maps question to file.
+
+**Governance is doctrine's** — `.doctrine/project-orientation.md` is the way in,
+and `ADR-001` is the scope: routing here is backlog-first, larger programs of
+work get a slice, and this repo's id space is strictly separate from the
+doctrine corpus it confines. [docs/status.md](./docs/status.md) still holds the
+present tense and is **being retired** into runtime state, backlog and knowledge
+records — read it, don't grow it. Two more before proposing changes:
+[docs/ledger/](./docs/ledger/index.md) is a **closed archive** of rationale and
+gaps, one file per item (`NNN-slug.md`) — **several obvious-looking ideas are
+recorded there as considered-and-rejected** — cited from source as `NOTES item
+N`, an id and not a path, so those numbers are frozen. It stops at item 54 and
+takes no more (`ADR-002`); a new decision is `doctrine adr new`, a durable gotcha
+is `doctrine memory record`, latent work is `doctrine backlog new`, an epistemic
+claim is `doctrine knowledge new`. And [docs/probes.md](./docs/probes.md) owns
+every measured figure, so link to it rather than copying a number out.
 
 Plans are scoping, not commitments: `plan-b-other-jails.md` is the
 non-firecracker shapes, `plan-c-multi-capsule.md` is what N capsules on one host
