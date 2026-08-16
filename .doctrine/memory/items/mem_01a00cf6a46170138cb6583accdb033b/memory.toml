@@ -1,0 +1,42 @@
+memory_uid = "mem_01a00cf6a46170138cb6583accdb033b"
+memory_key = "mem.fact.oubliette.policy-verb-is-owner-only"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "The policy verb is owner-only three gates deep"
+summary = "capsule <slot> policy <name> needs the owner's uid, not just the sudoers grant — the record lock and the allowlist directory stop anyone else first"
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/services.nix", "host/cli.nix", "host/record.nix"]
+globs = []
+commands = ["capsule"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "cd6335ac3e6990f0cc649a5a652dffe19aa5fba5"
+ref_name = "refs/heads/main"
+checkout_state_id = "292460c6fdd35e65da8c13d70451959df4cf549e65ef5bf35964957a5406845a"
+base_commit = "c0313d5ab46f39398b491626c2702902f52e7177"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "high"
+
+[ranking]
+severity = "high"
+weight = 0
+

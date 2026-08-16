@@ -16,3 +16,20 @@ Two instruments that will lie here, both from `STD-001`:
 
 Evidence rung (`STD-001`): currently **exercise** by the owner. This buys
 **compare** — the rung item 44 was found at.
+
+## Outcome
+
+Ran. `EVD-008` is the record and `ISS-005` is what it opened.
+
+`sudo -K` then `sudo -u assigner /run/current-system/sw/bin/capsule b policy
+sealed`, where `assigner` is a plain user in group `users`. It failed at
+`/var/lib/capsule/slot/b/.lock: Permission denied` — the record's `flock`, two
+gates before the sudoers grant, so **the grant was never reached**. Nothing
+moved and the composite refusal was true.
+
+The rung is **compare**, as the chore predicted. What it compared was not what
+the chore expected: the difference between the owner and an assigner is the two
+`systemd.tmpfiles.rules` in `host/services.nix`, not the
+`security.sudo.extraRules` entry anybody was looking at. Both instruments named
+above lied on cue — `sudo -n -l` reports the verb authorised, and it is a verb
+no assigner can invoke.

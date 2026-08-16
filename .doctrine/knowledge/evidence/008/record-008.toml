@@ -1,0 +1,31 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 8
+slug = "the-policy-verb-refuses-a-non-owner-two-gates-before-the-grant"
+title = "The policy verb refuses a non-owner two gates before the grant"
+record_kind = "evidence"
+status = "captured"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+datum = "As user 'assigner' (isNormalUser, group users) with a cold ticket, `capsule b policy sealed` on this host failed at `/var/lib/capsule/slot/b/.lock: Permission denied` — the record's flock, two gates before the sudoers grant. Nothing moved; the composite refusal was true."
+provenance = "experiment"
+confidence = "high"
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)
+
+[[relation]]
+label = "references"
+role = "concerns"
+descriptor = "the exercise CHR-004 asked for"
+target = "CHR-004"
