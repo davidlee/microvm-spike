@@ -56,44 +56,32 @@
 # the stage, and nothing infers a value it was not given.
 #
 # **And every one of them now comes off a document** (NOTES item 51 step 4).
-# What is left below is the one predicate a *host* program asks before it opens a
-# door — `needsUnit` — which is still eval-time and is step 6's, not this file's.
+# **Including the last one** (step 6): `needsUnit` was an eval-time predicate
+# over `target.nix`'s `statePaths`, exported from here for `capsule-collect` to
+# ask before it opens a door — so this file took the target's list for that one
+# thing while the script it builds took the same list on argv. It takes **no
+# target value at all** now. The host asks a loaded document
+# (`profileNeedsUnit`, host/profile.nix) and the script below asks the arguments
+# it was handed; two ends of one fact, and neither is a property of the build.
 {
   pkgs,
   lib,
-  # What the target declares as its out-of-band state (`target.nix`'s
-  # `statePaths`). Read here for **one thing only**: whether this target's policy
-  # has a hole in it, which `capsule-collect` needs before it pushes anything and
-  # which is therefore still a property of the build (NOTES item 51, step 6). The
-  # templates the script actually substitutes arrive on its command line.
-  #
-  # An explicit allowlist and never "the ignored files": a
-  # `.gitignore` routinely covers credentials, machine-local config and caches,
-  # and `git add -f` over one is a loaded gun pointed wherever that list faces.
-  #
-  # A **template** list rather than a path list, since item 32's scope invariant:
-  # each entry may hold one `${hole}`, filled at collect by the unit token the
-  # assignment carries. What that buys is the difference between *the out-of-band
-  # state of the work this capsule was assigned* and *every unit of work the
-  # checkout has ever held* — 41 entries against 1886, measured
-  # (docs/probes.md). A target whose state is not per-unit writes no hole and
-  # nothing here changes for it.
-  statePaths,
   # The ref the chain lives on, minus its stage. Guest-side, and never
   # `refs/heads/*`: no branch ever contains this tree.
   refPrefix ? "refs/capsule/state",
 }: let
-  # The one hole a policy path may hold, spelled once. The predicate below and
-  # the substitution in the script are the same fact read from two ends, and two
-  # spellings of it is a template that silently never matches.
+  # The one hole a policy path may hold, spelled once *here*. The substitution
+  # below and the run-time predicate beside it are the same fact read from two
+  # ends, and two spellings of it is a template that silently never matches.
+  #
+  # An explicit allowlist and never "the ignored files": a `.gitignore` routinely
+  # covers credentials, machine-local config and caches, and `git add -f` over
+  # one is a loaded gun pointed wherever that list faces. A **template** list
+  # rather than a path list, since item 32's scope invariant — the difference
+  # between *the out-of-band state of the work this capsule was assigned* and
+  # *every unit of work the checkout has ever held*, 41 entries against 1886
+  # (docs/probes.md).
   hole = "{unit}";
-
-  # Whether this target's policy is unit-scoped at all — known at eval, because
-  # the templates are. `capsule-collect` reads it to decide whether a unit is
-  # *required*, which is item 28's rule applied to the sharpest control here: a
-  # template with a hole and no unit refuses, rather than degrading to the
-  # unscoped list, because the unscoped list is the failure being fixed.
-  needsUnit = lib.any (lib.hasInfix hole) statePaths;
 
   script = pkgs.writeText "capsule-state-snapshot" ''
     set -euo pipefail
@@ -136,12 +124,11 @@
     # target's value.
     hole=${lib.escapeShellArg hole}
 
-    # Whether *these* templates are unit-scoped. It used to be an eval-time
-    # predicate over a build-time list, which made "does this target need a
-    # unit?" a property of which flake the host had built (NOTES item 51). The
-    # host still asks the same question at eval — `capsule-collect` refuses
-    # before it opens the door — and this is the same fact read from the
-    # arguments it was actually given.
+    # Whether *these* templates are unit-scoped, from the arguments this run was
+    # actually given. The host asks the same question of the document it loaded
+    # and refuses before the door is opened (host/profile.nix's
+    # `profileNeedsUnit`); this is the far end of that, and the two disagreeing
+    # is what the refusal below reports.
     perUnit=no
     for t in "''${declared[@]}"; do
       case "$t" in
@@ -317,7 +304,7 @@
     printf '%s\t%s\t%s\n' "$commit" "$bytes" "$files"
   '';
 in {
-  inherit needsUnit script;
+  inherit script;
 
   # The tail of the command line, and it was the one place step 4 had to change
   # (NOTES item 51): the ceiling and the templates used to be nix values escaped

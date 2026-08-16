@@ -89,6 +89,15 @@ pkgs.runCommand "capsule-git-channel-cases" {
     "statePaths": [".b/{unit}"], "stateMaxBytes": 4096,
     "sizes": {"vcpu": 1, "mem": 1, "volume": 1} }'
 
+  # A third, and it is the one step 6 is about: a target that declares no
+  # out-of-band state at all. Its checkout is this sandbox's, so the only thing
+  # separating it from `alpha` is the field under test.
+  write gamma "{ \"schema\": 1, \"name\": \"gamma\", \"path\": \"$PWD/src\",
+    \"guestPath\": \"/vol/gamma\", \"volumePath\": \"/vol\",
+    \"cachePaths\": [], \"baseline\": null, \"refresh\": null,
+    \"statePaths\": [], \"stateMaxBytes\": 0,
+    \"sizes\": {\"vcpu\": 1, \"mem\": 1, \"volume\": 1} }"
+
   prov=${lib.getExe provision}
   coll=${lib.getExe collect}
   slot=${lib.escapeShellArg slot}
@@ -152,6 +161,45 @@ pkgs.runCommand "capsule-git-channel-cases" {
   saw "cannot reach ssh://agent@"
   saw "/vol/alpha"
   never "/other/beta"
+
+  # -------------------------------------------- the unit scope, per document
+  #
+  # `stateNeedsUnit` was an eval-time predicate over *this host's* target, so
+  # every profile got doctrine's answer whatever it declared itself: a document
+  # with no hole in its state paths was refused for being scoped to a unit it
+  # does not have, and a `--unit` against one was accepted and scoped nothing
+  # (item 51 step 6). Both runs exit 1 either way — they die at the door a
+  # moment later — so the **reason** is the whole assertion here, which is the
+  # lesson step 4 paid for.
+  run "$coll" --capsule "$slot" --profile alpha --policy build
+  ck "a collect on a holed document with no unit refuses" 1 "$rc"
+  saw "scopes its state paths to"
+  # Naming the document and not "this target", which is the only thing that
+  # tells a human *which* of two a refusal is about.
+  saw "profile 'alpha'"
+  # Before the door: a scope error that has already pushed a script into a
+  # capsule is one this program made worse.
+  never "the state snapshot failed"
+
+  run "$coll" --capsule "$slot" --profile gamma --policy build --unit u
+  ck "and a --unit against a document with no hole refuses" 1 "$rc"
+  saw "with a place for one"
+  saw "profile 'gamma'"
+  never "scopes its state paths to"
+
+  # The degrade, per document rather than per build: a target that declares no
+  # state gets the code-only collect this program used to be, and it is *this
+  # run* that decides so rather than the flake the host was built from.
+  run "$coll" --capsule "$slot" --profile gamma --policy build
+  ck "a document with no state paths collects code only" 1 "$rc"
+  never "scopes its state paths to"
+  never "the state snapshot failed"
+  saw "capsule-collect: policy build"
+
+  # The other side of the same fork, so neither answer is a constant.
+  run "$coll" --capsule "$slot" --profile alpha --policy build --unit u
+  ck "and a holed one with a unit takes the state half" 1 "$rc"
+  saw "the state snapshot failed"
 
   [ "$fail" = 0 ] || exit 1
   cp "$log" $out

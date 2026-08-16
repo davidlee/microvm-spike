@@ -82,11 +82,11 @@ changes until they are built.
 | `cachePaths` | capsule | guest seed (build time); host: `capsule-baseline` looks them up for its before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | ~~`collectMaxPackBytes`~~ | — | — | **no such field** | deleted with `allowlist` and for its reason: how much may come back out of a capsule is host policy about ingestion. It and `mayCollect` are a policy's, and `capsule-collect` resolves them from `--policy <name>` ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) |
-| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). A **template** list — each entry may hold one `{unit}`, filled at collect from the assignment. Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)). **And host-side, at `path`**: `capsule-brief --from-host` reads the same templates in *your* checkout, for a unit no capsule has driven yet ([item 42](./ledger/042-a-state-half-no-capsule-has-held.md)) — so these paths are now read on both sides of the door, and what travels from the host is these paths and nothing else | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
+| `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). A **template** list — each entry may hold one `{unit}`, filled at collect from the assignment. Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)). **And host-side, at `path`**: `capsule-brief --from-host` reads the same templates in *your* checkout, for a unit no capsule has driven yet ([item 42](./ledger/042-a-state-half-no-capsule-has-held.md)) — so these paths are now read on both sides of the door, and what travels from the host is these paths and nothing else | no | `[]` — the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read. Decided by the *document* since item 51 step 6, so a host confining two projects gets each answer: `--unit` is then refused rather than absent, and `capsule-adopt`/`capsule-brief` exist and say what they have nothing to do |
 | `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made — looked up by `capsule-collect` and `capsule-brief --from-host`, which put it on that script's command line | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
-| `baseline` | profile | host: `capsule-baseline` looks up the command it runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
-| `refresh` | profile | host: `capsule-provision` looks up the command it runs in the checkout after the push, and `capsule-refresh` runs the same one on demand. **It is run with stdin closed and must not need it** — the script carrying it arrives on the guest shell's own stdin, so a command that reads stdin reads the rest of that script ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)). May write tracked files; its tracked output is committed in the guest, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) — which is also why a target that writes tracked files here can only be briefed *during* a provision, never after one | no | `null` — as `baseline`: no program, rather than one with nothing to run. A provision is then the two steps it was before |
+| `baseline` | profile | host: `capsule-baseline` looks up the command it runs in the checkout | no | `null` — `capsule-baseline` exists anyway and refuses, naming the profile. It used to not be *built*, which is a better absent path only while a host has one target (item 51 step 6); `capsule <slot> setup` skips the step rather than failing on it |
+| `refresh` | profile | host: `capsule-provision` looks up the command it runs in the checkout after the push, and `capsule-refresh` runs the same one on demand. **It is run with stdin closed and must not need it** — the script carrying it arrives on the guest shell's own stdin, so a command that reads stdin reads the rest of that script ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)). May write tracked files; its tracked output is committed in the guest, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) — which is also why a target that writes tracked files here can only be briefed *during* a provision, never after one | no | `null` — as `baseline`: the program exists and refuses by name, and a provision is then the two steps it was before, decided per document rather than per build |
 | `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them. host: `capsule <slot> provision` looks up `vcpu` and `mem` for the assignment record's `class` | yes | — |
 | `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
@@ -124,12 +124,22 @@ state template must be relative, hole-free-or-single-holed and paired with a
 ceiling, and no value may carry a newline. Those are conditions this table
 already stated in prose and nothing enforced.
 
+**And since step 6, no field of this table is read at *build* time by the host at
+all.** Three were: `statePaths` decided whether `capsule-collect` had a `--unit`
+flag, and `baseline`/`refresh` decided whether their programs were built. Every
+`capsule-<verb>` program now exists on every host and refuses at run time for a
+document that declares nothing, naming the profile — because "no program rather
+than one that cannot work" is the right absent path for a host with one target
+and the wrong one for a host with two. The same goes for what the front end
+*prints*: `capsule <slot> unit` is always a verb and `capsule all status` always
+has a `unit` column, since one table over N slots and M targets can have no
+per-target shape (item 51, decision 3). A *program* holds exactly one profile and
+does branch on it, which is why `capsule-collect --unit` has two refusals and
+`capsule-brief`'s usage line has two shapes.
+
 **What has *not* moved, and it is the honest limit.** The document is a store
 path, so a second target is still a rebuild away — what has stopped being a
-rebuild apart is the programs. And three fields of this table are still read at
-*build* time by the host: `statePaths` decides whether `capsule-collect` has a
-`--unit` flag at all, and `baseline`/`refresh` decide whether their programs
-exist. That is item 51's step 6.
+rebuild apart is the programs, all of them, in every sense.
 
 **Two of those rows are struck out, and that is what the column was for.**
 `allowlist` and `collectMaxPackBytes` were host controls — what a capsule may

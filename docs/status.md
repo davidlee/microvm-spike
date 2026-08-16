@@ -6,7 +6,51 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)'s
+Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)
+was closed by its step 6, with decision 3 — open since step 3 — taken first**.
+**Nothing about a host-side program is a function of which project this host
+confines any more**: not the values it carries (step 4), not whether it exists,
+and not what the front end prints. `programVerbs` and `profileVerbs` are literals,
+`capsule-baseline`, `capsule-refresh`, `capsule-adopt` and `capsule-brief` are
+built unconditionally and refuse at run time naming the profile, and
+`host/state-snapshot.nix` takes **no target value at all** — which is why the
+step's two halves turned out to be one: the verb list was gated on the predicate,
+so it could not land alone as step 3 predicted. **Decision 3**: *the front end's
+printed shape is not a function of any target*. `capsule all status` prints the
+`unit` column always, `unit` is always a verb, and what a target does not declare
+is a `-` in a cell or a refusal that names the document — because a header that
+changes when a document is edited is the item's own coupling one layer out, and
+neither a table-per-target nor a union of columns has an answer for the
+**unassigned** slot. The boundary that makes it a rule rather than a taste: a
+*program* holds exactly one profile and **does** branch on it, which is where
+`capsule-collect`'s two `--unit` refusals and `capsule-brief`'s usage line live.
+`profileNeedsUnit` (`host/profile.nix`) is the only host-side spelling of the
+predicate; the guest half still asks its own argv, which is the pair that has to
+agree. `slotNeedsUnit` in the front end has **three** answers — yes, no, and *no
+target resolved* — since a slot nothing has assigned has nothing for a token to be
+wrong against. One eval-time reader survives, `profile.needsUnit`, for
+`probe/two-capsules.sh`'s command line and no program. **Three bugs came out of
+it, none of them step 6's and none ever installed** — verified rather than
+assumed, since the running host's `capsule-collect` rejects `--profile` and
+therefore predates step 4: `recordProvisioned` gained a profile parameter at step
+4 and `provision)` never gained the argument, so the ref landed in the profile's
+place and every `capsule <slot> provision <ref>` died *after the push*; `setup)`
+passed `$provisionProfile`, which only the other `case` branch sets; and older
+than both, `oid=$(observed …)` under `pipefail` and `set -e` made the "guest did
+not answer for its HEAD" branch unreachable, so a provision against a quiet guest
+exited 1 in silence. All three sit past a `work` call, so only a stub could reach
+them and no suite had ever run the front end's provision path — `policyCases`
+stubs four programs now. Nine mutations, each red on its own rounds and nothing
+else; one was rejected by shellcheck before the suite ran, which reads exactly
+like "nothing went red". `just cases` is **369** (was 322); `just` and `just
+units` green. Smoke test spent: `capsule all status` off the new front end
+against the live fleet with the `unit` column printing beside the slots that have
+one, and one collect off slot `e` — the same **30 files, 566,960 bytes** step 4
+measured, which is what says the run-time fork resolves where the build-time one
+did. **What it does not close, and the item says so**: the documents are a store
+path, so two targets are still a rebuild apart, and the guest image still knows
+the project's name (§6.2). Step 5 belongs to the commit that takes the documents
+out of the store. Before that, the same day, after **that item's
 step 4 was built and its fourth decision taken**: **every host-side program reads
 the target's run-time half out of a document now**, so not one of them is a
 function of which project this host confines. `capsule-provision`,

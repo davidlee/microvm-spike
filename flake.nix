@@ -424,24 +424,16 @@
     capsule-collect = hostPrograms.collect;
     capsule-inject = hostPrograms.inject;
 
-    # Attrsets because the fields are optional — a target that declares no
-    # baseline, or derives nothing from its checkout, gets no program at all
-    # rather than one that cannot work.
-    baselinePackages =
-      lib.optionalAttrs (hostPrograms.baseline != null)
-      {capsule-baseline = hostPrograms.baseline;};
-
-    refreshPackages =
-      lib.optionalAttrs (hostPrograms.refresh != null)
-      {capsule-refresh = hostPrograms.refresh;};
-
-    adoptPackages =
-      lib.optionalAttrs (hostPrograms.adopt != null)
-      {capsule-adopt = hostPrograms.adopt;};
-
-    briefPackages =
-      lib.optionalAttrs (hostPrograms.brief != null)
-      {capsule-brief = hostPrograms.brief;};
+    # These four used to be *attrsets*, present only where `target.nix` declared
+    # the field each one reads — "no program at all rather than one that cannot
+    # work", which was the right absent path while a host had one target and is
+    # the wrong one the moment it has two (NOTES item 51 step 6). Every one of
+    # them refuses at run time for a document that declares nothing, naming the
+    # profile, and that is a sentence only a run can say.
+    capsule-baseline = hostPrograms.baseline;
+    capsule-refresh = hostPrograms.refresh;
+    capsule-adopt = hostPrograms.adopt;
+    capsule-brief = hostPrograms.brief;
 
     # The front end: resolve a name, pick the copy of a program that can reach
     # that capsule, exec (host/cli.nix). Built once and installed by both paths,
@@ -458,7 +450,7 @@
     # of them can be missing.
     capsule-cli = import ./host/cli.nix {
       inherit pkgs lib net capsules policies guestSsh;
-      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateNeedsUnit;
+      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs;
     };
 
     # The third kind of check (CLAUDE.md): a host-side program's own text, run
@@ -532,7 +524,7 @@
 
     policyCases = import ./host/policy-cases.nix {
       inherit pkgs lib net capsules policies guestSsh;
-      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateNeedsUnit;
+      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs;
     };
 
     # The host module has no build of its own — it is a NixOS module, and this
@@ -1101,8 +1093,16 @@
           # two capsules that are neither (NOTES item 36, item 32). The unit half
           # is present only where this target's state paths have a hole for one,
           # since a flag that scopes nothing is refused.
+          #
+          # **The last eval-time reader of that predicate, and deliberately so**
+          # (NOTES item 51 step 6): no *program* asks it at build any more, and
+          # what is left is a probe, which is evidence about the real capsule on
+          # this host and is allowed to know this host's real target —
+          # `probe/netns-boot.sh` is the standing exception for the same reason.
+          # It comes off `host/profile.nix` rather than being spelled here, so
+          # the hole has one spelling ([item 38](./docs/ledger/038-a-probe-that-became-a-borrower.md)).
           COLLECT_ARGS=(--policy build${
-            lib.optionalString nsPrograms.stateNeedsUnit " --unit probe"
+            lib.optionalString nsPrograms.profile.needsUnit " --unit probe"
           })
           GUEST_PATH="${target.guestPath}"
           TARGET_PATH="${target.path}"
@@ -1252,15 +1252,13 @@
 
     packages.${system} =
       lib.mapAttrs (_: cfg: cfg.config.microvm.declaredRunner) vms
-      // baselinePackages
-      // refreshPackages
-      // adoptPackages
-      // briefPackages
-      // lib.optionalAttrs (hostPrograms.briefRunner != null) {inherit briefCases;}
-      // lib.optionalAttrs (hostPrograms.stateSnapshotScript != null) {inherit snapshotCases;}
-      // lib.optionalAttrs (hostPrograms.refreshScript != null) {inherit refreshCases;}
-      // lib.optionalAttrs (hostPrograms.baselineRunner != null) {inherit baselineCases;}
       // {
+        # Four programs and four suites that were conditional on `target.nix`
+        # until step 6 (NOTES item 51). They are outputs like any other now,
+        # which also means `just build` can no longer be made to skip a suite by
+        # a value in a target's file.
+        inherit capsule-baseline capsule-refresh capsule-adopt capsule-brief;
+        inherit briefCases snapshotCases refreshCases baselineCases;
         inherit vm vm-stop capsule-halt capsule-net capsule-host;
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
@@ -1276,44 +1274,42 @@
       };
 
     devShells.${system}.default = pkgs.mkShellNoCC {
-      packages =
-        [
-          vm
-          vm-stop
-          capsule-halt
-          capsule-net
-          capsule-host
-          capsule-cli
-          capsule-provision
-          capsule-collect
-          capsule-inject
-          probe-netns
-          probe-netns-boot
-          probe-netns-egress
-          probe-freshness
-          probe-two-capsules
-          pkgs.firecracker
-          pkgs.just
-          # `just ssh` reaches a namespaced capsule through its relay socket, so
-          # the devshell needs the same tool the units do.
-          pkgs.socat
-          microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
-          # stdenv's PATH carries plain `pkgs.bash`, which is built without readline
-          # or progcomp: running `bash` in here gave `complete: command not found`
-          # and a prompt full of literal \[ \]. `packages` comes first, so this puts
-          # the real one back. Not repo-specific — every nix devshell does it.
-          pkgs.bashInteractive
-        ]
-        ++ lib.attrValues baselinePackages
-        ++ lib.attrValues refreshPackages
-        ++ lib.attrValues adoptPackages
-        ++ lib.attrValues briefPackages;
+      packages = [
+        vm
+        vm-stop
+        capsule-halt
+        capsule-net
+        capsule-host
+        capsule-cli
+        capsule-provision
+        capsule-collect
+        capsule-inject
+        probe-netns
+        probe-netns-boot
+        probe-netns-egress
+        probe-freshness
+        probe-two-capsules
+        pkgs.firecracker
+        pkgs.just
+        # `just ssh` reaches a namespaced capsule through its relay socket, so
+        # the devshell needs the same tool the units do.
+        pkgs.socat
+        microvm.packages.${system}.microvm # `microvm` CLI (host-module workflows)
+        # stdenv's PATH carries plain `pkgs.bash`, which is built without readline
+        # or progcomp: running `bash` in here gave `complete: command not found`
+        # and a prompt full of literal \[ \]. `packages` comes first, so this puts
+        # the real one back. Not repo-specific — every nix devshell does it.
+        pkgs.bashInteractive
+        capsule-baseline
+        capsule-refresh
+        capsule-adopt
+        capsule-brief
+      ];
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"
         echo "                       guest side: vm capsule   (or: vm hello)"
         echo "                       then:       capsule-provision / capsule-inject"
-        ${lib.optionalString (target.baseline != null)
-          ''echo "                                   capsule-baseline (to green)"''}
+        echo "                                   capsule-baseline (to green)"
         echo "                       and back:   capsule-collect"
       '';
     };

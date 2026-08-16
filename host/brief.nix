@@ -76,9 +76,6 @@
   # than a string since step 4 — it used to be a nix function of the checkout,
   # which is one store path per project.
   snapshotArgs,
-  # Whether this target's state paths are scoped to a unit of work, which decides
-  # whether `--unit` is required here exactly as it decides it for a collect.
-  needsUnit,
   # Every slot this host declares, for one refusal: a source that is not one of
   # them is not briefable, because **a quarantine is what a capsule sent back**
   # and not a place state lives. That is the reading item 42 had to choose
@@ -423,19 +420,27 @@ in rec {
       local q line commit bytes files codeOid guestHead hostHead rc=0
       local -a snapArgs
       ${quarantine.checkToken ''"$stage"'' "'--stage $stage'"}
-      ${lib.optionalString needsUnit ''
       # The same rule as `capsule-collect --unit`, refused here for the same
       # reason and one step earlier: an empty token substitutes into the middle
       # of every declared path and collapses it onto its parent, so the unscoped
-      # tree would wear the scoped one's name (NOTES items 28, 32).
-      if [ -z "$unit" ]; then
-        echo "capsule-brief: this target's state paths are scoped to one unit of" >&2
-        echo "  work, so a host origin has to say which. 'capsule $capsule unit" >&2
-        echo "  <token>' records it, or pass --unit." >&2
+      # tree would wear the scoped one's name (NOTES items 28, 32). Asked of the
+      # loaded document since step 6, where it used to be a property of the
+      # build — so a host with two targets gets each one's answer, and both
+      # refusals name the profile they are about.
+      if profileNeedsUnit; then
+        if [ -z "$unit" ]; then
+          echo "capsule-brief: profile '$profile_name' scopes its state paths to" >&2
+          echo "  one unit of work, so a host origin has to say which. 'capsule" >&2
+          echo "  $capsule unit <token>' records it, or pass --unit." >&2
+          return 1
+        fi
+        ${quarantine.checkToken ''"$unit"'' "'--unit $unit'"}
+      elif [ -n "$unit" ]; then
+        # A flag that scopes nothing is a flag that lies about what landed.
+        echo "capsule-brief: --unit, but profile '$profile_name' declares no state" >&2
+        echo "  paths with a place for one, so it would scope nothing." >&2
         return 1
       fi
-      ${quarantine.checkToken ''"$unit"'' "'--unit $unit'"}
-    ''}
 
       if ! q=$(git -C "$profile_path" rev-parse --absolute-git-dir 2>/dev/null); then
         echo "capsule-brief: $profile_path is not a git repository, so there is" >&2
@@ -524,9 +529,14 @@ in rec {
       ${guestRepo}
       ${fragment}
 
+      # The `--unit` half is this profile's to decide, and a program holds
+      # exactly one — the boundary item 51's decision 3 draws around the front
+      # end's fleet table (docs/ledger/051-…).
       usage() {
+        local unitFlag=""
+        if profileNeedsUnit; then unitFlag=" [--unit <token>]"; fi
         echo "usage: capsule-brief [--capsule <name>] <source>[:<stage>]"
-        echo "       capsule-brief [--capsule <name>] --from-host [--stage <name>]${lib.optionalString needsUnit " [--unit <token>]"}"
+        echo "       capsule-brief [--capsule <name>] --from-host [--stage <name>]$unitFlag"
         echo
         echo "  Puts <source>'s collected state into this capsule's checkout, so a"
         echo "  second agent can read the first one's working state. Both capsules"
@@ -553,17 +563,15 @@ in rec {
             stage="$1"
             ;;
           --stage=*) stage="''${1#--stage=}" ;;
-          ${lib.optionalString needsUnit ''
-        --unit)
-          shift
-          [ "$#" -gt 0 ] || {
-            echo "--unit needs a token" >&2
-            exit 1
-          }
-          unit="$1"
-          ;;
-        --unit=*) unit="''${1#--unit=}" ;;
-      ''}
+          --unit)
+            shift
+            [ "$#" -gt 0 ] || {
+              echo "--unit needs a token" >&2
+              exit 1
+            }
+            unit="$1"
+            ;;
+          --unit=*) unit="''${1#--unit=}" ;;
           -*)
             usage >&2
             exit 1

@@ -52,7 +52,6 @@
   # a verb at all, and whether a collect is handed the one the record holds. A
   # target with no hole in its policy gets neither, because a field nothing reads
   # is a field that will one day be believed.
-  stateNeedsUnit,
   # The guest-side half of a status, as a store path pushed over the door
   # (host/observe.nix). A path and not a set of guest paths, deliberately: this
   # file asks a capsule what is true and does not know what `/work` is.
@@ -112,13 +111,18 @@
   '',
 }: let
   # Verbs this file implements itself, as opposed to the ones it hands on.
-  # `unit` only exists where the target's policy has a hole for one (NOTES item
-  # 32) — `collect` stays a program's verb and is merely *intercepted* below, the
-  # way `provision` is, to do the one thing a front end may do and a program may
+  # `collect` stays a program's verb and is merely *intercepted* below, the way
+  # `provision` is, to do the one thing a front end may do and a program may
   # not: read this host's record.
-  ownVerbs =
-    ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose" "policy"]
-    ++ lib.optional stateNeedsUnit "unit";
+  #
+  # **`unit` is unconditional since item 51 step 6.** It used to appear only
+  # where *this host's target* had a hole for one, which made the set of verbs a
+  # human may type a function of which project the host confines — and on a host
+  # with two documents it would offer or withhold the verb for both according to
+  # one of them. Decision 3's rule: the front end's shape is not a function of
+  # any target, and what a slot's document has no place for is a refusal that
+  # names it.
+  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose" "policy" "unit"];
 
   # Verbs `all` may be applied to. A question aggregates: N answers on one screen,
   # and a failure on one capsule is a row rather than a decision. An *action* does
@@ -176,7 +180,7 @@ in
           echo "  capsules:  ''${declared[*]}   (omitted: the one that is up)"
           echo "  lifecycle: start | stop | created       (start injects too)"
           echo "  ask:       status | branches | fetch     (these take 'all')"
-          echo "  assigned:  record | purpose [text…] | policy [<name>]${lib.optionalString stateNeedsUnit " | unit [<token>]"}"
+          echo "  assigned:  record | purpose [text…] | policy [<name>] | unit [<token>]"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
         }
@@ -540,6 +544,32 @@ in
           esac
         }
 
+        # Whether the target *this slot* is about scopes its out-of-band state by
+        # a unit of work — `stateNeedsUnit` as a question about a document rather
+        # than about the build (item 51 step 6). The predicate itself is
+        # `profileNeedsUnit` and lives beside the field it reads
+        # (host/profile.nix); this is only the resolution in front of it, which
+        # is the part a program may not do (item 20).
+        #
+        # **Three answers, not two**, and the third is why this is a helper:
+        #
+        #   0  this slot's target scopes its state by a unit
+        #   1  it does not, so a token here would scope nothing
+        #   2  no target resolved at all
+        #
+        # A slot nothing has assigned on a host with two documents is (2), and it
+        # has nothing for a token to be *wrong* against — so the callers below
+        # treat it as "do not intervene" rather than as a no. Quiet, because
+        # every one of them is deciding whether to fill a flag in, and the
+        # program behind it makes the refusal with the better message.
+        slotNeedsUnit() {
+          local n="$1"
+          shift
+          profileNameFor "$n" ''${1+"$@"} >/dev/null 2>&1 || return 2
+          profileLoad "$profileName" >/dev/null 2>&1 || return 2
+          profileNeedsUnit
+        }
+
         # Whether a verb's program takes one at all (host/programs.nix).
         profileVerb() {
           case "$1" in
@@ -614,13 +644,17 @@ in
           echo "$cur/$peak"
         }
 
-        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %-7s ${lib.optionalString stateNeedsUnit "%-6s "}%s\n'
+        # One format, one header, one row, and **no column that comes and goes**
+        # (item 51, decision 3): this is one table for N slots over M targets, so
+        # a shape that were a function of any one of them would change between
+        # two runs on one host, silently, with no rebuild to notice it.
+        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %-7s %-6s %s\n'
 
         statusHeader() {
           # shellcheck disable=SC2059
           printf "$statusFmt" \
             capsule created vm proxy relay door answers \
-            head dirty baseline age disk 'mem cur/peak' refs gen policy ${lib.optionalString stateNeedsUnit "unit "}purpose
+            head dirty baseline age disk 'mem cur/peak' refs gen policy unit purpose
         }
 
         yesno() { if "$@"; then echo yes; else echo no; fi; }
@@ -655,7 +689,7 @@ in
             "$(memOf "$n")" \
             "$refs" \
             "$(recordField "$n" generation)" \
-            "$(effectivePolicy "$n")" ${lib.optionalString stateNeedsUnit ''"$(recordField "$n" unit)"''} \
+            "$(effectivePolicy "$n")" "$(recordField "$n" unit)" \
             "$(recordField "$n" purpose)"
         }
 
@@ -682,7 +716,16 @@ in
           # second time: the caller has it, and re-resolving after the record has
           # been written would read the field this is about to set.
           profileLoad "$prof" || return 1
-          oid=$(observed "$n" | cut -f1)
+          # `|| oid=""` and not a bare assignment: `observed` returns 1 for a
+          # guest that does not answer, `set -o pipefail` carries that out of the
+          # pipeline, and `set -e` then killed this function — silently, since
+          # `observed` sends the transport's own stderr to /dev/null. So the
+          # branch below had never once been taken, and a provision whose code
+          # landed against a guest that had since gone quiet exited 1 saying
+          # nothing at all. Found by the first case ever to run this path
+          # (host/policy-cases.nix); it needs a stub, which is why a live host
+          # never found it.
+          oid=$(observed "$n" | cut -f1) || oid=""
           if [ -z "$oid" ] || [ "$oid" = - ]; then
             echo "capsule: provisioned, but the guest did not answer for its HEAD, so" >&2
             echo "  no base was recorded. 'capsule $n status', then provision again." >&2
@@ -944,10 +987,27 @@ in
           # started by hand, or that has rebooted since, has had no start of ours.
           # Write-if-absent makes the repeat a no-op rather than a second answer.
           setup)
+            # Resolved here and not left to `work`, for two reasons that arrived
+            # together. The record below needs the profile this provision was
+            # taken *under* — `provision)` resolves it into `provisionProfile`
+            # and this branch never runs that one, so the variable was unbound
+            # and `set -u` killed a setup after the push had landed. And the
+            # baseline step is now a question about the document rather than
+            # about the build (item 51 step 6), which needs the same answer.
+            profileNameFor "$name" ''${1+"$@"} || exit 1
+            profileLoad "$profileName" || exit 1
             work "$name" provision ''${1+"$@"}
-            recordProvisioned "$name" "$provisionProfile" ''${1+"$@"}
+            recordProvisioned "$name" "$profileName" ''${1+"$@"}
             work "$name" inject
-            ${lib.optionalString (builtins.elem "baseline" programVerbs) ''work "$name" baseline''}
+            # Skipped rather than refused when the target declares none: a setup
+            # with no baseline is finished, not failed. `capsule-baseline` would
+            # say the same thing and exit 1 saying it, which is the right answer
+            # to a human who asked for a baseline and the wrong one here.
+            if [ -n "$profile_baseline" ]; then
+              work "$name" baseline
+            else
+              echo "capsule $name: profile $profileName declares no baseline, so setup ends here."
+            fi
             ;;
 
           # Explicit, rather than falling through to the program dispatcher below,
@@ -955,39 +1015,53 @@ in
           # so the one that has something to record.
           provision)
             provArgs=(''${1+"$@"})
-            ${lib.optionalString stateNeedsUnit ''
-          # The same interception as `collect` and `brief --from-host`, for the
-          # same one reason: state taken from this host's checkout is scoped by
-          # a unit the program may not read (NOTES items 20, 42). It reaches
-          # provision because the brief moved inside it (NOTES item 47), so the
-          # scoping had to follow — a flag whose value the front end fills in
-          # one place and not the other is a scope that silently never applies.
-          fromHost=no
-          unitGiven=no
-          for a in ''${1+"$@"}; do
-            case "$a" in
-              --state-from-host) fromHost=yes ;;
-              --unit | --unit=*) unitGiven=yes ;;
-            esac
-          done
-          if [ "$fromHost" = yes ] && [ "$unitGiven" = no ]; then
-            recordedUnit=$(recordField "$name" unit)
-            if [ "$recordedUnit" != - ]; then
-              provArgs=(--unit "$recordedUnit" ''${provArgs[@]+"''${provArgs[@]}"})
+            # The same interception as `collect` and `brief --from-host`, for the
+            # same one reason: state taken from this host's checkout is scoped by
+            # a unit the program may not read (NOTES items 20, 42). It reaches
+            # provision because the brief moved inside it (NOTES item 47), so the
+            # scoping had to follow — a flag whose value the front end fills in
+            # one place and not the other is a scope that silently never applies.
+            #
+            # Conditioned on the *document* since step 6. Filling it in for a
+            # target with no hole would hand the program a flag it refuses, so a
+            # stale token on a record would make an unrelated provision
+            # impossible.
+            fromHost=no
+            unitGiven=no
+            for a in ''${1+"$@"}; do
+              case "$a" in
+                --state-from-host) fromHost=yes ;;
+                --unit | --unit=*) unitGiven=yes ;;
+              esac
+            done
+            if [ "$fromHost" = yes ] && [ "$unitGiven" = no ] \
+               && slotNeedsUnit "$name" ''${1+"$@"}; then
+              recordedUnit=$(recordField "$name" unit)
+              if [ "$recordedUnit" != - ]; then
+                provArgs=(--unit "$recordedUnit" ''${provArgs[@]+"''${provArgs[@]}"})
+              fi
             fi
-          fi
-        ''}
             # Resolved before the program runs and reused below, because after it
             # the record this reads from is the record this provision writes.
             profileNameFor "$name" ''${1+"$@"} || exit 1
             provisionProfile=$profileName
             work "$name" provision ''${provArgs[@]+"''${provArgs[@]}"}
-            # The *original* argv, and the array above exists so it stays that
-            # way: this reads `$2` as the ref that was asked for, so anything
-            # this front end prepends for the program's benefit would be recorded
-            # as the base a slot is pinned to. Two readers of one argv, and only
-            # one of them wanted the addition.
-            recordProvisioned "$name" ''${1+"$@"}
+            # The profile this provision was taken under, then the *original*
+            # argv — the array above exists so that stays original: this reads
+            # the ref that was asked for, so anything the front end prepended for
+            # the program's benefit would be recorded as the base a slot is
+            # pinned to. Two readers of one argv, and only one wanted the
+            # addition.
+            #
+            # The profile argument is **not** optional and was missing here from
+            # step 4 until step 6: `recordProvisioned` takes `<name> <profile>
+            # <ref>`, so the ref was landing in the profile's place and every
+            # `capsule <slot> provision <ref>` died on `no profile named
+            # '<ref>'` after the code had already been pushed. Nothing caught it
+            # because the front end's provision path needs a guest and the step
+            # that added the parameter spent its smoke test on a status and a
+            # collect.
+            recordProvisioned "$name" "$provisionProfile" ''${1+"$@"}
             ;;
 
           # The whole record, for when a column is not enough. `jq .` rather than
@@ -1137,7 +1211,6 @@ in
             echo "capsule $name: policy $want, generation $gen"
             ;;
 
-          ${lib.optionalString stateNeedsUnit ''
           # Which unit of work this slot is driving, and the only assigner-owned
           # field here that is *not* free text: it fills the hole in the target's
           # state paths, so it reaches a collect as part of a path and is bounded
@@ -1148,6 +1221,15 @@ in
           #
           # `"$1"` and not `"$*"`, for the same reason: a sentence is a purpose
           # and a token is not.
+          #
+          # **Always a verb since step 6**, where it used to exist only on a host
+          # whose own target had a hole. Reading is never refused, because the
+          # column it reads prints for every slot; **writing** is, when the slot's
+          # document has no place for the token — a recorded scope that no collect
+          # will ever substitute is the same lie as a `--unit` that scopes
+          # nothing, one layer up. And only when a document actually resolves: a
+          # slot nothing has assigned has no target for a token to be wrong
+          # against, which is `slotNeedsUnit`'s third answer.
           unit)
             if [ "$#" -eq 0 ]; then
               recordField "$name" unit
@@ -1158,14 +1240,20 @@ in
                 echo "  is the field that takes a sentence." >&2
                 exit 1
               }
+              needs=0
+              slotNeedsUnit "$name" || needs=$?
+              if [ "$needs" = 1 ]; then
+                echo "capsule: '$name' is on profile $profileName, which declares no" >&2
+                echo "  state paths with a place for one — so this token would scope" >&2
+                echo "  nothing and no collect would ever read it. Nothing written." >&2
+                exit 1
+              fi
               ${quarantine.checkToken ''"$1"'' "'unit $1'"}
               # shellcheck disable=SC2016  # `$u` is jq's, bound by --arg below
               echo "capsule $name: generation $(recordWrite "$name" \
                 '.unit = $u' --arg u "$1")"
             fi
             ;;
-
-        ''}
 
           # Intercepted for exactly one kind of thing, and it is the thing item 20
           # keeps out of a program: a collect is scoped and bounded by host state,
@@ -1181,11 +1269,11 @@ in
           # second thing to keep true.
           collect)
             policyGiven=no
-            ${lib.optionalString stateNeedsUnit "unitGiven=no"}
+            unitGiven=no
             for a in ''${1+"$@"}; do
               case "$a" in
                 --policy | --policy=*) policyGiven=yes ;;
-                ${lib.optionalString stateNeedsUnit "--unit | --unit=*) unitGiven=yes ;;"}
+                --unit | --unit=*) unitGiven=yes ;;
               esac
             done
             # So an unassigned slot ingests under exactly the policy its proxy is
@@ -1193,16 +1281,20 @@ in
             if [ "$policyGiven" = no ]; then
               set -- --policy "$(effectivePolicy "$name")" ''${1+"$@"}
             fi
-            ${lib.optionalString stateNeedsUnit ''
-          recordedUnit=$(recordField "$name" unit)
-          if [ "$unitGiven" = no ] && [ "$recordedUnit" != - ]; then
-            set -- --unit "$recordedUnit" ''${1+"$@"}
-          fi
-        ''}
+            # And the scope, from the same record — but only where the slot's
+            # *document* has somewhere to put it (item 51 step 6). This used to
+            # be conditioned on the build, so on a host with two targets a
+            # recorded token would be handed to a program that refuses it, and a
+            # perfectly ordinary collect would have become impossible.
+            if [ "$unitGiven" = no ] && slotNeedsUnit "$name" ''${1+"$@"}; then
+              recordedUnit=$(recordField "$name" unit)
+              if [ "$recordedUnit" != - ]; then
+                set -- --unit "$recordedUnit" ''${1+"$@"}
+              fi
+            fi
             work "$name" collect ''${1+"$@"}
             ;;
 
-          ${lib.optionalString stateNeedsUnit ''
           # Intercepted for the same one thing, in the one direction that needs
           # it: state taken from *this host's checkout* is scoped by a unit the
           # program may not read (NOTES items 20, 42), exactly as a collect's is.
@@ -1218,7 +1310,8 @@ in
                 --unit | --unit=*) unitGiven=yes ;;
               esac
             done
-            if [ "$fromHost" = yes ] && [ "$unitGiven" = no ]; then
+            if [ "$fromHost" = yes ] && [ "$unitGiven" = no ] \
+               && slotNeedsUnit "$name" ''${1+"$@"}; then
               recordedUnit=$(recordField "$name" unit)
               if [ "$recordedUnit" != - ]; then
                 set -- --unit "$recordedUnit" ''${1+"$@"}
@@ -1226,8 +1319,6 @@ in
             fi
             work "$name" brief ''${1+"$@"}
             ;;
-
-        ''}
 
           *) work "$name" "$verb" ''${1+"$@"} ;;
         esac

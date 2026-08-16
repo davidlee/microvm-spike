@@ -163,6 +163,16 @@ in {
   inherit dir document;
   inherit (target) name;
 
+  # The same predicate as `profileNeedsUnit` below, at eval, and it has **one
+  # caller**: `probe/two-capsules.sh`'s command line in `flake.nix`. A probe is
+  # evidence about the real capsule on this host, so it is allowed to know this
+  # host's real target — `probe/netns-boot.sh` is the standing exception for the
+  # same reason. No *program* reads this, which is the whole of step 6; it lives
+  # here so the probe's spelling of `${hole}` is this file's and not a third one
+  # ([item 38](../docs/ledger/038-a-probe-that-became-a-borrower.md) is what a
+  # separately-maintained copy of a live value costs).
+  needsUnit = lib.any (lib.hasInfix hole) document.statePaths;
+
   # Callers add these to their own `runtimeInputs`, so the dependency is visible
   # at each call site rather than assumed — `host/record.nix`'s arrangement, for
   # its reason.
@@ -306,6 +316,35 @@ in {
       fi
     }
 
+    # Whether this target scopes its out-of-band state by a unit of work — the
+    # host-side half of item 32's invariant, and since item 51 step 6 the
+    # **only** host-side spelling of it. It was `stateNeedsUnit`, an eval-time
+    # predicate over `target.nix`'s list threaded into `host/cli.nix` and
+    # `host/git-channel.nix`, which made "does this target need a unit?" a
+    # property of which flake the host had built rather than of the document a
+    # run was pointed at.
+    #
+    # The guest half asks the same question of the argv it was handed
+    # (host/state-snapshot.nix's `perUnit`) and that is deliberate rather than a
+    # duplicate: one end reads a document and the other reads its own arguments,
+    # which is the pair that has to agree. What must not exist is a *third*
+    # spelling of `${hole}`, so this reads the one above.
+    #
+    # SC2329, `profileQuote`'s reason exactly: a program that reads a profile and
+    # has no scope to decide — `capsule-baseline`, `capsule-refresh` — never calls
+    # this. (Being called from `profileShow` does not count: shellcheck reaches
+    # for *invoked* functions, and that one is a library's too.)
+    # shellcheck disable=SC2329
+    profileNeedsUnit() {
+      local p
+      for p in ''${profile_state_paths[@]+"''${profile_state_paths[@]}"}; do
+        case "$p" in
+          *"${hole}"*) return 0 ;;
+        esac
+      done
+      return 1
+    }
+
     # What was loaded, one `key<TAB>value` per line, arrays one line per entry.
     # For a human and for the suite beside this file — and it is also what keeps
     # every variable above referenced within the fragment, since a library
@@ -329,6 +368,9 @@ in {
       printf 'vcpu\t%s\n' "$profile_vcpu"
       printf 'mem\t%s\n' "$profile_mem"
       printf 'volume\t%s\n' "$profile_volume_size"
+      # Derived rather than read, and the one line here that is: it is what a
+      # program branches on, so it belongs in the picture of what was loaded.
+      if profileNeedsUnit; then printf 'needsUnit\tyes\n'; else printf 'needsUnit\tno\n'; fi
       local p
       for p in "''${profile_cache_paths[@]}"; do printf 'cachePath\t%s\n' "$p"; done
       for p in "''${profile_state_paths[@]}"; do printf 'statePath\t%s\n' "$p"; done

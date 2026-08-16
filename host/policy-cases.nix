@@ -32,7 +32,6 @@
   observeFragment,
   programVerbs,
   profileVerbs,
-  stateNeedsUnit,
 }: let
   # Three slots, none of them this host's, each one a shape `capsules.nix`
   # itself would refuse: a set of one, a slot with no set at all, and a slot
@@ -58,7 +57,7 @@
     };
   cli = import ./cli.nix {
     inherit pkgs lib net policies guestSsh;
-    inherit observe observeFragment programVerbs profileVerbs stateNeedsUnit;
+    inherit observe observeFragment programVerbs profileVerbs;
     capsules = fixture;
     moduleState = ''"$CASE_STATE"'';
     # NOTES item 41's branch and its failure, made reachable from a sandbox
@@ -91,10 +90,17 @@ in
     # declaration moved onto it (item 38). One to start with, because the
     # interesting transition is a host acquiring a second one.
     export CAPSULE_PROFILE_DIR=$PWD/profiles
+    # `statePaths` is the second argument because it is the one field step 6 is
+    # about: `[]` is a target with no out-of-band state, and a holed template is
+    # one whose exhibit is scoped to a unit of work (item 32). Everything else
+    # is the same document, so a pair of runs differs in that field alone.
     writeProfile() {
-      jq -n --arg n "$1" '{ schema: 1, name: $n, path: ("/h/" + $n),
-        guestPath: ("/vol/" + $n), volumePath: "/vol", cachePaths: [],
-        baseline: null, refresh: null, statePaths: [], stateMaxBytes: 0,
+      jq -n --arg n "$1" --argjson sp "''${2:-[]}" --arg bl "''${3:-}" \
+        '{ schema: 1, name: $n,
+        path: ("/h/" + $n), guestPath: ("/vol/" + $n), volumePath: "/vol",
+        cachePaths: [], baseline: (if $bl == "" then null else $bl end),
+        refresh: null, statePaths: $sp,
+        stateMaxBytes: (if ($sp | length) > 0 then 4096 else 0 end),
         sizes: {vcpu: 1, mem: 1, volume: 1} }' > "profiles/$1.json"
     }
     writeProfile solo
@@ -104,12 +110,14 @@ in
     # `runtimeInputs` — it picks between two copies of it on PATH — so a stub
     # on PATH is what it finds, and this is the one place a case can watch
     # what the front end decided rather than what it said.
-    cat > stub/capsule-collect <<'EOF'
+    for v in collect provision inject baseline; do
+      cat > "stub/capsule-$v" <<EOF
     #!/bin/sh
-    echo "collect argv: $*"
-    echo "$*" > "$PWD/out.argv"
+    echo "$v argv: \$*"
+    echo "\$*" > "\$PWD/out.argv"
     EOF
-    chmod +x stub/capsule-collect
+      chmod +x "stub/capsule-$v"
+    done
     export PATH=$PWD/stub:$PATH
 
     capsule=${lib.getExe cli}
@@ -143,6 +151,10 @@ in
       fi
     }
     saw() { grep -qF -- "$1" out; }
+    # Not `grep -qv`, which asks whether *some line* lacks the text and is
+    # therefore true of almost any output — a round that never discriminates
+    # (item 37).
+    unsaw() { ! grep -qF -- "$1" out; }
     gen() { jq -r .generation "$CASE_STATE/slot/$1/assignment.json"; }
 
     # ------------------------------------- what an unassigned slot resolves to
@@ -336,9 +348,123 @@ in
     ck "and its neighbour still refuses" 1 "$rc"
     ckt "  naming both" saw "duo solo"
 
+    # ------------------------------- the unit scope, and item 51's decision 3
+    #
+    # `stateNeedsUnit` was an eval-time predicate over *this host's* target, so
+    # the front end offered the `unit` verb, printed the column and filled the
+    # flag according to a project no slot here holds. Step 6 makes it a question
+    # about the document a slot resolves to — and decision 3 draws the line
+    # between the two halves of that: a **program** holds one profile and
+    # branches on it, this **front end** holds N slots over M targets and does
+    # not, so the column is always printed and the refusals are per slot.
+    #
+    # `both` is on `solo`, which declares no state paths at all.
+    run both unit u1
+    ck "a unit against a target with no state paths refuses" 1 "$rc"
+    ckt "  naming the target rather than the slot" saw "profile solo"
+    ckt "  and saying what the token would have scoped" saw "with a place for one"
+    ckt "  with nothing written" test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = null
+
+    # Reading is not writing: the column below prints for every slot, so asking
+    # what is recorded has to work wherever the column does.
+    run both unit
+    ck "reading the field is not refused" 0 "$rc"
+    ckt "  and is the absent value" saw -
+
+    # The other side of the fork, so neither answer is a constant. Same slot,
+    # same record, one different document.
+    writeProfile holed '["state/{unit}/notes"]'
+    # shellcheck disable=SC2016
+    jq '.profile = "holed"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
+    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    run both unit u1
+    ck "and a unit against a holed one is taken" 0 "$rc"
+    ckt "  the record says so" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = u1
+    run both collect
+    ck "a collect on it is filled from that record" 0 "$rc"
+    ckt "  with the unit beside the policy and the profile" \
+      saw "collect argv: --capsule both --profile holed --unit u1 --policy build"
+
+    # The stale-token case, and it is the one that cannot be reached while the
+    # predicate is a property of the build: the record still names `u1` and the
+    # document it resolves to has nowhere to put it, so the front end must stop
+    # filling it in — the program refuses a flag that scopes nothing, and a
+    # front end that supplied one would make an unrelated collect impossible.
+    # shellcheck disable=SC2016
+    jq '.profile = "solo"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
+    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    run both collect
+    ck "a recorded unit is not filled in for a target with no hole" 0 "$rc"
+    ckt "  so the argv is the one that target's collect accepts" \
+      saw "collect argv: --capsule both --profile solo --policy build"
+    ckt "  and the stale token is still on the record, unread" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = u1
+
+    # A slot nothing has assigned, on a host that now declares three documents:
+    # there is no target for a token to be wrong against, so this is not the
+    # refusal above. Three answers, not two — yes, no, and nothing to ask.
+    run one unit u2
+    ck "an unassigned slot may still record what it is driving" 0 "$rc"
+    ckt "  because nothing has said which target it would scope" \
+      test "$(jq -r .unit "$CASE_STATE/slot/one/assignment.json")" = u2
+
+    # Decision 3 itself. One table for the fleet, one header, and the column is
+    # there whatever any slot resolves to — `both` is on a document with no
+    # hole, `one` is on none at all, and neither takes a column away from the
+    # other. A pin rather than a discriminator against today's build, which is
+    # what the mutation run is for.
+    run all status
+    ck "a fleet-wide status still answers" 0 "$rc"
+    ckt "  and the unit column is always in the header" \
+      grep -qE 'policy +unit +purpose' out
+    ckt "  with the recorded token on the row of the slot that has one" \
+      grep -qE '^one .+ u2 +-$' out
+
+    # ------------------------------ what a provision records, and what it did not
+    #
+    # `recordProvisioned` grew a *profile* parameter at step 4 and its two
+    # callers did not both grow an argument: `provision)` went on passing the ref
+    # where the profile now goes, and `setup)` passed a variable only the other
+    # branch ever set. Both are on the far side of a `work`, so both fail after
+    # the code has landed in a capsule, and neither is reachable without a guest
+    # — which is why a stub is the only thing that could have caught them and why
+    # step 4's smoke test (a status and a collect) did not.
+    run both provision somecommit
+    ck "a provision records against the resolved profile" 0 "$rc"
+    ckt "  having reached the program" saw "provision argv:"
+    # There is no guest here, so the base is what cannot be recorded — and this
+    # is the message that says the *record* step ran at all rather than dying on
+    # its arguments.
+    ckt "  and stops at the guest rather than at its own argv" \
+      saw "did not answer for its HEAD"
+    # The bug itself, stated as what must *not* appear: the ref in the profile's
+    # place resolved as a profile name, and this is that refusal's own words.
+    ckt "  not treating the ref as a target" \
+      unsaw "profile named 'somecommit'"
+    run both setup somecommit
+    ck "and a setup gets through the same step" 0 "$rc"
+    ckt "  injecting after the provision" saw "inject argv:"
+    # The last of the build-time gates: `capsule-baseline` used to be *absent*
+    # from a host whose target declared none, so `setup` was built without the
+    # call. It is a question about the slot's document now, and a setup with
+    # nothing to build is finished rather than failed.
+    ckt "  and skipping a baseline this target does not declare" \
+      saw "declares no baseline"
+    ckt "  so nothing ran one" test "$(cat out.argv)" = "--capsule both"
+
+    writeProfile built '[]' 'just test'
+    # shellcheck disable=SC2016
+    jq '.profile = "built"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
+    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    run both setup somecommit
+    ck "a target that declares one still gets it" 0 "$rc"
+    ckt "  as the last step of the sequence" saw "baseline argv: --capsule both --profile built"
+    ckt "  and says nothing about skipping" unsaw "declares no baseline"
+
     # A host that has rendered nothing at all: a different fault from an
     # ambiguous one, and a refusal that names the directory rather than the slot.
-    rm profiles/solo.json profiles/duo.json
+    rm profiles/solo.json profiles/duo.json profiles/holed.json profiles/built.json
     run one collect
     ck "a host with no documents refuses too" 1 "$rc"
     ckt "  and names where it looked" saw "$CAPSULE_PROFILE_DIR"

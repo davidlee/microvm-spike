@@ -249,7 +249,17 @@ Break these and the confinement stops meaning anything:
   on a slot means is resolved by the **front end** — explicit flag, then the
   slot's record, then the one profile this host declares, refusing when several —
   because a program that reads host state to pick a target is item 20's mistake.
-  No program carries a target's values or its name. It has
+  No program carries a target's values or its name — **nor its own existence**:
+  every `capsule-<verb>` is built on every host and refuses at run time for a
+  document declaring nothing, because "no program rather than one that cannot
+  work" is the right absent path only while a host has one target (item 51 step
+  6). Same rule for printed text, and it is the one to keep: **the front end's
+  shape is not a function of any target.** `capsule all status` is one table over
+  N slots and M targets, so every column is always printed and every verb always
+  offered; what a target does not declare is a `-` in a cell or a refusal naming
+  the profile. A *program* holds exactly one profile and **does** branch on it —
+  `capsule-collect`'s two `--unit` refusals — which is the boundary that makes
+  this a rule rather than a preference. It has
   **no branch field** and gets none back: the guest's branch is `workBranch` in
   `flake.nix`, a constant, because a name that identifies the work is not
   project state (docs/contract-target.md). `capsule-provision <ref>` is a ref in

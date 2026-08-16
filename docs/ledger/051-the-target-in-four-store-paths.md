@@ -1,14 +1,19 @@
 # NOTES item 51 — the four programs still spell the target, and it is item 20 one level up
 
-*State: **steps 0-4 built and green; decisions 1, 2 and 4 taken; 5 and 6 open,
-and only step 6 still waits on a decision.** The run-time half of `target.nix` is
+*State: **closed. Steps 0-4 and 6 built and green, all four decisions taken, and
+step 5 belongs to a commit this item does not contain** — see "what this does not
+close" below, which is the honest half. Nothing about a host-side program is a
+function of which project this host confines any more: not the values it carries,
+not whether it exists, and not what the front end prints. The run-time half of
+`target.nix` is
 a rendered document — `host/profile.nix`, per target, in the store, read through
 one function — and **every host-side program reads it**. `capsule-provision`,
 `capsule-collect`, `capsule-baseline`, `capsule-refresh`, `capsule-brief` and the
 `capsule` front end take `--profile <name>` where they already take `--capsule`,
 refuse without one, and index into the document instead of into their own text.
-Not one of those store paths is a function of which project this host confines
-any more. Before that: the
+And **which programs exist at all**, and which columns and verbs the front end
+offers, stopped being a function of the target too (step 6, decision 3). Before
+that: the
 five guest-pushed scripts take every value they are about on their command line,
 the two that had no case suite have one, and each of the seven suites was watched
 going red against a deliberately broken copy of what it pins. The suites are then
@@ -45,29 +50,29 @@ path goes on serving everything.
 | `name`, `sizes` | `target` | the record's `profile` and `class` (`host/cli.nix:591`), the motd, `services.nix`'s `repo` default |
 | `statePaths`' `{unit}` hole, as `stateNeedsUnit` | `statePaths` | the front end's **own** text — usage, the status table's `printf` format, its header and its row, and the `unit` verb's parser (`host/cli.nix:111,169,513,519,554,1069-1090`) |
 
-The table is the inventory as read. **Step 4 emptied its first six rows**: every
-value in them is looked up at run time now, and no store path in the right-hand
-column carries one. What is left is the last row, `stateNeedsUnit`, plus the two
-build-time gates beside it that decide whether `capsule-baseline` and
-`capsule-refresh` exist at all — the whole of step 6 — and one row's worth of
-`volumePath` in `capsule-inject`'s payload destinations, which is deliberately
-out of scope and says why below.
+The table is the inventory as read. **Step 4 emptied its first six rows and step
+6 emptied the seventh**: every value in them is looked up at run time now, and no
+store path in the right-hand column carries one. What is left of the whole
+inventory is one row's worth of `volumePath` in `capsule-inject`'s payload
+destinations, which is deliberately out of scope and says why below.
 
 The two names that went at step 2 (`snapshotFor`, `refreshFor`) were the first
 half of the same move; step 4 is the second, and there is nothing between a
 document and a program left to instantiate.
 
-`programVerbs` is the same coupling in its other form: which verbs exist at all
-is decided at build time by which `target.nix` fields are non-null.
+`programVerbs` was the same coupling in its other form: which verbs existed at
+all was decided at build time by which `target.nix` fields are non-null.
 
-`stateNeedsUnit` is that form again and is the harder of the two, which is why it
-has a row of its own rather than a mention. It is twelve `lib.optionalString`
-sites in one file, and eleven of them are not a verb list — they are the shape of
-the text the front end prints. **`capsule all status` prints one table for the
-fleet**: one `printf` format, one header, every slot a row. A predicate that
-becomes per-target makes that one header over two column sets, which is a
-question about the front end rather than about the values, and it is not answered
-below.
+`stateNeedsUnit` was that form again and looked the harder of the two, which is
+why it had a row of its own rather than a mention. Twelve `lib.optionalString`
+sites in one file, and eleven of them not a verb list but the shape of the text
+the front end prints. **`capsule all status` prints one table for the fleet**:
+one `printf` format, one header, every slot a row — so a predicate that becomes
+per-target makes that one header over two column sets, which is a question about
+the front end rather than about the values. That is decision 3, and it is
+answered below; both of these are step 6 and both are done. What the reading got
+wrong is that they are *two* couplings: they are one, and "the verb list could
+land alone" was false.
 
 ## The finding that changes the scope
 
@@ -223,13 +228,170 @@ still needs bytes, and bytes belong with the plain-file switch.
 
 **3. What does a fleet-wide status table do with a per-target predicate?**
 `stateNeedsUnit` shapes the front end's printed text, and `capsule all status` is
-one table for every slot. Three answers exist — the union of columns with blanks
-where a target has none, a table per target, or the column always present and
-empty — and they are a front-end decision that outlives this item. It is named
-here because step 6 reads as *one list of verbs* and it is not: the verb list is
-the easy half. **Still not decided**, and the deferral held exactly as written:
-step 3 is done and the predicate is still build-time, with every value around it
-in a document. It now gates step 6 alone.
+one table for every slot. Three answers existed — the union of columns with
+blanks where a target has none, a table per target, or the column always present
+and empty. It was named at step 3 because step 6 reads as *one list of verbs* and
+is not: the verb list is the easy half.
+
+**Taken at step 6: the column is always present — and the rule it is an instance
+of is the part worth keeping.** *The front end's printed shape is not a function
+of any target.* Every verb is offered, every column is printed, and what a target
+does not declare is a `-` in a cell or a run-time refusal that names the profile.
+Four grounds, in the order that decided it:
+
+- **A table whose shape is a function of a document is this item's own coupling,
+  one layer out.** Under the union the header changes when a document is edited
+  or a second one is rendered — between two runs of one program on one host,
+  silently, with no rebuild to notice it. Item 51's whole claim is that a program
+  stops being a function of which project this host confines; a *printed shape*
+  that is still a function of it has not stopped, it has only moved.
+- **Rows are slots and the predicate is a target's.** Both other answers make a
+  per-target fact govern a fleet-wide artifact. A table per target fragments the
+  only view of the fleet there is, and neither it nor the union has an answer for
+  the row an operator most often wants — the **unassigned** slot, which has no
+  target at all.
+- **The blank is already this table's vocabulary.** Every column here has an
+  absent value, and `unit` already prints `-` for an assigned slot nobody has
+  given one. A target that declares no hole is one more reason for the same `-`,
+  not a new kind of cell.
+- **The cost is six characters of width**, against eleven conditional sites, a
+  header that changes shape, and a `printf` format that has to agree with both.
+
+**And the rule has a boundary, which is what makes it a rule rather than a
+preference.** A *program* holds exactly one profile and knows which target it is
+about, so `capsule-brief`'s usage line and `capsule-collect`'s `--unit` refusals
+**do** branch on the predicate at run time — that is a program being honest about
+its own subject, and it is where the diagnostic can name the profile. The front
+end holds N slots over M targets and has no single answer, which is why it gives
+none. One profile: branch. N profiles: print the column.
+
+## What step 6 turned out to be
+
+**Not two halves after all — one, and the easy half was a consequence of the
+hard one.** The step reads as *a verb list plus a predicate*, and step 3 said
+the verb list "could land alone". It could not usefully: `programVerbs` is gated
+on `stateSnapshot != null`, `stateSnapshot` was built only to answer
+`needsUnit`, and the moment that predicate is a question about a document
+`host/state-snapshot.nix` takes **no target value at all** — so the hook is never
+null, the four `lib.optional`s have nothing left to test, and `programVerbs` and
+`profileVerbs` fall out as literals. One change, in this order: the predicate
+moves, and the list collapses behind it.
+
+**The predicate has exactly one host-side home, and it is not where it was.**
+`profileNeedsUnit` is a function of `host/profile.nix`'s fragment, beside
+`profile_state_paths`, which is the field it reads. That is *not* a third
+spelling: the guest half already asked the same question of its own argv
+(`perUnit`, host/state-snapshot.nix), and one end reading a document while the
+other reads the arguments it was handed is the pair that has to agree — the
+refusal in the script exists to report exactly that disagreement. What went is
+the eval-time copy that was threaded into two files.
+
+**The eleven sites came apart into four kinds, and only one of them is new
+behaviour.** Five simply **vanished** — the verb list, the usage line, the
+`printf` format, the header and the row are now unconditional, which is decision
+3. Four became `slotNeedsUnit`, the front end's resolution in front of the
+predicate — provision's `--state-from-host` fill, the collect's fill, and the
+brief's. One is **new**: `capsule <slot> unit <token>` now *refuses* when the
+slot's document has no place for the token, because a recorded scope no collect
+will ever substitute is the same lie as a `--unit` that scopes nothing, one layer
+up. Reading the field is never refused, because the column prints for every slot.
+
+**And `slotNeedsUnit` has three answers, which is the part that took thinking.**
+Yes, no, and *there is no target to ask* — a slot nothing has assigned on a host
+with two documents. Collapsing the third into "no" is wrong in both directions:
+it would make the front end stop filling a flag it should fill, and it would make
+`capsule <slot> unit <token>` refuse on a slot that has nothing yet for a token
+to be wrong *against*. The case for it is the one that goes red against the
+two-answer version.
+
+**One eval-time reader survives on purpose, and it is not a relapse.**
+`profile.needsUnit` exists for `probe/two-capsules.sh`'s command line and for
+nothing else. A probe is evidence about the real capsule on this host and is
+allowed to know this host's real target —
+`probe/netns-boot.sh` is the standing exception for the same reason — and it
+comes off `host/profile.nix` rather than being spelled in `flake.nix` so that
+`{unit}` keeps one spelling ([item 38](./038-a-probe-that-became-a-borrower.md)
+is what a separately-maintained copy of a live value costs). No **program** asks
+it at build, which is the whole of the step.
+
+**Three bugs, none of them step 6's, all in the front end's provision path, and
+none of them ever installed.** This is the part worth reading. `capsule <slot>
+provision <ref>` and `capsule <slot> setup <ref>` were both broken in the working
+tree from step 4 until now, and the live host never saw either because it has not
+been rebuilt since — verified rather than assumed: the installed
+`capsule-collect` rejects `--profile`, so it predates step 4 outright.
+
+1. **`recordProvisioned` grew a `<profile>` parameter at step 4 and `provision)`
+   never grew the argument.** The call stayed `recordProvisioned "$name"
+   $original_argv`, so the *ref* landed where the profile goes and every
+   provision died on `no profile named '<ref>'` — **after the code had been
+   pushed into the capsule**, which is the half that matters.
+2. **`setup)` passed `$provisionProfile`, which only `provision)` sets.** A
+   different branch of the same `case`, so under `set -u` it was an unbound
+   variable, also after the push. Shellcheck could not see it: the variable *is*
+   assigned somewhere in the file.
+3. **Older, and the worst of the three: the "guest did not answer for its HEAD"
+   branch had never been reachable.** `oid=$(observed "$n" | cut -f1)` is a bare
+   assignment; `observed` returns 1 for a guest that does not answer, `set -o
+   pipefail` carries that out of the pipeline and `set -e` killed the function —
+   *silently*, because `observed` sends the transport's stderr to `/dev/null`. So
+   a provision whose code landed against a guest that had since gone quiet exited
+   1 saying nothing at all, and the message written for exactly that case had
+   never once printed.
+
+**Why nothing caught them, and what does now.** All three are past a `work` call,
+so reaching them needs a program on `PATH` — and no suite had ever run the front
+end's provision path at all, because until this step nothing stubbed
+`capsule-provision`. Step 4's smoke test was a `capsule all status` and a
+collect, neither of which goes near it. `policyCases` stubs four programs now
+(`collect`, `provision`, `inject`, `baseline`) and asserts what the record step
+did rather than what the front end said; (3) was found by the first case ever to
+run that path, which failed against the *fixed* code and was therefore not a
+mistake in the case.
+
+**Nine mutations, each red on its own rounds and nothing else**, over three files
+kept as copies (never `git checkout`, CLAUDE.md). The predicate forced to `yes`
+went red on every no-hole round in all three suites and on no holed one; forced
+to `no`, the exact mirror. Dropping the `unit` column went red on two rounds,
+which is decision 3's pin proving it can fail rather than being a column that is
+merely there. And **one mutation was rejected by shellcheck before the suite
+ran** — deleting the profile argument from `recordProvisioned` makes
+`provisionProfile` unused (SC2034) — which reports as "nothing went red" and is
+the same trap step 4 hit; re-shaped to mutate the variable's *value* instead, it
+went red on the three rounds that name it.
+
+**Two suites grew, and a third helper had to be written twice.** `profileCases`
+pins the predicate over three documents — a holed one, one with no state paths,
+and the shape neither of the others reaches, *declared state with no hole in it*
+— so "declares state" and "needs a unit" come apart. `gitChannelCases` gained a
+third fixture and pins both directions of the fork on the shipped
+`capsule-collect`: both runs exit 1 either way, so the **reason** is the whole
+assertion, which is step 4's lesson reused. `policyCases` needed a negative
+assertion and the first spelling of it was `grep -qv`, which asks whether *some
+line* lacks the text and is therefore true of almost any output — a round that
+never discriminates ([item 37](./037-a-teardown-that-only-unnames.md)), caught
+before it landed.
+
+**The smoke test, spent.** `capsule all status` off the new front end against the
+live fleet: ten rows, two running capsules, every observed field present, and the
+`unit` column printing `251`/`254` beside slots whose documents declare a hole —
+which is decision 3 on a real table. Then one `capsule-collect` against slot `e`,
+through the module path's own construction built out of the working tree, which
+brought back **30 files and 566,960 bytes** under unit 251 plus the code refs —
+the same figures step 4 measured, which is what says the run-time fork resolves
+to what the build-time one did.
+
+`just` and `just units` green; `just cases` is **369** (was 322).
+
+**What this closes, and what it does not.** It closes the item: no host-side
+program carries a target's values, none is built or withheld according to a
+target's fields, and the front end's printed shape is a function of no target.
+It does **not** make two targets concurrent, and two things say why. The
+documents are a store path, so **two targets are still a rebuild apart** —
+decision 2's stated limit, and the commit that lifts it is the one that owes step
+5 and `profile_snapshot`. And the guest **image** still knows the project's name,
+because `vm/capsule.nix`'s seed creates that directory; that is §6.2, a different
+consequence with a different rebuild class.
 
 ## What step 4 turned out to be
 
@@ -498,12 +660,13 @@ it is still what those steps say:
    discriminates ([item 37](./037-a-teardown-that-only-unnames.md)). It becomes
    real in the same commit the documents leave the store, and it is written here
    so that commit cannot forget it.
-6. **`programVerbs` and `stateNeedsUnit` last**, since what exists at all becomes
-   a property of the document rather than of the build, and that is the step most
-   likely to want a decision nobody has made yet — decision 3 above, which is
-   about the *table* and not about the values. The verb list is the easy half and
-   could land alone; the predicate is eleven sites of printed text and should not
-   be started before that decision is taken.
+6. **Done. `programVerbs` and `stateNeedsUnit` last**, since what exists at all
+   becomes a property of the document rather than of the build, and it was the
+   step most likely to want a decision nobody had made — decision 3 above, taken
+   at the start of it and written down before any of the eleven sites were
+   touched. The prediction that "the verb list is the easy half and could land
+   alone" was half right: it *is* the easy half, and it could not land alone,
+   because both gates are the same gate. See above.
 
 ## What must not drift while this is being built
 
@@ -562,8 +725,9 @@ will install.
 
 ## Which verb the evidence covers
 
-**Read**, twice, and then **Build** five times — steps 1, 2, 0, 3 and 4, in that
-order — with a **Verify** on a live host at the end of the fifth. The first pass took `host/programs.nix`,
+**Read**, twice, and then **Build** six times — steps 1, 2, 0, 3, 4 and 6, in
+that order — with a **Verify** on a live host at the end of the fifth and of the
+sixth. The first pass took `host/programs.nix`,
 `host/git-channel.nix`, `host/cli.nix` and `target.nix` plus the record-writing
 site, and produced the inventory. The second was a readiness pass over the plan
 this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
@@ -573,12 +737,19 @@ this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
 decisions 2 and 3, step 1's coverage gap and the `guestPath` edge. Every line
 reference above was checked against the file it names.
 
-Both passes were taken before anything was built. **Steps 0 to 4 are now built
+Both passes were taken before anything was built. **Steps 0 to 4 and 6 are built
 and green.** 0, 1 and 2 were mechanical, scoped and needed none of the decisions;
 3 needed two of them; 4 needed a decision the item did not have, which is
-decision 4 above and is the one that took the longest. **Steps 5 and 6 are not
-built.** Step 6 waits on decision 3; step 5 waits on the documents leaving the
-store, which is a change of fact rather than a decision and is why it moved.
-The inventory is the reads' product and is the part worth trusting; the ordering
-is a judgement, and it has held through five steps — with one correction, which
-is that step 5 turned out to belong later than step 6 rather than before it.
+decision 4 above and is the one that took the longest; 6 needed decision 3, which
+had been open since step 3 and was taken before a line of the eleven sites moved.
+**Step 5 is not built and is not this item's**: it waits on the documents leaving
+the store, which is a change of fact rather than a decision and is why it moved
+out from under step 4 in the first place.
+
+The inventory is the reads' product and is the part worth trusting; it named
+every site, and step 6 found no eighth row. The ordering is a judgement and it
+held through all six steps, with two corrections — step 5 belonged later than
+step 6 rather than before it, and step 6's two halves turned out to be one. What
+neither read caught is the three bugs above: they are not in the inventory
+because they are not couplings, they are a parameter added in one place and not
+another, and the only thing that finds that class is a case that runs the path.

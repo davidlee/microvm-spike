@@ -254,6 +254,33 @@ in
     ck "  with the unit hole unsubstituted" 2 "$(field statePath | grep -c '{unit}' || true)"
     ck "  and its caches likewise" /work/.cargo "$(field cachePath)"
 
+    # ------------------------------------------- whether the exhibit is scoped
+    #
+    # `stateNeedsUnit` was an eval-time predicate over `target.nix`'s list, so
+    # "does this target scope its state by a unit of work?" was a property of
+    # which flake the host had built (item 51 step 6). It is a question about a
+    # loaded document now, and this fragment is the only host-side spelling of
+    # it — the guest half asks the same thing of the argv it was handed
+    # (host/state-snapshot.nix), which is one fact read from two ends rather
+    # than two predicates that can disagree.
+    run alpha
+    ck "a holed template makes the target unit-scoped" yes "$(field needsUnit)"
+    run beta
+    ck "  and a target with no state paths is not" no "$(field needsUnit)"
+
+    # The third shape, and the one neither of the others reaches: declared state
+    # with nowhere to put a unit. A target whose out-of-band state is not
+    # per-unit writes no hole and nothing about it changes (contract-target.md),
+    # so "declares state" and "needs a unit" have to come apart here.
+    write flat '{ "schema": 1, "name": "flat", "path": "/srv/flat",
+      "guestPath": "/vol/flat", "volumePath": "/vol",
+      "cachePaths": [], "baseline": null, "refresh": null,
+      "statePaths": [".f/notes", ".f/log"], "stateMaxBytes": 2048,
+      "sizes": {"vcpu": 1, "mem": 1, "volume": 1} }'
+    run flat
+    ck "  nor is one declaring state with no hole in it" no "$(field needsUnit)"
+    ck "  which still declares its state" 2 "$(field statePath | grep -c . || true)"
+
     # ------------------------------------------------------- a value with a space
     #
     # The class item 51 named twice: a value that splits silently is what a

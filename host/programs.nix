@@ -135,24 +135,16 @@
   # The guest half of a collect's sideband — a store path, like `observe` below
   # and for the same reasons, pushed on stdin at each collect rather than baked
   # into a guest that would have to be restarted to carry it (NOTES item 32).
-  # `null` when the target declares no out-of-band state, which is what makes
-  # `capsule-collect` degrade to the code-only program it used to be rather than
-  # grow a flag nobody sets.
   #
-  # An attrset rather than the bare store path, since the scope invariant:
-  # `capsule-collect` needs to know whether this target's policy has a hole in it
-  # before it can decide that a unit is *required*, and that predicate belongs
-  # beside the templates it is a predicate over.
-  stateSnapshot =
-    if (target.statePaths or []) == []
-    then null
-    else
-      import ./state-snapshot.nix {
-        inherit pkgs lib;
-        # For `needsUnit` alone; the templates the script substitutes arrive on
-        # its command line (NOTES item 51).
-        inherit (target) statePaths;
-      };
+  # **Unconditional since step 6** (NOTES item 51). It used to be `null` for a
+  # target declaring no `statePaths`, which is what made `capsule-collect`
+  # degrade to the code-only program it used to be — a degrade decided by *which
+  # flake this host was built from*, and therefore the same answer for every
+  # document a run could be pointed at. The degrade is still there and it is a
+  # run-time branch on the loaded profile now; this file no longer reads the
+  # target to build it, and there is nothing left in it that is a function of
+  # one.
+  stateSnapshot = import ./state-snapshot.nix {inherit pkgs lib;};
 
   # How anything host-authored runs *inside* a live capsule: the build-time lint
   # both guest runners get, and the login-shell rule a second hand-written
@@ -164,63 +156,53 @@
   observeHook = import ./observe.nix {inherit pkgs;};
 
   # The third step of a provision — regenerate what the push cannot carry, in the
-  # checkout the push just made (host/refresh.nix, NOTES item 33). `null` when
-  # the target derives nothing from its checkout, which is what keeps the
-  # two-step provision available rather than adding a flag nobody sets.
+  # checkout the push just made (host/refresh.nix, NOTES item 33).
   #
-  # The other end of `stateSnapshot` above, and the two are one decision: what a
-  # collect must not carry out is what a provision regenerates in.
-  refreshHook =
-    if (target.refresh or null) == null
-    then null
-    else
-      import ./refresh.nix {
-        inherit pkgs lib guestExec guestHost transport profileSelect;
-      };
+  # **Unconditional since step 6**, like `stateSnapshot` above and for its
+  # reason. The absent path did not go anywhere: a profile that derives nothing
+  # from its checkout is a step a provision skips and a refusal
+  # `capsule-refresh` makes by name, both off `$profile_refresh` and both
+  # already written at step 4. What went is the *build* deciding it, which on a
+  # host with two documents decided it for the wrong one.
+  refreshHook = import ./refresh.nix {
+    inherit pkgs lib guestExec guestHost transport profileSelect;
+  };
 
   # The inbound state half: one capsule's collected state pushed into another's
   # checkout, so a second agent can read the first one's working state (NOTES
-  # item 35). `null` on the same condition as the snapshot and the extractor — a
-  # target with no `statePaths` has no state refs, so there is nothing to brief a
-  # capsule with and a flag for it would be a flag that always refuses.
+  # item 35). Unconditional since step 6, on the same argument as the two above.
   #
   # The third corner of one decision: what a collect takes out
   # (`stateSnapshot`), what lays it on this host (`adopt`), and what puts it into
   # another capsule are three directions over one tree and one check.
-  briefHook =
-    if stateSnapshot == null
-    then null
-    else
-      import ./brief.nix {
-        inherit pkgs lib guestExec guestHost gitSsh quarantine exhibit profileSelect;
-        guestRepo = guestRepoFragment;
-        # The fourth corner, and the one whose origin is not a capsule at all
-        # (NOTES item 42): a tree authored on this host is built by the program
-        # that builds every other one, at `$profile_path` rather than at the
-        # guest's checkout, and `slots` is what lets a source name be refused for
-        # not being a capsule.
-        #
-        # One store path and the fragment that points it at a checkout (NOTES
-        # item 51). It used to be a third instantiation of the same text, then
-        # one text and three command lines; the command lines are read off a
-        # document now and there is nothing left that is a function of a target.
-        snapshotScript = stateSnapshot.script;
-        snapshotArgs = stateSnapshot.argsFragment;
-        inherit (stateSnapshot) needsUnit;
-        slots = builtins.attrNames capsules.instances;
-      };
+  briefHook = import ./brief.nix {
+    inherit pkgs lib guestExec guestHost gitSsh quarantine exhibit profileSelect;
+    guestRepo = guestRepoFragment;
+    # The fourth corner, and the one whose origin is not a capsule at all
+    # (NOTES item 42): a tree authored on this host is built by the program
+    # that builds every other one, at `$profile_path` rather than at the
+    # guest's checkout, and `slots` is what lets a source name be refused for
+    # not being a capsule.
+    #
+    # One store path and the fragment that points it at a checkout (NOTES
+    # item 51). It used to be a third instantiation of the same text, then
+    # one text and three command lines; the command lines are read off a
+    # document now and there is nothing left that is a function of a target.
+    snapshotScript = stateSnapshot.script;
+    snapshotArgs = stateSnapshot.argsFragment;
+    slots = builtins.attrNames capsules.instances;
+  };
 
-  # The target's own build-and-test, host-initiated (host/baseline.nix). `null`
-  # when the target declares no baseline — a better absent path than a program
-  # that cannot work.
-  baselineHook =
-    if target.baseline == null
-    then null
-    else
-      import ./baseline.nix {
-        inherit pkgs guestExec guestHost transport profileSelect;
-        baselineRecord = baselineRecordFragment;
-      };
+  # The target's own build-and-test, host-initiated (host/baseline.nix).
+  # Unconditional since step 6, and the last of the four: "no program rather
+  # than one that cannot work" was the right absent path while a host had one
+  # target, and is the wrong one the moment it has two — the program cannot work
+  # for *this* document is a sentence only a run can say, and `capsule-baseline`
+  # has said it off `$profile_baseline` since step 4.
+  baselineHook = import ./baseline.nix {
+    inherit pkgs guestExec guestHost transport profileSelect;
+    baselineRecord = baselineRecordFragment;
+  };
 
   gitChannel = import ./git-channel.nix {
     inherit pkgs lib policies workBranch guestHost gitSsh quarantine profileSelect;
@@ -229,10 +211,7 @@
     snapshot = stateSnapshot;
     # The fragment, not the module: the git channel runs a refresh and has no
     # business knowing what one is built out of.
-    refresh =
-      if refreshHook == null
-      then null
-      else refreshHook.invoke;
+    refresh = refreshHook.invoke;
   };
 in {
   inherit guestHost guestRepo profile;
@@ -263,43 +242,30 @@ in {
 
   # The second step out of quarantine, and the one with a security control in it:
   # the state half is a guest-authored tree, so what lands on a disk from it is
-  # validated before anything is written (host/adopt.nix, NOTES item 34). `null`
-  # on the same condition as the snapshot that produces the thing it reads — a
-  # target with no `statePaths` never has a state ref, so an extractor for it is
-  # a program that cannot work.
-  adopt =
-    if stateSnapshot == null
-    then null
-    else
-      import ./adopt.nix {
-        inherit pkgs selectCapsule quarantine exhibit;
-      };
+  # validated before anything is written (host/adopt.nix, NOTES item 34).
+  # Unconditional since step 6 — and the least conditional of the four, since it
+  # reads a quarantine on this host and no target value at all: what it used to
+  # be gated on was another program's absence.
+  adopt = import ./adopt.nix {
+    inherit pkgs selectCapsule quarantine exhibit;
+  };
 
   # The other end of the same tree, and the reason `capsule-adopt`'s check became
   # a construction: this one validates host-side and pushes, and the guest only
   # lays out, because validation belongs where the policy is (NOTES item 35).
-  brief =
-    if briefHook == null
-    then null
-    else briefHook.program;
+  brief = briefHook.program;
 
   # The guest half of a brief, at a checkout of the caller's choosing — the seam
   # `briefCases` in `flake.nix` runs the real text through. Exported here rather
   # than reached for through `brief`, because a program is a store path and a
   # case suite needs the thing *before* it becomes one.
-  briefRunner =
-    if briefHook == null
-    then null
-    else briefHook.runner;
+  briefRunner = briefHook.runner;
 
   # Which names may be a source of a brief, as a runnable text (host/brief.nix).
   # Exported for `briefCases` beside the runner, and for the same reason: the
   # refusal that decides a quarantine is what a capsule sent back needs no guest,
   # so nothing about it should wait for a host (NOTES item 42).
-  briefSpecChecker =
-    if briefHook == null
-    then null
-    else briefHook.specChecker;
+  briefSpecChecker = briefHook.specChecker;
 
   # The outbound half's equivalent, and exported for the same reason
   # `briefRunner` is: `snapshotCases` runs this text against a checkout the
@@ -309,19 +275,13 @@ in {
   # A store path rather than a function of one now (NOTES item 51): the checkout,
   # the ceiling and the declared templates are arguments, so the sandbox's
   # instantiation *is* the guest's and there is nothing left to instantiate.
-  stateSnapshotScript =
-    if stateSnapshot == null
-    then null
-    else stateSnapshot.script;
+  stateSnapshotScript = stateSnapshot.script;
 
   # The other end of that script's interface, for the same suite: the fragment
   # `capsule-collect` and `capsule-brief` build its command line with. Exported
   # beside the script because the two are one fact read from two ends, and
   # nothing else can tell whether they agree (NOTES item 51 step 4).
-  snapshotArgsFragment =
-    if stateSnapshot == null
-    then null
-    else stateSnapshot.argsFragment;
+  snapshotArgsFragment = stateSnapshot.argsFragment;
 
   # Which of the verbs below read a profile, so the front end knows which ones to
   # fill a `--profile` in for. `inject` and `adopt` are not among them and that is
@@ -329,51 +289,34 @@ in {
   # *volume* and a quarantine is on this host, so neither is a value the target
   # supplies (setup.nix, host/adopt.nix). A list here rather than a predicate
   # there, for `programVerbs`' reason — built once, beside the programs.
-  profileVerbs =
-    ["provision" "collect"]
-    ++ lib.optional (baselineHook != null) "baseline"
-    ++ lib.optional (refreshHook != null) "refresh"
-    ++ lib.optional (briefHook != null) "brief";
+  profileVerbs = ["provision" "collect" "baseline" "refresh" "brief"];
 
-  # Whether this target's state paths are scoped to a unit of work (NOTES item
-  # 32). The front end needs it for two things a program must not do: offer the
-  # verb that records which unit a slot is driving, and hand that record to a
-  # collect. Exported rather than recomputed there, because the predicate belongs
-  # beside the templates and a second spelling of it is a scope that silently
-  # never applies.
-  stateNeedsUnit = stateSnapshot != null && stateSnapshot.needsUnit;
-
-  # Which `capsule-<verb>` programs this host actually has, for the front end's
-  # dispatcher. Here rather than at each of `host/cli.nix`'s two call sites, for
-  # the reason `observe` moved here: a list built twice is a list that can differ
-  # once, and the two copies of the CLI are one store path only while every
-  # argument agrees. Eval catches a *missing* argument now; nothing catches a
+  # Which `capsule-<verb>` programs this host has, for the front end's
+  # dispatcher. Here rather than at each of `host/cli.nix`'s three call sites,
+  # for the reason `observe` moved here: a list built twice is a list that can
+  # differ once, and the copies of the CLI are one store path only while every
+  # argument agrees. Eval catches a *missing* argument; nothing catches a
   # different one, so the fix is to have one.
-  programVerbs =
-    ["provision" "collect" "inject"]
-    ++ lib.optional (target.baseline != null) "baseline"
-    ++ lib.optional (refreshHook != null) "refresh"
-    ++ lib.optional (stateSnapshot != null) "adopt"
-    ++ lib.optional (briefHook != null) "brief";
+  #
+  # **A literal since step 6** (NOTES item 51), and the whole of that half of the
+  # step: four of these seven used to appear only where `target.nix` declared the
+  # field they read, so *which verbs this front end offered* was a function of
+  # which project the host confines — the coupling this item is about, in the one
+  # place it decided what a human could type. Both lists are constants now, and
+  # what a target does not declare is a run-time refusal that names the profile.
+  programVerbs = ["provision" "collect" "inject" "baseline" "refresh" "adopt" "brief"];
 
   # The same refresh `capsule-provision` runs, on its own: a human who has just
   # done a hand `git checkout` in the guest wants it and no push, and a provision
-  # that failed *at* the refresh needs a way to retry only that half. `null` on
-  # the same condition as the hook itself.
-  refresh =
-    if refreshHook == null
-    then null
-    else refreshHook.program;
+  # that failed *at* the refresh needs a way to retry only that half.
+  refresh = refreshHook.program;
 
   # And the same export for the same reason `stateSnapshotScript` has one: the
   # branch a case must reach is chosen by the *target's* command line, so the
   # command is what a suite passes (NOTES item 47) — passes, now, rather than
   # substitutes, which is what makes this a store path instead of a function of
   # one (NOTES item 51).
-  refreshScript =
-    if refreshHook == null
-    then null
-    else refreshHook.refreshScript;
+  refreshScript = refreshHook.refreshScript;
 
   # The non-git half of provisioning: credentials, secrets and anything else a
   # fresh capsule needs that no repository carries. The list is ./setup.nix,
@@ -389,19 +332,11 @@ in {
 
   # The last step of making a fresh capsule usable, and the only one that
   # produces a figure: the target's own build-and-test, host-initiated, its
-  # record written on the volume rather than to a terminal. `null` when the
-  # target declares no baseline — a better absent path than a program that
-  # cannot work.
-  baseline =
-    if baselineHook == null
-    then null
-    else baselineHook.program;
+  # record written on the volume rather than to a terminal.
+  baseline = baselineHook.program;
 
   # The guest half on its own, for `baselineCases` — the same export
   # `stateSnapshotScript` and `refreshScript` have, and for the same reason: the
   # only interface to that logic is the script's own text (NOTES item 51).
-  baselineRunner =
-    if baselineHook == null
-    then null
-    else baselineHook.runner;
+  baselineRunner = baselineHook.runner;
 }
