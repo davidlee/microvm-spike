@@ -158,3 +158,36 @@ exactly like nothing going red.
 3. `capsule c baseline` and `capsule c collect` must now agree about which
    document `c` runs. That disagreement was the symptom and nothing yet observes
    its absence on a live slot.
+
+## Observed on a live host, 2026-08-17 — evidence rung `taken`
+
+This host is switched and carries the fix: `/run/current-system/sw/bin/capsule-collect`
+line 8-12 is five `export V=''${V:-<default>}` lines, and `capsule-baseline` and
+`capsule-refresh` now carry the same five while `capsule-inject` carries none.
+
+The drift was re-applied by hand first, since activation is the renderer:
+`/var/lib/capsule-profiles/doctrine.json` at `stateMaxBytes: 65536`
+(`sha256:c9d0560c…`) against `c`'s pin at `67108864` (`sha256:9e1e49e0…`, which
+is also its record's `profile_snapshot`).
+
+- `capsule all status` → `doctrine*` on `c` and no other slot. Unchanged, and
+  the marker is now describing something true.
+- `capsule c collect` → **took the state half**: `state/implementation (unit
+  251) 21c37b151 — 32 files, 732373 bytes`, pushed to
+  `refs/capsule/c/state/implementation`. The same command refused that exhibit
+  at the host's 65536 ceiling before the fix. **The pin governed the verb.**
+
+**A trap on the way, and it is the recorded one.** The first three readings were
+taken from the *devshell's* `capsule`, which shadows the module's inside this
+checkout and is unwrapped — so its `hostProfileDir` is the store's baked
+document, which matches the pin, and `capsule all status` printed a bare
+`doctrine` with no drift marker at all. That reads exactly like the fix having
+broken the marker. Run the module path's copy by absolute path from outside the
+repo (`mem.fact.oubliette.devshell-programs-shadow-the-modules`).
+
+**Not exercised:** `capsule c baseline` was not re-run. It read the pin before
+the fix and reads it now through the same wrapper and the same default, and the
+verb that was wrong is the one proven above — but the two-verbs-agree symptom has
+not been observed *absent* on a live slot, only its cause removed. A full
+baseline is a build in the guest on a slot that is driving work, which is not
+worth spending here.
