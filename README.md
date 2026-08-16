@@ -8,27 +8,23 @@
 
 ## What for?
 
-- Run a fleet of secure microvms on a NixOS host
-  - Secure agent confinement, for safe unattended execution of untrusted code
+A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM](https://github.com/microvm-nix/microvm.nix) used to securely confine a coding agent. 
 
+It holds a real git clone of one **target** repo, carries that project's 
+tool set, and has exactly enough network to work, and no more. 
 
-## Architecture
+Oubliette manages a fleet of capsules on a NixOS host, for safe, unattended 
+execution of untrusted code.
 
-Architecture [walkthrough with diagrams](./architecture-walkthrough.md).
+It is [doctrine](https://github.com/davidlee/doctrine)'s reference capsule host implementation, 
+but will work with any project which satisfies its 
+[contract](/docs/contract-target.md). It is intentionally unaware of 
+project and framework semantics.
 
-## 
+Design rationale and known gaps live in [docs/](./docs/index.md). Here's 
+a [walkthrough with diagrams](./architecture-walkthrough.md).
 
-A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. 
-
-It holds a real git clone of one **target** repo — `target.nix`, here [doctrine](https://github.com/davidlee/doctrine) —
-carries that project's tool set, and has exactly enough network to work and no
-more. 
-
-Nothing below is doctrine-specific: `target.nix` is the only file that
-names it, and `net.nix` is the only file that holds an address.
-
-Design rationale and known gaps live in [docs/](./docs/index.md). This file is
-how to drive it.
+This file describes how to use it.
 
 ## Prerequisites
 
