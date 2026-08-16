@@ -32,6 +32,7 @@
   observeFragment,
   programVerbs,
   profileVerbs,
+  stateRefPrefix,
 }: let
   # Three slots, none of them this host's, each one a shape `capsules.nix`
   # itself would refuse: a set of one, a slot with no set at all, and a slot
@@ -57,7 +58,7 @@
     };
   cli = import ./cli.nix {
     inherit pkgs lib net policies guestSsh;
-    inherit observe observeFragment programVerbs profileVerbs;
+    inherit observe observeFragment programVerbs profileVerbs stateRefPrefix;
     capsules = fixture;
     moduleState = ''"$CASE_STATE"'';
     # NOTES item 41's branch and its failure, made reachable from a sandbox
@@ -74,6 +75,29 @@
       proxyRestart() {
         echo "restarted $1" >> "$CASE_PROXY_LOG"
         [ -z "''${CASE_PROXY_FAIL:-}" ]
+      }
+    '';
+    # The guest, and the same argument `proxyControl` makes one field up:
+    # `pkgs.openssh` is in the front end's `runtimeInputs`, so nothing in a
+    # sandbox can stub `ssh` (CLAUDE.md) — and every branch item 53 is about
+    # sits *downstream* of one round trip. What a live host would have to do to
+    # reach them is drive two agents into disagreement and then force over the
+    # second, which is the definition of a branch a suite is for.
+    #
+    # A file per slot rather than one variable, because a handoff asks two
+    # capsules the same question and "the guest answered" and "the *source*
+    # answered" are different facts. Absent means silent, which is what the
+    # unprovisioned and the stopped both look like from here.
+    #
+    # What this does **not** pin is the ssh argv on the other side of these two
+    # — the same boundary item 41's seam leaves around its sudo rule.
+    guestControl = ''
+      guestHead() { cat "$CASE_STATE/head/$1" 2> /dev/null; }
+      guestDropState() {
+        echo "$*" >> "$CASE_GUEST_LOG"
+        [ -z "''${CASE_DROP_FAIL:-}" ] || return 1
+        shift
+        printf '${stateRefPrefix}/%s\n' "$@"
       }
     '';
   };
@@ -161,6 +185,13 @@ in
     # the write is the same two lines every time.
     assign() {
       jq --arg p "$2" '.profile = $p' "$CASE_STATE/slot/$1/assignment.json" > tmp.json
+      mv tmp.json "$CASE_STATE/slot/$1/assignment.json"
+    }
+    # And its inverse, for the one round that needs a slot with a record and no
+    # target: every slot here has been provisioned by the time the last section
+    # runs, and `.profile` is what a provision writes.
+    unassign() {
+      jq 'del(.profile)' "$CASE_STATE/slot/$1/assignment.json" > tmp.json
       mv tmp.json "$CASE_STATE/slot/$1/assignment.json"
     }
 
@@ -574,9 +605,309 @@ in
     ckt "  so the stale token stays on the record, unread" \
       saw "provision argv: --capsule both --profile built somecommit --state-from-host"
 
+    # ========================= the two coarse verbs, and NOTES item 53
+    #
+    # `handoff` and `land` are compositions in this front end and not programs
+    # (item 53, "Where they live"), and the *order* is the whole of them: every
+    # step is a rule some hand-run sequence supplied on the day, and a composite
+    # that drops one is worse than the three commands it replaces. So each is a
+    # round — and every one of them sits downstream of a round trip to a guest,
+    # which is what `guestControl` above is for.
+    export CAPSULE_REPO=$repo
+    export CASE_GUEST_LOG=$PWD/guest.log
+    : > "$CASE_GUEST_LOG"
+    mkdir -p "$CASE_STATE/head"
+    assign one holed
+    assign both holed
+    # The source's own refs in the repo, which the rounds above left diverging
+    # from its quarantine on purpose. A handoff fetches its source — the
+    # provision pushes from this repo and the tip has to be in it — so that
+    # divergence is a refusal of its own, and it is `land`'s round below rather
+    # than the setup for everything else.
+    g update-ref -d refs/capsule/both/heads/work
+    g update-ref -d refs/capsule/both/state/implementation
+
+    # --------------------------------------------- what it refuses on sight
+    #
+    # In the order they are asked, so a round that passed for the next
+    # refusal's reason would show up as the wrong message.
+    run one handoff
+    ck "a handoff with no source refuses" 1 "$rc"
+    ckt "  saying what a source is for" saw "handoff needs a source"
+    ckt "  with nothing having reached a program" test ! -s out.argv
+    run one handoff nowhere --purpose x
+    ck "a source that is not a capsule refuses" 1 "$rc"
+    ckt "  naming the pair a handoff is between" saw "a handoff is"
+    run one handoff both none --purpose x
+    ck "two sources refuse" 1 "$rc"
+    ckt "  naming both" saw "'both' and 'none' are two"
+    run one handoff one --purpose x
+    ck "a slot may not be handed its own work" 1 "$rc"
+    ckt "  because a handoff is a second capsule" saw "cannot be handed its own work"
+    run one handoff both
+    ck "a handoff with no purpose refuses" 1 "$rc"
+    # The token below is copied without asking and the sentence is not: item 29,
+    # which is the line this pair of rounds is drawn from.
+    ckt "  because the sentence is the human's" saw "handoff needs --purpose"
+    ckt "  and is the one thing not derivable from the source" \
+      saw "not derivable from"
+    ckt "  with nothing having reached a program" test ! -s out.argv
+
+    # Two slots on two documents have no work to hand between them, and this is
+    # cheaper to refuse than to discover at a push into the wrong project.
+    assign one duo
+    run one handoff both --purpose x
+    ck "a handoff across two targets refuses" 1 "$rc"
+    ckt "  naming both documents" saw "on profile holed"
+    ckt "  rather than the slots alone" saw "no work to hand between them"
+    assign one holed
+
+    # ----------------------------------- the verify, which is the whole item
+    #
+    # A quarantine is a snapshot and nothing said how old one was against its
+    # source: a collect four hours stale and a current one were
+    # indistinguishable at the point somebody merged. The comparison is against
+    # the guest's own HEAD, so a source that does not answer cannot be verified
+    # at all — and the refusal is *start it*, never a flag.
+    run one handoff both --purpose x
+    ck "a handoff from a source that is silent refuses" 1 "$rc"
+    ckt "  saying there is nothing to check the exhibit against" \
+      saw "did not answer for its HEAD"
+    ckt "  and that there is no override for it" saw "There is no override"
+    ckt "  with nothing provisioned" unsaw "provision argv"
+    # It collected first, which is what makes the refusal a fact about now
+    # rather than about whenever somebody last collected.
+    ckt "  having collected the source first" saw "collect argv: --capsule both"
+
+    # The failure itself: a guest ahead of its own exhibit. `first` is in the
+    # repo and `second` is what both.git holds, so a head of `first` is a guest
+    # the collect did not reach.
+    printf '%s' "$first" > "$CASE_STATE/head/both"
+    run one handoff both --purpose x
+    ck "an exhibit that lags its guest refuses" 1 "$rc"
+    ckt "  saying the collect did not take what the guest has" \
+      saw "the collect that just ran did not"
+    ckt "  and showing what the quarantine does hold" saw "capsule/both/heads/work"
+    ckt "  with nothing provisioned" unsaw "provision argv"
+
+    # ------------------------------- the modified tracked file, and decision 2
+    #
+    # Two classes with two fates. Untracked-but-not-ignored work is staged as
+    # *content* into the state tree, so it travels; a modified tracked file is
+    # in no code ref and no path list, so the exhibit carries it as a diff
+    # nobody applied — and standing a second capsule on that is a checkout
+    # nobody ever had. Read from the exhibit and never from the guest, so the
+    # verdict does not change if the source goes down in between.
+    printf '%s' "$second" > "$CASE_STATE/head/both"
+    dblob=$(printf 'diff --git a/x b/x\n@@\ndiff --git a/y b/y\n@@\n' | g hash-object -w --stdin)
+    dinner=$(printf '100644 blob %s\tdirty.diff\n' "$dblob" | g mktree)
+    dtree=$(printf '040000 tree %s\t.capsule\n' "$dinner" | g mktree)
+    stDirty=$(printf 'capsule state: implementation\n\nstage: implementation\ncode-oid: %s\ndirty: 5\nunit: u1\n' \
+      "$second" | g commit-tree "$dtree")
+    g push -q "$CASE_STATE/collect/both.git" \
+      "+$stDirty:refs/capsule/both/state/implementation"
+    run one handoff both --purpose x
+    ck "a source with modified tracked files refuses" 1 "$rc"
+    ckt "  counting the files in the diff the exhibit carries" \
+      saw "has 2 modified tracked file(s)"
+    ckt "  and naming the remedy in the source" saw "Commit them in 'both'"
+    ckt "  while saying the untracked half travelled" saw "own count is 5"
+    ckt "  with nothing provisioned" unsaw "provision argv"
+
+    # The other side of the fork, so neither answer is a constant: the same
+    # exhibit with an empty diff and the same `dirty:` count is uncommitted
+    # work that *travelled*, and it is not a refusal.
+    eblob=$(printf "" | g hash-object -w --stdin)
+    einner=$(printf '100644 blob %s\tdirty.diff\n' "$eblob" | g mktree)
+    etree=$(printf '040000 tree %s\t.capsule\n' "$einner" | g mktree)
+    stClean=$(printf 'capsule state: implementation\n\nstage: implementation\ncode-oid: %s\ndirty: 5\nunit: u1\n' \
+      "$second" | g commit-tree "$etree")
+    g push -q "$CASE_STATE/collect/both.git" \
+      "+$stClean:refs/capsule/both/state/implementation"
+
+    # --------------------------- the archive, and decision 3's collision rule
+    #
+    # A generation is superseded once. `create` in the transaction refuses a
+    # name that is taken, so two archives under one name is a refusal with
+    # nothing moved rather than a rename that quietly loses the first.
+    wasGen=$(gen one)
+    g update-ref "refs/capsule/one/gen/$wasGen/heads/work" "$base"
+    run one handoff both --purpose x
+    ck "an archive whose name is taken refuses" 1 "$rc"
+    ckt "  saying nothing was moved" saw "nothing was moved"
+    ckt "  and nothing may be forced over it" saw "nothing may be forced over them"
+    ckt "  leaving the destination's refs where they were" \
+      test "$(g rev-parse refs/capsule/one/heads/work)" = "$second"
+    ckt "  with nothing provisioned" unsaw "provision argv"
+    g update-ref -d "refs/capsule/one/gen/$wasGen/heads/work"
+
+    # ---------------------------------------- the destination's own chain
+    #
+    # A provision does not touch `${stateRefPrefix}/*` on the destination's
+    # volume and the brief inside one is not forced, so a stale link there
+    # refuses the incoming chain — which is rooted elsewhere entirely — for a
+    # reason that reads as a bug (item 50's fast-forward half). A drop that
+    # fails must stop *before* the force.
+    printf '%s' "$second" > "$CASE_STATE/head/one"
+    export CASE_DROP_FAIL=1
+    run one handoff both --purpose x
+    ck "a stale chain that cannot be dropped stops the handoff" 1 "$rc"
+    ckt "  naming what the push would otherwise be refused for" \
+      saw "non-fast-forward"
+    ckt "  and saying nothing was provisioned" saw "Nothing was provisioned"
+    ckt "  because nothing was" unsaw "provision argv"
+    unset CASE_DROP_FAIL
+    # The archive did run, which is what says the order is the one that makes
+    # the force safe — and it is undone here so the round below is the whole
+    # sequence rather than half of it.
+    ckt "  though what the destination had is already archived" \
+      test "$(g rev-parse "refs/capsule/one/gen/$wasGen/heads/work")" = "$second"
+    g update-ref "refs/capsule/one/heads/work" "$second"
+    g update-ref "refs/capsule/one/state/implementation" "$st2"
+    g update-ref -d "refs/capsule/one/gen/$wasGen/heads/work"
+    g update-ref -d "refs/capsule/one/gen/$wasGen/state/implementation"
+
+    # A handoff fetches its *source* as well, because `capsule-provision`
+    # resolves its ref in this repo and the tip has to be here to be pushed. A
+    # source whose refs in the repo diverge from its quarantine is item 50 one
+    # slot over, and it stops the handoff before anything is archived or
+    # forced: the archive this verb runs is the **destination's**, and a
+    # divergence somebody left behind is somebody's.
+    g update-ref refs/capsule/both/heads/work "$first"
+    run one handoff both --purpose x
+    ck "a handoff whose source cannot be fetched stops" 1 "$rc"
+    ckt "  with the archive as the remedy there too" saw "refs/capsule/both/gen/"
+    ckt "  and nothing provisioned" unsaw "provision argv"
+    g update-ref -d refs/capsule/both/heads/work
+
+    # ------------------------------------------------ the whole sequence
+    #
+    # Cleared, because the round above logged the drop it then refused to
+    # believe — and a round that passes on the previous call's evidence is a
+    # round that never discriminates (item 37).
+    : > "$CASE_GUEST_LOG"
+    run one handoff both --purpose "a second pair of eyes"
+    ck "a handoff runs" 0 "$rc"
+    ckt "  collecting the source" saw "collect argv: --capsule both"
+    ckt "  and the destination, before anything is forced over it" \
+      saw "collect argv: --capsule one"
+    ckt "  archiving what the destination held" \
+      test "$(g rev-parse "refs/capsule/one/gen/$wasGen/heads/work")" = "$second"
+    ckt "  including its state half" \
+      test "$(g rev-parse "refs/capsule/one/gen/$wasGen/state/implementation")" = "$st2"
+    # Freed rather than left holding the superseded assignment, so the next
+    # collect of *this* assignment fetches into a name nothing is sitting on —
+    # which is the refusal item 50 measured, not happening.
+    ckt "  and freeing the live names" \
+      test "$(g for-each-ref --format=x refs/capsule/one/heads/)" = ""
+    ckt "  dropping the destination's own chain" \
+      grep -qx "one implementation" "$CASE_GUEST_LOG"
+    ckt "  and saying which link went" saw "${stateRefPrefix}/implementation"
+    # One provision, carrying its state: on a target whose refresh commits
+    # there is no moment after a provision when a brief can land (item 47).
+    ckt "  provisioning once, at the source's tip, carrying its state" \
+      saw "provision argv: --capsule one --profile holed $second --force --state both"
+    ckt "  and never briefing separately afterwards" unsaw "brief argv"
+    ckt "  the token is the source's" \
+      test "$(jq -r .unit "$CASE_STATE/slot/one/assignment.json")" = u1
+    ckt "  the sentence is the human's" \
+      test "$(jq -r .purpose "$CASE_STATE/slot/one/assignment.json")" = "a second pair of eyes"
+    ckt "  and the base is what was handed over" \
+      test "$(jq -r .base.oid "$CASE_STATE/slot/one/assignment.json")" = "$second"
+
+    # ------------------------------------------------ land, and its report
+    #
+    # It stops at refs: which branch a result belongs on is the target's
+    # governance (item 18's direction, applied to naming), so the default is a
+    # report and there is no default *name*.
+    run both land nope
+    ck "land takes no bare argument" 1 "$rc"
+    ckt "  saying why there is no default branch" saw "is the target's to say"
+
+    # The same verify, from the other verb — one exhibit read and one shipped.
+    printf '%s' "$first" > "$CASE_STATE/head/both"
+    run both land
+    ck "a land whose exhibit lags its guest refuses" 1 "$rc"
+    ckt "  by the same comparison" saw "the collect that just ran did not"
+    printf '%s' "$second" > "$CASE_STATE/head/both"
+
+    # A repo holding one assignment's refs while the quarantine holds another's
+    # is what a land runs into when a slot has been reassigned and nobody
+    # archived — item 50, from the accepting end.
+    g update-ref refs/capsule/both/heads/work "$first"
+    g update-ref refs/capsule/both/state/implementation "$st1"
+    run both land
+    ck "a land whose fetch is refused stops there" 1 "$rc"
+    ckt "  with the archive as the remedy, not a force" saw "refs/capsule/both/gen/"
+    # Both halves, because both diverged — the archive by hand that the message
+    # above asks for, which is what `handoff` does for itself one section up.
+    g update-ref -d refs/capsule/both/heads/work
+    g update-ref -d refs/capsule/both/state/implementation
+
+    g update-ref refs/heads/main "$base"
+    g symbolic-ref HEAD refs/heads/main
+    run both land
+    ck "a land lands" 0 "$rc"
+    ckt "  fetching the code half" saw "capsule both: code: landed"
+    ckt "  under the refs the git channel already owns" \
+      test "$(g rev-parse refs/capsule/both/heads/work)" = "$second"
+    # A fact about that repo rather than a value of ours: the branch is named
+    # without ever having been chosen.
+    ckt "  reporting against the branch it found" saw "against main"
+    ckt "  with the divergence in both directions" \
+      saw "1 commit(s) here that it has not, 0 there"
+    ckt "  and no branch written" test "$(g for-each-ref --format=x refs/heads/)" = "x"
+
+    run both land --branch accepted
+    ck "a land may be handed a name" 0 "$rc"
+    ckt "  and writes it" test "$(g rev-parse refs/heads/accepted)" = "$second"
+    run both land --branch accepted
+    ck "and refuses a name that exists rather than moving it" 1 "$rc"
+    ckt "  so nothing a land does can lose a commit" saw "never"
+    ckt "  and it did not move" test "$(g rev-parse refs/heads/accepted)" = "$second"
+
+    # The conflicting-paths half of the report, which is the part that earns
+    # the verb: one file, two edits, one common base.
+    bA=$(printf 'A\n' | g hash-object -w --stdin)
+    bB=$(printf 'B\n' | g hash-object -w --stdin)
+    bC=$(printf 'C\n' | g hash-object -w --stdin)
+    tA=$(printf '100644 blob %s\tf\n' "$bA" | g mktree)
+    tB=$(printf '100644 blob %s\tf\n' "$bB" | g mktree)
+    tC=$(printf '100644 blob %s\tf\n' "$bC" | g mktree)
+    cBase=$(g commit-tree "$tA" -m 'f is A')
+    cMine=$(g commit-tree "$tB" -p "$cBase" -m 'f is B here')
+    cTheirs=$(g commit-tree "$tC" -p "$cBase" -m 'f is C in the capsule')
+    g update-ref refs/heads/main "$cMine"
+    run none unit u3
+    assign none holed
+    git init -q --bare "$CASE_STATE/collect/none.git"
+    g push -q "$CASE_STATE/collect/none.git" "$cTheirs:refs/capsule/none/heads/work"
+    printf '%s' "$cTheirs" > "$CASE_STATE/head/none"
+    run none land
+    ck "a land whose work would conflict still lands" 0 "$rc"
+    ckt "  reporting the divergence" saw "1 commit(s) here that it has not, 1 there"
+    ckt "  and the paths a merge would fall over" saw "would conflict on:"
+    ckt "  naming them" grep -qE '^ +f$' out
+    # A destination nothing has ever been assigned to has no generation to key
+    # an archive by, because it has nothing to archive — not a refusal, but the
+    # ordinary first assignment of a free slot. The record is *removed* rather
+    # than never written, because reaching this state any other way would mean
+    # a fourth slot in the fixture; and the documents come down to one so that
+    # a slot with no record still resolves to a target.
+    rm -rf "''${CASE_STATE:?}/slot/none"
+    rm profiles/duo.json profiles/holed.json profiles/built.json
+    assign both solo
+    run none handoff both --purpose "a fresh pair"
+    ck "a handoff into a slot nothing has assigned runs" 0 "$rc"
+    ckt "  saying there was nothing to archive" saw "nothing to archive"
+    ckt "  and provisioning it anyway" \
+      saw "provision argv: --capsule none --profile solo $second --force --state both"
+    unset CAPSULE_REPO
+
     # A host that has rendered nothing at all: a different fault from an
     # ambiguous one, and a refusal that names the directory rather than the slot.
-    rm profiles/solo.json profiles/duo.json profiles/holed.json profiles/built.json
+    rm profiles/solo.json
+    unassign one
     run one collect
     ck "a host with no documents refuses too" 1 "$rc"
     ckt "  and names where it looked" saw "$CAPSULE_PROFILE_DIR"

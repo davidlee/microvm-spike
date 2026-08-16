@@ -6,12 +6,60 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **`capsule <slot> fetch` stopped half-succeeding,
-and the interception `setup` never had became one function** — the two
-prerequisites [item 53](./ledger/053-three-coarse-verbs.md) names, in the order
-it names them, with the three verbs themselves still unbuilt.
+Last updated 2026-08-16, after **`handoff` and `land` became verbs of the front
+end** — [item 53](./ledger/053-three-coarse-verbs.md)'s middle and third acts,
+built on the two prerequisites it names and green, with `setup --unit`/`--purpose`
+as record writes the one piece of it still unbuilt.
 
-**A fetch answers for each half separately**, which is
+**A quarantine is now checked against the guest that filled it**, which is the
+whole of the failure item 53 was written from: `SL-251` was landed from a collect
+four hours stale and nothing refused, because nothing compared an exhibit against
+its source. `capsule <slot> land` and `capsule <dst> handoff <src> --purpose
+<text>` both collect first and then refuse unless the guest's head is one of the
+objectnames the quarantine's code refs hold — **no `--stale`**, because an
+override for "I know it is behind" is the remembered `--force` again, and the
+corollary is stated rather than discovered: both verbs need the source *running*,
+since the guest's head is the only place the comparison exists.
+
+**Both are branches of `host/cli.nix` and neither is a program**, per the item's
+own "Where they live": a `handoff` program would read this host's state three
+times inside a thing that must not do it once. So most of the work was in what
+they are made *of* — `collect)` and `fetch)` became `collectSlot` and
+`fetchSlot`, beside `provisionSlot` from the prerequisite below, and three
+constructions are new (`verifyExhibit`, `exhibitDirty`, `archiveRefs`). **The
+order is the argument.** A handoff collects and verifies its source; refuses on
+the file count in `.capsule/dirty.diff`, naming the exhibit's own `dirty:` beside
+it so the message says which half travelled; fetches the source, because
+`capsule-provision` resolves its ref in the human's repo; collects and fetches
+the **destination** and *then* renames what it held to
+`refs/capsule/<dst>/gen/<n>/`, in that order, so the destination's last exhibit
+is durable before anything overwrites it **and the live names are freed** —
+which is what stops [item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)
+recurring one assignment later; drops the destination's own
+`refs/capsule/state/*` before the force rather than after, because the
+alternative is a push refused as a non-fast-forward naming a cause that is not
+the cause; and then provisions **once**, carrying its state. `land` stops at
+refs: the divergence it reports is against the repo's own `HEAD`, a fact about
+that repo rather than a value of ours, and `--branch <name>` refuses an existing
+name rather than moving it, with no default.
+
+The seam that made any of it testable is `guestControl`, an argument with a
+default, for `proxyControl`'s exact reason — `pkgs.openssh` is in the front end's
+`runtimeInputs`, so nothing in a sandbox can stub `ssh`, and every branch here is
+downstream of one round trip. It is not a test-only artifact: `recordProvisioned`
+asks its `guestHead` for the `base.oid` it records. What it does **not** pin is
+the ssh argv on the far side. `just cases` is **485** (was 405); `just`, `just
+check` and `just units` green. Nine mutations, each red on its own rounds, and a
+tenth **rejected by shellcheck before the suite ran** — and the one worth keeping
+is the guessed `--purpose`, whose round's *exit status still passed* because the
+run fell through to the verify and was refused for a different reason, so only
+the assertions on the message went red. **The live fleet was not touched**: `d`
+and `e` were driving `SL-251`, the smoke test spent is the argv refusals against
+the new front end, and the verify, the archive, the drop and the force have run
+in a sandbox and nowhere else. The first live exercise should be a free slot
+handed a finished exhibit, watched rather than assumed.
+
+Before that, the same day: **a fetch answers for each half separately**, which is
 [item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s third finding.
 A quarantine holds two ref namespaces and they are two different questions, so
 the verb fetches them separately — off `host/quarantine.nix`'s `codeRefsOf` and
@@ -29,9 +77,9 @@ went red. Run on this host against slot `e` both ways: `code: landed / state:
 landed` on the current pair, and the refusal naming `refs/capsule/e/gen/7/` with
 the divergent one restored under it. **The key is untouched** — a slot's second
 assignment still overwrites the first's refs in the quarantine — and the archive
-is still a thing a human does after being told to, in the repository rather than
-in the quarantine. Making it automatic is item 53's decision 3 and belongs to
-`handoff`.
+was, at that step, still a thing a human does after being told to, in the
+repository rather than in the quarantine — `handoff` runs it for itself now,
+which is item 53's decision 3.
 
 **And the interception is one function at four call sites, not four copies.**
 `provision)`, `collect)` and `brief)` each filled `--unit` from the record where
@@ -54,9 +102,9 @@ the new ones, with four mutations each red on its own rounds and a fifth rejecte
 by shellcheck again. Smoke test spent is the read-only one: `capsule all status`
 off the new front end against the live fleet, `d` and `e` both still driving
 SL-251. **Nothing destructive was run on a production slot**, so the interception
-itself is pinned by cases and not by a live setup. Still unbuilt and item 53's:
-`handoff`, `land`, the automatic generation rename, and `setup --unit`/`--purpose`
-as record writes of its own.
+itself is pinned by cases and not by a live setup. What was unbuilt at that step and is
+not any more: `handoff`, `land` and the automatic generation rename. What still
+is: `setup --unit`/`--purpose` as record writes of its own.
 
 Before that, the same day, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)
 was closed by its step 6, with decision 3 — open since step 3 — taken first**.
@@ -625,7 +673,7 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   ([32](./ledger/032-the-sideband-channel.md)) and its *audit* is `purpose`, so
   no program learns `slice`, `audit`, `review` or `accept`. The three verbs are
   `setup <ref> --unit --purpose --state-from-host`, a new `handoff <src>`, and
-  `land`; only the middle is machinery that does not exist. All three belong in
+  `land`; only the middle was machinery that did not exist. All three belong in
   the **front end** ([20](./ledger/020-which-capsule-a-program-means.md)) — a
   `handoff` program would read host state three times inside a thing that must
   not do it once.
@@ -638,9 +686,14 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   need the source capsule *running*, because the guest's head is the only place
   the comparison exists.
 
-  **Two prerequisites are built** — the fetch that half-succeeded and the
-  interception `setup` did not have, both above. The three verbs are not, and
-  neither is the automatic archive rename that makes `handoff`'s force safe.
+  **Built**, on top of the two prerequisites — the fetch that half-succeeded and
+  the interception `setup` did not have, both above. `handoff` and `land` are
+  branches of `host/cli.nix`; the archive rename that makes the force safe is
+  automatic, and it *frees* the live names as well as keeping the old ones, so
+  the next assignment's first fetch is not the refusal item 50 measured. What is
+  left of the item is `setup --unit`/`--purpose` as record writes, and a first
+  live exercise: the verify, the archive, the drop and the force have run in a
+  sandbox and nowhere else.
 
 - **A capsule was handed to another slot, and the sequence written down for it
   was the wrong one.** The c→d migration, and the first run of

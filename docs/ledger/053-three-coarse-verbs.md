@@ -1,16 +1,24 @@
 # NOTES item 53 — three coarse verbs, and the words that must not enter them
 
-*State: **all four questions decided; the first prerequisite is built and green,
-and so is the gap below.**
-`capsule <slot> fetch` now answers for the code and state halves separately and
-prints the archive that unblocks a refusal, which is
-[item 50](./050-a-quarantine-outlives-its-assignment.md)'s third finding and the
-half of decision 3 a human can run by hand — the automatic rename, and the three
-verbs themselves, are still unbuilt. The interception `setup)` did not have is
-now `unitScope`, one function at four call sites, and the four steps a provision
-is are `provisionSlot`, which `setup)` calls instead of repeating — so verb 1
-works without spelling the token twice. Nine rounds in `policyCases`, four
-mutations each red on its own rounds. Proposed the day the hand-run sequence failed
+*State: **built and green — `handoff` and `land` are verbs of the front end, and
+the archive before the force is automatic.**
+Both compositions are branches of `host/cli.nix` and neither is a program, which
+is what "Where they live" below decided. The order is the whole of them and every
+step of it is a round: collect the source and **verify the exhibit against its
+guest**, refuse on a modified tracked file read from the exhibit, fetch the
+source, collect and fetch the **destination** and rename what it held under
+`refs/capsule/<dst>/gen/<n>/`, drop the destination's own outbound chain, then
+**one** provision carrying its state, then the source's `unit` and the human's
+`purpose`. Before them, `capsule <slot> fetch` answers for the code and state
+halves separately and prints the archive that unblocks a refusal
+([item 50](./050-a-quarantine-outlives-its-assignment.md)'s third finding), and
+the interception `setup)` did not have is `unitScope`, one function at four call
+sites, with `provisionSlot` as the four steps a provision is. 80 rounds in
+`policyCases` over the two verbs, nine mutations each red on its own rounds and a
+tenth rejected by shellcheck before the suite ran. **The live fleet was not
+touched**: the smoke test is the argv refusals, and the verify, the archive and
+the drop have never run on a host. Still unbuilt and verb 1's: `setup --unit` and
+`--purpose` as record writes of its own. Proposed the day the hand-run sequence failed
 in production. doctrine drove `SL-251` in slot `d`, and the work was landed from
 a collect four hours stale: three commits short of `d`'s head, so the review body
 it had already committed never crossed, the reconcile re-derived the review
@@ -72,9 +80,9 @@ smell the contract names.
 | begin a second capsule on it | `capsule <dst> handoff <src> --purpose <text>` | collect `src` and verify, archive `dst`, provision `dst` at `src`'s tip carrying `--state <src>`, copy `src`'s `unit` |
 | accept the result | `capsule <slot> land` | collect and verify, fetch into the target repo, report divergence |
 
-Only the middle one is machinery that does not exist. The first is `setup` plus
-two record writes it should have taken as arguments; the third is `collect &&
-fetch` plus the comparison whose absence is this item.
+Only the middle one was machinery that did not exist. The first is `setup` plus
+two record writes it should have taken as arguments — still the unbuilt piece;
+the third is `collect && fetch` plus the comparison whose absence is this item.
 
 `handoff` is the name to argue about, not the shape. What it means is *stand this
 slot up on that slot's finished exhibit*, and the two candidates it beats are
@@ -166,9 +174,94 @@ reads exactly like nothing went red (item 50 hit the same one).
 Not built, and still verb 1's: `setup` does not yet take `--unit <token>` or
 `--purpose <text>` as record writes of its own.
 
+## What the two verbs turned out to be — **built**
+
+Two branches of `host/cli.nix` and no new store path, per "Where they live". The
+work was mostly in what they are made *of*: a composition that spells a step
+itself is a second copy of it, so `collect)` and `fetch)` became `collectSlot`
+and `fetchSlot` and both verbs call those, beside `provisionSlot` from the gap
+above. Three constructions are new — `verifyExhibit`, `exhibitDirty`,
+`archiveRefs` — and each is one question.
+
+**The order, which is the argument.** `handoff <src>`:
+
+1. `collectSlot <src>`, then `verifyExhibit <src>` — the guest's head against the
+   objectnames the quarantine's code refs hold. Membership rather than a named
+   ref, because the branch a guest commits on is the guest's business
+   ([item 18](./018-git-channel-direction.md)) and this file has never held its
+   name.
+2. `exhibitDirty <src>`, refusing on the count of files in `.capsule/dirty.diff`
+   and naming the exhibit's own `dirty:` beside it, so the message says which
+   half travelled.
+3. `fetchSlot <src>` — because `capsule-provision` resolves its ref in the
+   human's repo, so the tip has to be there to be pushed. A source whose refs in
+   that repo diverge from its quarantine stops the verb with `fetch`'s own
+   remedy: **the archive `handoff` runs is the destination's**, and a divergence
+   somebody left behind is somebody's.
+4. `collectSlot <dst>`, `fetchSlot <dst>`, `archiveRefs <dst>` — collect and
+   fetch *first*, so the destination's last exhibit is in the repo before
+   anything overwrites it, and the rename after, so the live names are **freed**.
+   That second half is what stops item 50 recurring one assignment later: the
+   next collect of the incoming work fetches into a name nothing is sitting on.
+   One `update-ref --stdin` transaction, `create` and `delete` paired, so a
+   generation that has already been archived is a refusal with nothing moved.
+5. the destination's own `refs/capsule/state/*`, dropped by stage — the stages
+   being the ones the collect at (4) just took, which is the guest's answer of
+   seconds ago rather than a second round trip. A drop that fails stops the verb
+   **before** the force, because the alternative is a push refused as a
+   non-fast-forward, naming a cause that is not the cause.
+6. `provisionSlot <dst> <tip> --force --state <src>`, once.
+7. the source's `unit` copied, the human's `--purpose` written.
+
+`land` is (1), (2) as a *report* rather than a refusal, (3), and then the
+divergence against the repo's own `HEAD` — `rev-list --left-right --count` and
+`merge-tree --write-tree --name-only`, naming the branch it found without ever
+having chosen one. `--branch <name>` is `update-ref <ref> <oid> ""`, whose empty
+old value is the create-only assertion; there is no default name.
+
+**One value crossed a file boundary to get here.** The destination's chain is
+`refs/capsule/state/<stage>` on its volume, which `host/state-snapshot.nix`
+declares as `refPrefix` and `host/brief.nix` pushes into, so the front end takes
+it as `stateRefPrefix` through `host/programs.nix` rather than spelling a fourth
+copy.
+
+### The seam, and what it does not pin
+
+Every branch above sits downstream of one round trip to a guest, and
+`pkgs.openssh` is in this program's `runtimeInputs`, so nothing in a sandbox can
+stub `ssh` (CLAUDE.md). `guestControl` is therefore an argument with a default,
+for exactly `proxyControl`'s reason one field up: it holds `guestHead` and
+`guestDropState`, two functions because each call needs a *result*. It is not a
+test-only artifact — `recordProvisioned` asks `guestHead` for the `base.oid` it
+records, so the seam has two real callers and the question "what is this guest's
+head" has one spelling.
+
+What it does **not** pin is the ssh argv on the far side of those two, which is
+the same boundary [item 41](./041-a-delegable-verb-that-ends-in-root.md)'s
+seam leaves around its sudo rule and the reason `gitChannelCases` exists one
+program over. Stated because the honest version of a seam is the list of what it
+gave up.
+
+### What the rounds cost, and one that passed for the wrong reason
+
+80 rounds, `just cases` 405 → 485. Nine mutations, each red on its own rounds:
+the verify's comparison, its silent-guest guard, counting untracked dirt as
+tracked, no archive, `create` weakened to `update`, no drop of the chain, no
+fetch of the source, a `--branch` that clobbers, and a `--purpose` that is
+guessed. A tenth — `if false` around the purpose refusal — was **rejected by
+shellcheck before the suite ran** (`SC2034: purposeGiven appears unused`), which
+is the failure that reads exactly like nothing went red, and which items 50 and
+51 both hit.
+
+The purpose mutation is the one worth keeping: with it applied, the round's
+**exit status still passed** — the run fell through to the verify, which refused
+for its own reason — and only the assertions on the *message* went red. A
+refusal for the wrong reason is a different program passing, and here it is,
+caught by the rule rather than by the exit code.
+
 ## The four questions, decided
 
-### 1. `land` writes no branch unless it is handed a name
+### 1. `land` writes no branch unless it is handed a name — **built**
 
 The default is refs and a report. `refs/capsule/<slot>/…` is the landing zone the
 git channel already owns and a name no target's governance uses; a branch is a
@@ -190,7 +283,7 @@ than a value of ours, so `land` prints the divergence against it — ahead/behin
 counts and the conflicting paths a merge would produce — naming the branch it
 found without ever having chosen it.
 
-### 2. `handoff` refuses on a **modified tracked file**, and only that
+### 2. `handoff` refuses on a **modified tracked file**, and only that — **built**
 
 "Dirty" is two classes with two different fates, and `host/state-snapshot.nix`
 already separates them:
@@ -215,7 +308,7 @@ decides from what it already fetched, needs no second round trip, and gives the
 same verdict if the source goes down between the collect and the provision.
 Untracked-only dirt is not a refusal — it travelled.
 
-### 3. The archive is generation-keyed, in the human's repo, and item 50 is a prerequisite
+### 3. The archive is generation-keyed, in the human's repo, and item 50 is a prerequisite — **built**
 
 `handoff` makes a **second assignment to a slot routine**, which is precisely the
 motion [item 50](./050-a-quarantine-outlives-its-assignment.md) measured: the
@@ -252,7 +345,7 @@ copy belongs where the human works. What stays open in 50 is retention *policy* 
 whose the old generations are and when they go — which this decides nothing
 about beyond giving them a name that does not collide.
 
-### 4. The verify is a refusal, with no override, and it needs the guest up
+### 4. The verify is a refusal, with no override, and it needs the guest up — **built**
 
 Refusal, per the house style ([item 28](./028-a-slot-has-no-default.md)), and
 specifically **no `--stale`**: an override for "I know the exhibit is behind" is
@@ -272,6 +365,15 @@ verbs.
 ## What this still does not decide
 
 - Retention policy for the generation-keyed archives above — item 50's, and
-  untouched by naming them.
+  untouched by naming them or by writing them automatically.
 - Whether `capsule <slot> stop` should record the guest's head, which is what
   would let a stopped slot be handed off without starting it.
+- `setup --unit <token> --purpose <text>` as record writes of its own, which is
+  the last unbuilt piece of verb 1. `unitScope` made the *scope* work; the two
+  fields are still two more commands.
+- What any of this does on a live host. The verify, the archive, the drop and the
+  force have run in a sandbox and nowhere else — the smoke test spent was the
+  argv refusals, because the fleet was driving `SL-251` in two slots and the
+  cheapest live exercise of `handoff` is a reassignment. The first real one is a
+  free slot handed a finished exhibit, and it should be watched rather than
+  assumed.

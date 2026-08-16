@@ -450,7 +450,7 @@
     # of them can be missing.
     capsule-cli = import ./host/cli.nix {
       inherit pkgs lib net capsules policies guestSsh;
-      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs;
+      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateRefPrefix;
     };
 
     # The third kind of check (CLAUDE.md): a host-side program's own text, run
@@ -526,7 +526,7 @@
 
     policyCases = import ./host/policy-cases.nix {
       inherit pkgs lib net capsules policies guestSsh;
-      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs;
+      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateRefPrefix;
     };
 
     # The host module has no build of its own — it is a NixOS module, and this

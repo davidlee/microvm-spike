@@ -84,6 +84,59 @@
   # is: the one thing tying this program to this host is what a case suite has to
   # substitute, and `policyCases` in flake.nix is what does.
   moduleState ? "/var/lib/capsule",
+  # Under which ref a capsule's *own* outbound state chain sits, on its volume
+  # (host/state-snapshot.nix's `refPrefix`, which is where it is declared). Two
+  # verbs here need the name: `handoff` clears the destination's chain before
+  # standing it up on somebody else's, and nothing else on this host may guess at
+  # it — `capsule-brief` pushes into the same namespace and a second spelling
+  # would be a second thing to keep true.
+  stateRefPrefix,
+  # How this front end asks a guest for its HEAD, and how it drops a stale link
+  # of the chain above. The one thing tying `handoff`, `land` and the record's
+  # `base.oid` to a live capsule, taken as an argument for exactly the reason
+  # `proxyControl` is: `pkgs.openssh` is in `runtimeInputs`, so a case suite
+  # cannot stub `ssh` by putting one in front of it (CLAUDE.md), and the
+  # branches that matter here — an exhibit that lags its guest, a destination
+  # whose stale ref would refuse the incoming chain — are reachable on a live
+  # host only by driving two agents into disagreement.
+  #
+  # Two functions rather than two command strings, because each call needs a
+  # *result*: what the guest's head is, and whether the drop happened. What is
+  # **not** pinned by substituting them is the ssh argv itself — the same
+  # boundary item 41's seam leaves around its sudo rule, and the reason
+  # `gitChannelCases` exists one program over.
+  #
+  # An argument with a default, and every real call site takes the default, so
+  # both shipped copies are still one store path.
+  guestControl ? ''
+    guestHead() { observed "$1" | cut -f1; }
+
+    # Which links of the chain were dropped, one per line, so the caller reports
+    # what happened rather than what it asked for. The guest decides what is
+    # there: a stage in the quarantine that the guest no longer has is a forced
+    # refspec's leftover, not a ref to delete.
+    guestDropState() {
+      local n="$1" ssh_argv=()
+      local -a args
+      shift
+      door "$n" probe || return 1
+      profileNameFor "$n" >/dev/null || return 1
+      profileLoad "$profileName" || return 1
+      mapfile -t args < <(printf '%s\n' "$profile_guest_path" "$@" | profileQuote)
+      "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- "''${args[@]}" <<'GUEST'
+    set -eu
+    work=$1
+    shift
+    for s in "$@"; do
+      r=${stateRefPrefix}/$s
+      if git -C "$work" rev-parse --verify --quiet "$r" > /dev/null; then
+        git -C "$work" update-ref -d "$r"
+        echo "$r"
+      fi
+    done
+    GUEST
+    }
+  '',
   # How this front end asks after, and bounces, a slot's egress proxy — the last
   # step of `capsule <slot> policy <name>`, and the only one that needs a
   # privilege this program does not have (NOTES item 41).
@@ -122,7 +175,7 @@
   # one of them. Decision 3's rule: the front end's shape is not a function of
   # any target, and what a slot's document has no place for is a refusal that
   # names it.
-  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose" "policy" "unit"];
+  ownVerbs = ["start" "stop" "created" "status" "ssh" "admin" "setup" "branches" "fetch" "record" "purpose" "policy" "unit" "handoff" "land"];
 
   # Verbs `all` may be applied to. A question aggregates: N answers on one screen,
   # and a failure on one capsule is a row rather than a decision. An *action* does
@@ -183,6 +236,7 @@ in
           echo "  assigned:  record | purpose [text…] | policy [<name>] | unit [<token>]"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
+          echo "  hand on:   handoff <source> --purpose <text> | land [--branch <name>]"
         }
 
         case "''${1-}" in
@@ -622,6 +676,7 @@ in
         }
 
         ${proxyControl}
+        ${guestControl}
 
         # What the guest says about itself: one round trip, one line, the field
         # order defined in host/observe.nix and nowhere else. This *is* the
@@ -759,6 +814,10 @@ in
           # second time: the caller has it, and re-resolving after the record has
           # been written would read the field this is about to set.
           profileLoad "$prof" || return 1
+          # `guestHead` and not a second `observed | cut`: the same question is
+          # `verifyExhibit`'s, and it is the one thing here that needs a live
+          # capsule, so it is asked in one place and substituted in one place.
+          #
           # `|| oid=""` and not a bare assignment: `observed` returns 1 for a
           # guest that does not answer, `set -o pipefail` carries that out of the
           # pipeline, and `set -e` then killed this function — silently, since
@@ -768,7 +827,7 @@ in
           # nothing at all. Found by the first case ever to run this path
           # (host/policy-cases.nix); it needs a stub, which is why a live host
           # never found it.
-          oid=$(observed "$n" | cut -f1) || oid=""
+          oid=$(guestHead "$n") || oid=""
           if [ -z "$oid" ] || [ "$oid" = - ]; then
             echo "capsule: provisioned, but the guest did not answer for its HEAD, so" >&2
             echo "  no base was recorded. 'capsule $n status', then provision again." >&2
@@ -822,6 +881,199 @@ in
           # this path needs a guest and the step that added the parameter spent
           # its smoke test on a status and a collect.
           recordProvisioned "$n" "$prof" ''${1+"$@"}
+        }
+
+        # What collecting a slot is, in one place, for the same reason
+        # `provisionSlot` exists: `handoff` and `land` both begin with one, and
+        # the two flags a collect is filled with are host state a program may
+        # not read (NOTES items 20, 32, 36).
+        collectSlot() {
+          local n="$1" given=no a
+          local -a unitArgs
+          shift
+          for a in ''${1+"$@"}; do
+            case "$a" in
+              --policy | --policy=*) given=yes ;;
+            esac
+          done
+          if [ "$given" = no ]; then
+            set -- --policy "$(effectivePolicy "$n")" ''${1+"$@"}
+          fi
+          mapfile -t unitArgs < <(unitScope "$n" - ''${1+"$@"})
+          work "$n" collect ''${unitArgs[@]+"''${unitArgs[@]}"} ''${1+"$@"}
+        }
+
+        # Which checkout a slot's work belongs to, and where a fetch puts it.
+        # `CAPSULE_REPO` before the profile's `path` because that is what the
+        # git channel's own lookup does (host/git-channel.nix). Sets `repo` and
+        # leaves the document loaded.
+        repoFor() {
+          profileNameFor "$1" || return 1
+          profileLoad "$profileName" || return 1
+          repo=''${CAPSULE_REPO:-$profile_path}
+        }
+
+        # **Each half is fetched on its own and answered for on its own**, and
+        # the reason is that they can disagree: a slot's second assignment
+        # diverges from its first in the code half, while the state half
+        # fast-forwards straight across the reassignment, because the guest
+        # parents each snapshot on the ref on its own volume and a provision
+        # does not touch it (NOTES item 50). One refspec is then refused and the
+        # other taken, and one exit status for the pair says only that something
+        # went wrong — so the repository is left holding one assignment's code
+        # beside another's state, under two names that say they belong together,
+        # by a verb that exited 1 and named neither.
+        #
+        # The remedy printed is the archive rather than a force: `+` here would
+        # make the first assignment unreachable in the one place it is durable,
+        # which is what the slot-keyed namespace already costs the quarantine
+        # (NOTES item 50). `handoff` is the one caller that runs that remedy
+        # itself, because it is the one that knows a reassignment is happening.
+        fetchSlot() {
+          local n="$1" q half ns
+          local -a refused=()
+          if ! q=$(quarantineOf "$n"); then
+            echo "nothing collected yet — capsule $n collect" >&2
+            return 1
+          fi
+          repoFor "$n" || return 1
+          for half in code state; do
+            case "$half" in
+              code) ns=${quarantine.codeRefsOf ''"$n"''} ;;
+              *) ns=${quarantine.stateRefsOf ''"$n"''} ;;
+            esac
+            if git -C "$repo" fetch "$q" "$ns/*:$ns/*"; then
+              echo "capsule $n: $half: landed"
+            else
+              echo "capsule $n: $half: refused" >&2
+              refused+=("$half")
+            fi
+          done
+          [ "''${#refused[@]}" -eq 0 ] && return 0
+          echo "  the quarantine's refs are not a descendant of this repo's, which is" >&2
+          echo "  a second assignment to '$n' meeting the first one's (NOTES item 50)." >&2
+          echo "  Archive what this repo holds under" >&2
+          echo "  refs/capsule/$n/gen/$(recordField "$n" generation)/, then fetch again —" >&2
+          echo "  forcing loses the first assignment where it is durable." >&2
+          return 1
+        }
+
+        # Is the exhibit the guest? The whole of NOTES item 53: a quarantine is
+        # a snapshot and nothing said how old one was against its source, so a
+        # collect four hours stale and a current one were indistinguishable at
+        # the point somebody merged. Sets `exhibitTip`.
+        #
+        # **No override.** A `--stale` for "I know it is behind" is the
+        # remembered `--force` again, and believing an exhibit was current is
+        # the failure this exists for; the remedy is a collect, which both
+        # callers run themselves. The corollary is a real constraint and is
+        # named rather than discovered: the comparison is against the guest's
+        # own HEAD and there is nowhere else to get it, so a slot that has been
+        # stopped since its last collect cannot be verified at all.
+        #
+        # Membership rather than a single named ref, because the branch a guest
+        # commits on is the guest's business (NOTES item 18) and this file has
+        # never held its name: what is asserted is that the head the guest is at
+        # is a ref this collect took, which is the same fact without learning a
+        # name.
+        verifyExhibit() {
+          local n="$1" q head oid
+          exhibitTip=""
+          q=$(quarantineOf "$n") || {
+            echo "capsule: nothing has been collected from '$n', so there is no" >&2
+            echo "  exhibit to check against it." >&2
+            return 1
+          }
+          head=$(guestHead "$n") || head=""
+          if [ -z "$head" ] || [ "$head" = - ]; then
+            echo "capsule: '$n' did not answer for its HEAD, so nothing can say whether" >&2
+            echo "  what was collected from it is what it holds now. Start it —" >&2
+            echo "  'capsule $n start' — and run this again. There is no override:" >&2
+            echo "  an exhibit believed current is NOTES item 53 itself." >&2
+            return 1
+          fi
+          while read -r oid; do
+            [ "$oid" = "$head" ] && exhibitTip="$oid"
+          done < <(git --git-dir="$q" for-each-ref \
+            --format='%(objectname)' ${quarantine.codeRefsOf ''"$n"''}/)
+          if [ -z "$exhibitTip" ]; then
+            echo "capsule: '$n' is at ''${head:0:9} and the collect that just ran did not" >&2
+            echo "  take it — so the guest has moved since, or the collect did not" >&2
+            echo "  reach it. What the quarantine holds:" >&2
+            git --git-dir="$q" for-each-ref \
+              --format='    %(objectname:short)  %(refname:short)  %(committerdate:relative)' \
+              ${quarantine.codeRefsOf ''"$n"''}/ >&2
+            return 1
+          fi
+        }
+
+        # What the exhibit says about the worktree it was taken from, read from
+        # the exhibit and never from the guest (NOTES item 53, decision 2): the
+        # state commit's message carries the porcelain count and its tree
+        # carries `.capsule/dirty.diff`, so this needs no second round trip and
+        # gives the same answer if the source goes down in between.
+        #
+        # **Two classes with two fates, and only one of them is a refusal.**
+        # Untracked-but-not-ignored files are staged as content into the state
+        # tree, so they travel and a destination really holds them; a modified
+        # *tracked* file is in no code ref and no path list, so it cannot
+        # travel and is captured as a diff nobody applied. Sets `dirtyTracked`
+        # (files in that diff) and `dirtyTotal` (the exhibit's own `dirty:`,
+        # which counts both). A target that declares no state paths collects no
+        # state half at all, and that is `-` rather than a zero.
+        exhibitDirty() {
+          local n="$1" q commit
+          dirtyTracked=-
+          dirtyTotal=-
+          q=$(quarantineOf "$n") || return 0
+          commit=$(git --git-dir="$q" for-each-ref --sort=-committerdate --count=1 \
+            --format='%(objectname)' ${quarantine.stateRefsOf ''"$n"''}/)
+          [ -n "$commit" ] || return 0
+          dirtyTotal=$(git --git-dir="$q" log -1 --format=%B "$commit" \
+            | sed -n 's/^dirty: //p')
+          [ -n "$dirtyTotal" ] || dirtyTotal=-
+          dirtyTracked=$(git --git-dir="$q" cat-file -p "$commit:.capsule/dirty.diff" 2>/dev/null \
+            | grep -c '^diff --git ' || true)
+        }
+
+        # Rename a slot's refs in the human's repo out of the way of the
+        # assignment about to replace them, keyed by the generation being
+        # superseded (NOTES item 53, decision 3). The half a human still does by
+        # hand after a `fetch` refuses — `handoff` is where it stops being a
+        # thing somebody remembers.
+        #
+        # **In the repository and not in the quarantine**: the quarantine's copy
+        # of a superseded assignment is lost to the next forced collect and that
+        # is correct — a quarantine is what a capsule sent back, not a place
+        # state lives (NOTES item 42) — so the durable copy belongs where the
+        # human works.
+        #
+        # One transaction, and `create` refuses a name that is taken: a
+        # generation is only superseded once, and two archives under one name
+        # would be the collision this exists to avoid arriving by another door.
+        archiveRefs() {
+          local n="$1" g="$2" ref oid rest moved=0
+          local -a plan=()
+          while read -r ref oid; do
+            [ -n "$ref" ] || continue
+            rest=''${ref#refs/capsule/"$n"/}
+            plan+=("create refs/capsule/$n/gen/$g/$rest $oid" "delete $ref $oid")
+            moved=$((moved + 1))
+          done < <(git -C "$repo" for-each-ref --format='%(refname) %(objectname)' \
+            ${quarantine.codeRefsOf ''"$n"''}/ ${quarantine.stateRefsOf ''"$n"''}/)
+          [ "$moved" -gt 0 ] || return 0
+          if [ "$g" = - ]; then
+            echo "capsule: '$n' holds $moved ref(s) in $repo and no record to key an" >&2
+            echo "  archive by, so there is no name for them that cannot collide." >&2
+            echo "  Move them by hand, under refs/capsule/$n/gen/<n>/." >&2
+            return 1
+          fi
+          printf '%s\n' "''${plan[@]}" | git -C "$repo" update-ref --stdin || {
+            echo "capsule: could not archive '$n' refs under refs/capsule/$n/gen/$g/ —" >&2
+            echo "  nothing was moved, and nothing may be forced over them." >&2
+            return 1
+          }
+          echo "capsule $n: archived $moved ref(s) under refs/capsule/$n/gen/$g/"
         }
 
         # What is inside a capsule's namespace — its own `ip_forward=0`, the tap's
@@ -1018,27 +1270,11 @@ in
             ;;
 
           # The second step: quarantine -> the repo you work in, once you have looked.
-          # `CAPSULE_REPO` before the profile's `path` because that is what the git
-          # channel's own lookup does (host/git-channel.nix), and a capsule's refs are
-          # already namespaced by its name, so N quarantines fetch into one repo
-          # without colliding. **Which** repo is now a per-slot answer: two slots on
-          # two targets fetch into two checkouts, which is the whole of item 51.
-          #
-          # **Each half is fetched on its own and answered for on its own**, and
-          # the reason is that they can disagree: a slot's second assignment
-          # diverges from its first in the code half, while the state half
-          # fast-forwards straight across the reassignment, because the guest
-          # parents each snapshot on the ref on its own volume and a provision
-          # does not touch it (NOTES item 50). One refspec is then refused and the
-          # other taken, and one exit status for the pair says only that something
-          # went wrong — so the repository is left holding one assignment's code
-          # beside another's state, under two names that say they belong together,
-          # by a verb that exited 1 and named neither.
-          #
-          # The remedy printed is the archive rather than a force: `+` here would
-          # make the first assignment unreachable in the one place it is durable,
-          # which is what the slot-keyed namespace already costs the quarantine
-          # (NOTES item 50).
+          # A capsule's refs are already namespaced by its name, so N quarantines
+          # fetch into one repo without colliding, and **which** repo is a per-slot
+          # answer: two slots on two targets fetch into two checkouts, which is the
+          # whole of item 51. Both of those, and the two halves, are `fetchSlot`'s
+          # — `handoff` and `land` fetch as part of a larger act.
           #
           # A sweep keeps going and fails at the end, for `aggregable`'s reason:
           # N answers on one screen, and a slot that cannot fetch is a line rather
@@ -1046,34 +1282,7 @@ in
           fetch)
             fetchRc=0
             for t in "''${targets[@]}"; do
-              if q=$(quarantineOf "$t"); then
-                profileNameFor "$t" || exit 1
-                profileLoad "$profileName" || exit 1
-                repo=''${CAPSULE_REPO:-$profile_path}
-                refused=()
-                for half in code state; do
-                  case "$half" in
-                    code) ns=${quarantine.codeRefsOf ''"$t"''} ;;
-                    *) ns=${quarantine.stateRefsOf ''"$t"''} ;;
-                  esac
-                  if git -C "$repo" fetch "$q" "$ns/*:$ns/*"; then
-                    echo "capsule $t: $half: landed"
-                  else
-                    echo "capsule $t: $half: refused" >&2
-                    refused+=("$half")
-                  fi
-                done
-                if [ "''${#refused[@]}" -gt 0 ]; then
-                  fetchRc=1
-                  echo "  the quarantine's refs are not a descendant of this repo's, which is" >&2
-                  echo "  a second assignment to '$t' meeting the first one's (NOTES item 50)." >&2
-                  echo "  Archive what this repo holds under" >&2
-                  echo "  refs/capsule/$t/gen/$(recordField "$t" generation)/, then fetch again —" >&2
-                  echo "  forcing loses the first assignment where it is durable." >&2
-                fi
-              else
-                echo "nothing collected yet — capsule $t collect" >&2
-              fi
+              fetchSlot "$t" || fetchRc=1
             done
             exit "$fetchRc"
             ;;
@@ -1137,6 +1346,266 @@ in
             # a scope that silently never applies. `setup` was that other place
             # until item 53, which is why the four steps are one function now.
             provisionSlot "$name" ''${1+"$@"}
+            ;;
+
+          # Stand this slot up on that slot's finished exhibit — NOTES item 53's
+          # middle verb, and the only one of the three that is machinery which
+          # did not exist. It is a **composition** and lives here rather than in
+          # a `capsule-handoff`, because it reads this host's state three times
+          # (which slot is a source, which quarantine holds it, which record
+          # carries the token) and that is exactly what a program may not do
+          # (item 20).
+          #
+          # The order is the whole of it, and every step is a rule some hand-run
+          # sequence supplied on the day this was proposed:
+          #
+          #   1. collect the source, then **verify the exhibit against its
+          #      guest** — the failure this item is written from;
+          #   2. refuse on a modified tracked file, read from the exhibit
+          #      (decision 2);
+          #   3. fetch the source, because `capsule-provision` resolves its ref
+          #      in the human's repo and the tip has to be there to be pushed;
+          #   4. **archive the destination before anything is forced** — collect
+          #      it, fetch it, and rename what it had under its own generation
+          #      (decision 3);
+          #   5. clear the destination's stale outbound state chain, which a
+          #      provision does not touch and which would otherwise refuse the
+          #      incoming one for a reason that reads as a bug (item 50);
+          #   6. **one** provision, carrying its state, because on a target
+          #      whose refresh commits there is no moment after a provision when
+          #      a brief can land (item 47);
+          #   7. carry the source's `unit`, and require a `purpose` — the token
+          #      is mechanical and the sentence is the human's (item 29).
+          handoff)
+            src=""
+            purpose=""
+            purposeGiven=no
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --purpose)
+                  shift
+                  [ "$#" -gt 0 ] || {
+                    echo "capsule: --purpose takes a sentence." >&2
+                    exit 1
+                  }
+                  purpose="$1"
+                  purposeGiven=yes
+                  ;;
+                --purpose=*)
+                  purpose="''${1#--purpose=}"
+                  purposeGiven=yes
+                  ;;
+                -*)
+                  echo "capsule: handoff takes a source capsule and --purpose <text>," >&2
+                  echo "  and '$1' is neither. Everything else about the assignment is" >&2
+                  echo "  the source's." >&2
+                  exit 1
+                  ;;
+                *)
+                  [ -z "$src" ] || {
+                    echo "capsule: handoff takes one source — '$src' and '$1' are two." >&2
+                    exit 1
+                  }
+                  src="$1"
+                  ;;
+              esac
+              shift
+            done
+            if [ -z "$src" ]; then
+              echo "capsule: handoff needs a source: 'capsule $name handoff <source>" >&2
+              echo "  --purpose <text>' stands '$name' up on what <source> has done." >&2
+              echo "  Capsules here: ''${declared[*]}" >&2
+              exit 1
+            fi
+            srcKnown=no
+            for d in "''${declared[@]}"; do
+              [ "$src" = "$d" ] && srcKnown=yes
+            done
+            if [ "$srcKnown" = no ]; then
+              echo "capsule: '$src' is not a capsule on this host, and a handoff is" >&2
+              echo "  between two of them: ''${declared[*]}" >&2
+              exit 1
+            fi
+            if [ "$src" = "$name" ]; then
+              echo "capsule: '$name' cannot be handed its own work — a handoff is a" >&2
+              echo "  second capsule beginning on what the first finished." >&2
+              exit 1
+            fi
+            # The sentence is the human's and guessing it would be this front
+            # end deciding something nobody asked it to (NOTES item 29). The
+            # token below is the opposite case and is copied without asking.
+            if [ "$purposeGiven" = no ] || [ -z "$purpose" ]; then
+              echo "capsule: handoff needs --purpose <text> — what '$name' is for." >&2
+              echo "  It is free text nothing here parses, and it is the one thing" >&2
+              echo "  about this assignment that is not derivable from '$src'." >&2
+              exit 1
+            fi
+            # Two slots on two targets would fetch into two checkouts and push
+            # one project's code into another's capsule. Refused here rather than
+            # discovered at the push, and naming both documents.
+            profileNameFor "$src" || exit 1
+            srcProfile="$profileName"
+            profileNameFor "$name" || exit 1
+            if [ "$srcProfile" != "$profileName" ]; then
+              echo "capsule: '$src' is on profile $srcProfile and '$name' is on" >&2
+              echo "  $profileName, so there is no work to hand between them." >&2
+              exit 1
+            fi
+
+            echo "capsule $name: handoff from $src — collecting $src"
+            collectSlot "$src" || exit 1
+            verifyExhibit "$src" || exit 1
+            exhibitDirty "$src"
+            if [ "$dirtyTracked" != - ] && [ "$dirtyTracked" -gt 0 ]; then
+              echo "capsule: '$src' has $dirtyTracked modified tracked file(s) that cannot" >&2
+              echo "  travel — they are in no code ref and no path list, so the exhibit" >&2
+              echo "  carries them as .capsule/dirty.diff, a record of a worktree rather" >&2
+              echo "  than part of one. Standing '$name' up on it would be a checkout" >&2
+              echo "  nobody ever had. Commit them in '$src', then hand off." >&2
+              echo "  (Its uncommitted *untracked* work travelled as content: the" >&2
+              echo "  exhibit's own count is $dirtyTotal.)" >&2
+              exit 1
+            fi
+            echo "capsule $name: $src is at ''${exhibitTip:0:9} and the exhibit holds it"
+            fetchSlot "$src" || exit 1
+
+            # What '$name' had, before anything is forced over it. Skipped
+            # rather than refused for a slot nothing has ever assigned: there is
+            # no generation to key an archive by because there is nothing to
+            # archive.
+            if [ "$(recordField "$name" generation)" = - ]; then
+              echo "capsule $name: nothing has been assigned here, so there is nothing to archive"
+            else
+              collectSlot "$name" || exit 1
+              fetchSlot "$name" || exit 1
+              repoFor "$name" || exit 1
+              archiveRefs "$name" "$(recordField "$name" generation)" || exit 1
+            fi
+
+            # The destination's own chain, which the incoming one is not rooted
+            # in. A provision does not touch it and the brief inside one is not
+            # forced, so leaving it here refuses the push for a reason that
+            # reads as a bug (NOTES item 50's fast-forward half). The stages are
+            # the ones the collect above just took, which is the guest's answer
+            # of seconds ago rather than a second round trip.
+            stages=()
+            if q=$(quarantineOf "$name"); then
+              mapfile -t stages < <(git --git-dir="$q" for-each-ref \
+                --format='%(refname:lstrip=-1)' ${quarantine.stateRefsOf ''"$name"''}/)
+            fi
+            if [ "''${#stages[@]}" -gt 0 ]; then
+              echo "capsule $name: dropping its own state chain (''${stages[*]}) — the" \
+                "incoming one is rooted elsewhere"
+              if ! dropped=$(guestDropState "$name" "''${stages[@]}"); then
+                echo "capsule: could not drop ${stateRefPrefix}/* in '$name' — the state" >&2
+                echo "  half of the provision would be refused as a non-fast-forward," >&2
+                echo "  naming a cause that is not the cause. Nothing was provisioned." >&2
+                exit 1
+              fi
+              [ -z "$dropped" ] || printf '  dropped %s\n' "$dropped"
+            fi
+
+            # One provision, carrying its state: there is no "after" on a target
+            # whose refresh commits (NOTES item 47), so the state half is a flag
+            # and never a second command. The force is what decision 3's archive
+            # above made safe.
+            provisionSlot "$name" "$exhibitTip" --force --state "$src" || exit 1
+
+            # Mechanical, and only when there is one: the token scopes the same
+            # unit of work in the same target, so a second capsule on it collects
+            # under the same scope.
+            token=$(recordField "$src" unit)
+            if [ "$token" != - ]; then
+              # shellcheck disable=SC2016  # `$u` is jq's, bound by --arg below
+              recordWrite "$name" '.unit = $u' --arg u "$token" > /dev/null
+            fi
+            # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
+            echo "capsule $name: on ''${exhibitTip:0:9} from $src, unit $token," \
+              "generation $(recordWrite "$name" '.purpose = $p' --arg p "$purpose")"
+            ;;
+
+          # Accept the result — NOTES item 53's third verb, and it **stops at
+          # refs**. Which branch a result belongs on, whether a closed unit
+          # reopens and how two reviews reconcile are the target's governance
+          # (item 18's direction, applied to naming); what this owns is the
+          # comparison the failure was written from and a report of where the
+          # work sits against the repo as it is now.
+          #
+          # `--branch <name>` is permitted because a name arriving as an argument
+          # is a value, and two rules keep it one: there is **no default**, since
+          # a default branch name is `target.nix` leaking back through a program
+          # (items 28, 36), and it **refuses an existing name** rather than
+          # updating it, so nothing a land does can lose a commit.
+          land)
+            branch=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --branch)
+                  shift
+                  [ "$#" -gt 0 ] || {
+                    echo "capsule: --branch takes a name." >&2
+                    exit 1
+                  }
+                  branch="$1"
+                  ;;
+                --branch=*) branch="''${1#--branch=}" ;;
+                *)
+                  echo "capsule: land takes only --branch <name>, and '$1' is not one." >&2
+                  echo "  Which branch a result belongs on is the target's to say, so" >&2
+                  echo "  there is no default and the refs are the answer without one." >&2
+                  exit 1
+                  ;;
+              esac
+              shift
+            done
+
+            collectSlot "$name" || exit 1
+            verifyExhibit "$name" || exit 1
+            fetchSlot "$name" || exit 1
+            repoFor "$name" || exit 1
+
+            if [ -n "$branch" ]; then
+              # `update-ref <ref> <new> ""` is create-only — the empty old value
+              # is the assertion that the name is free — so this is one atomic
+              # refusal rather than a check and a race.
+              if ! git -C "$repo" update-ref "refs/heads/$branch" "$exhibitTip" ""; then
+                echo "capsule: $repo already has a branch '$branch', and a land never" >&2
+                echo "  moves one — that is how nothing it does can lose a commit." >&2
+                echo "  The work is at refs/capsule/$name/heads/*; name a free branch," >&2
+                echo "  or merge from there." >&2
+                exit 1
+              fi
+              echo "capsule $name: $branch is at ''${exhibitTip:0:9} in $repo"
+            fi
+
+            exhibitDirty "$name"
+            if [ "$dirtyTracked" != - ] && [ "$dirtyTracked" -gt 0 ]; then
+              echo "capsule $name: $dirtyTracked modified tracked file(s) did not travel —" \
+                "the exhibit carries them as .capsule/dirty.diff, applied by nothing"
+            fi
+
+            # The report is what earns the verb, and it can be written without
+            # knowing anything about the target: the repo's current HEAD is a
+            # fact about that repo rather than a value of ours, so this names the
+            # branch it found without ever having chosen one.
+            if ! headOid=$(git -C "$repo" rev-parse --verify --quiet HEAD); then
+              echo "capsule $name: $repo has no commit on HEAD, so there is nothing to" \
+                "compare ''${exhibitTip:0:9} against"
+              exit 0
+            fi
+            headName=$(git -C "$repo" symbolic-ref --quiet --short HEAD) \
+              || headName="a detached HEAD at ''${headOid:0:9}"
+            read -r only_head only_work < <(git -C "$repo" rev-list --left-right --count \
+              "$headOid...$exhibitTip")
+            echo "capsule $name: against $headName — $only_work commit(s) here that it" \
+              "has not, $only_head there that this has not"
+            if conflicts=$(git -C "$repo" merge-tree --write-tree --name-only \
+              --no-messages "$headOid" "$exhibitTip"); then
+              echo "  and a merge would not conflict"
+            else
+              echo "  and a merge would conflict on:"
+              printf '%s\n' "$conflicts" | tail -n +2 | sed '/^$/d;s/^/    /'
+            fi
             ;;
 
           # The whole record, for when a column is not enough. `jq .` rather than
@@ -1342,22 +1811,13 @@ in
           # Neither *absence* is handled here: `capsule-collect`'s own refusals
           # already name the remedies, and a second copy of them here would be a
           # second thing to keep true.
+          # The policy is filled so an unassigned slot ingests under exactly the
+          # one its proxy is already serving (host/services.nix, NOTES item 36),
+          # and the scope from the same record, unconditionally — every collect
+          # takes state out of a guest. Both are `collectSlot`'s, because
+          # `handoff` and `land` begin with one.
           collect)
-            policyGiven=no
-            for a in ''${1+"$@"}; do
-              case "$a" in
-                --policy | --policy=*) policyGiven=yes ;;
-              esac
-            done
-            # So an unassigned slot ingests under exactly the policy its proxy is
-            # already serving (host/services.nix, NOTES item 36).
-            if [ "$policyGiven" = no ]; then
-              set -- --policy "$(effectivePolicy "$name")" ''${1+"$@"}
-            fi
-            # And the scope, from the same record. Unconditional — every collect
-            # takes state out of a guest — which is what `-` says.
-            mapfile -t unitArgs < <(unitScope "$name" - ''${1+"$@"})
-            work "$name" collect ''${unitArgs[@]+"''${unitArgs[@]}"} ''${1+"$@"}
+            collectSlot "$name" ''${1+"$@"}
             ;;
 
           # Intercepted for the same one thing, in the one direction that needs

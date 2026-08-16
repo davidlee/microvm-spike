@@ -137,7 +137,7 @@
     # Same store path as the devshell's, because it is the same construction from
     # the same values (host/programs.nix) — a status asks a guest one question
     # and does not care which door it came through.
-    inherit (hostPrograms) observe observeFragment programVerbs profileVerbs;
+    inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateRefPrefix;
   };
 
   # The one program that runs at guest *root*, and the reason a stop on this

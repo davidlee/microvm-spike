@@ -306,6 +306,13 @@
 in {
   inherit script;
 
+  # Where a capsule keeps its own outbound chain, on its volume. Exported
+  # because `host/cli.nix` has to *clear* one before standing a slot up on
+  # another capsule's exhibit (NOTES item 53), and a second spelling of a ref
+  # namespace is a second thing to keep true — `capsule-brief` pushes into this
+  # one and reads it back.
+  inherit refPrefix;
+
   # The tail of the command line, and it was the one place step 4 had to change
   # (NOTES item 51): the ceiling and the templates used to be nix values escaped
   # into a caller's text, and they are read off a loaded profile now. Spelled

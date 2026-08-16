@@ -225,6 +225,13 @@ in {
   # module path came to be missing an argument the devshell path had.
   observe = observeHook.script;
 
+  # Where a capsule's own outbound state chain sits on its volume
+  # (host/state-snapshot.nix, which declares it). Passed on rather than
+  # respelled, for the reason everything else here is: the front end has to drop
+  # a stale link of that chain before a handoff (NOTES item 53), and a namespace
+  # spelled at two call sites is two things to keep true.
+  stateRefPrefix = stateSnapshot.refPrefix;
+
   # Everything the front end needs to *build* that program's command line, as one
   # fragment (NOTES item 51 step 4): the profile reader, the record convention
   # and the argument order, each from the file that owns it. One opaque splice to
