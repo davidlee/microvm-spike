@@ -37,21 +37,21 @@
   # the `ssh_cmd` argv, for the reason `host/inject.nix` gives. Jail-shaped, so
   # injected — and required.
   transport,
-  # The target's own build-and-test, run by the guest's login shell in `workdir`.
-  command,
-  # Where to run it — the guest's checkout.
-  workdir,
-  # Where the log and the record live. Must be outside `workdir`: a record
-  # written into the checkout is a dirty worktree, and a dirty worktree is what
-  # `receive.denyCurrentBranch = updateInstead` refuses a provision on.
-  recordDir,
-  # Guest paths to size before and after, so a recorded run says for itself
-  # whether it was cold. Per-path in the log, totalled in the record.
-  measure,
+  # Which *target*, and the same shape one axis over: a fragment that resolves
+  # `--profile` and loads the document (host/profile.nix, NOTES item 51 step 4).
+  # The command, the checkout and the paths to size were four nix arguments here
+  # and are four `profile_*` variables now — which is what stops this program's
+  # store path from being a function of which project the host confines.
+  profileSelect,
+  # Where the log and the record live: a fragment defining `baselineRecordDir`,
+  # from `host/programs.nix` because `capsule status` reads the same record from
+  # the other side and two spellings of one path is how the two ends drift. Must
+  # be outside the checkout — a record written into it is a dirty worktree, and a
+  # dirty worktree is what `receive.denyCurrentBranch = updateInstead` refuses a
+  # provision on.
+  baselineRecord,
 }: let
   inherit (pkgs) lib;
-
-  cmd = lib.escapeShellArg command;
 
   # The guest half. Pushed at each run rather than baked into the guest's
   # closure, because it is host-side policy about a measurement, not part of
@@ -196,47 +196,65 @@
   # `writeShellApplication` is in host/guest-exec.nix, which now owns it.
   checkedRunner = guestExec.checked runner;
 
-  # What points that one text at this target: the record directory, the checkout,
-  # the command and the paths to size, in the order the runner reads them (NOTES
-  # item 51). Escaped twice, because ssh joins its arguments with spaces and the
-  # guest's shell parses the result again — see the invocation below, which is the
-  # `"$0" "$@"` shape for exactly this reason.
-  runnerArgs =
-    lib.escapeShellArgs
-    (map lib.escapeShellArg ([recordDir workdir command] ++ measure));
-
-  # The two words in front of them, in the same two-parse form. `bash "$0" "$@"`
-  # is the whole of the remote `-c` script: it *uses* its arguments rather than
+  # The two words in front of the runner's arguments. `bash "$0" "$@"` is the
+  # whole of the remote `-c` script: it *uses* its arguments rather than
   # re-parsing a string built out of them, which is what makes two shells enough.
+  # Still escaped twice, because unlike everything after it this is a constant
+  # spliced into the program's text, so this host's shell parses it too.
   remoteRun = lib.escapeShellArg (lib.escapeShellArg ''bash "$0" "$@"'');
-  remoteRunner = lib.escapeShellArg (lib.escapeShellArg "${recordDir}/run.sh");
   program = pkgs.writeShellApplication {
     name = "capsule-baseline";
     runtimeInputs = [pkgs.openssh pkgs.coreutils];
     text = ''
       ${transport}
+      ${profileSelect}
+      ${baselineRecord}
       host=${lib.escapeShellArg guestHost}
-      dir=${lib.escapeShellArg recordDir}
+      dir=$(baselineRecordDir)
+      # One `%q` and not two: every use below is inside a string this host's
+      # shell has already parsed and the guest's has not (host/profile.nix).
+      qdir=$(printf '%q' "$dir")
 
       detach=""
       for arg in "$@"; do
         case "$arg" in
           --detach) detach=1 ;;
           *)
-            echo "usage: capsule-baseline [--capsule <name>] [--detach]" >&2
-            echo "  runs ${cmd} in the capsule's checkout and records it." >&2
+            echo "usage: capsule-baseline [--capsule <name>] --profile <name> [--detach]" >&2
+            echo "  runs the profile's baseline in the capsule's checkout and" >&2
+            echo "  records it. This one is: ''${profile_baseline:-none}" >&2
             echo "  run it again while one is in flight to re-attach." >&2
             exit 1
             ;;
         esac
       done
 
+      # The program exists because *this host's* target declares a baseline; the
+      # profile it was pointed at is a different question and may answer no. A
+      # target with nothing to build is a working absent path
+      # (docs/contract-target.md), so this says so rather than running an empty
+      # command line and recording that it went green.
+      if [ -z "$profile_baseline" ]; then
+        echo "capsule-baseline: profile '$profile_name' declares no baseline, so" >&2
+        echo "  there is nothing to build and nothing to record." >&2
+        exit 1
+      fi
+
+      # The checkout and the caches, in the order the runner reads them after the
+      # record directory — the paths whose before/after sizes are what make a
+      # recorded run checkably cold (docs/probes.md).
+      mapfile -t runnerArgs < <(
+        printf '%s\n' "$dir" "$profile_guest_path" "$profile_baseline" \
+          "$profile_guest_path" ''${profile_cache_paths[@]+"''${profile_cache_paths[@]}"} \
+          | profileQuote
+      )
+
       # The host names the run: the guest's clock is the guest's business, and
       # this is the one name both ends can agree on. Digits and two letters, so
       # it needs no quoting anywhere it is spliced into a remote command below.
       stamp=$(date -u +%Y%m%dT%H%M%SZ)
 
-      "''${ssh_cmd[@]}" "$host" "mkdir -p '$dir' && cat > '$dir/run.sh'" \
+      "''${ssh_cmd[@]}" "$host" "mkdir -p $qdir && cat > $qdir/run.sh" \
         < ${checkedRunner}
 
       # `bash -l`, and it is load-bearing: `ssh host cmd` is neither a login nor
@@ -262,7 +280,8 @@
       # SC2016: `$0` and `$@` are the *guest* shell's, and not expanding them here
       # is the entire point — this host has no run.sh and no arguments to it.
       # shellcheck disable=SC2016
-      reply=$("''${ssh_cmd[@]}" "$host" bash -l -c ${remoteRun} ${remoteRunner} start "$stamp" ${runnerArgs})
+      reply=$("''${ssh_cmd[@]}" "$host" bash -l -c ${remoteRun} "$qdir/run.sh" \
+        start "$stamp" "''${runnerArgs[@]}")
       echo "capsule-baseline: $reply"
       # `started STAMP` or `attached STAMP` — the second is an older run, and
       # from here on the two are the same thing.
@@ -281,14 +300,14 @@
       # If the run has already finished — a warm baseline can beat this call —
       # there is no pid to wait on and the whole log is simply printed.
       "''${ssh_cmd[@]}" "$host" "
-        if pid=\$(cat '$dir/running' 2>/dev/null); then
-          tail -n +1 -f --pid=\"\$pid\" '$dir/$stamp.log'
+        if pid=\$(cat $qdir/running 2>/dev/null); then
+          tail -n +1 -f --pid=\"\$pid\" $qdir/$stamp.log
         else
-          cat '$dir/$stamp.log'
+          cat $qdir/$stamp.log
         fi
       " || true
 
-      line=$("''${ssh_cmd[@]}" "$host" "grep -m1 '^$stamp' '$dir/history.tsv'" || true)
+      line=$("''${ssh_cmd[@]}" "$host" "grep -m1 '^$stamp' $qdir/history.tsv" || true)
       if [ -z "$line" ]; then
         echo "capsule-baseline: no record for $stamp — still running, or interrupted." >&2
         exit 1

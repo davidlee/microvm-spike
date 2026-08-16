@@ -1,11 +1,14 @@
 # NOTES item 51 — the four programs still spell the target, and it is item 20 one level up
 
-*State: **steps 0-3 built and green; decisions 1 and 2 taken; 4-6 open, and only
-step 6 still waits on a decision.** The run-time half of `target.nix` is a
-rendered document now — `host/profile.nix`, per target, in the store, read
-through one function — with a suite pinning both halves of it. **Nothing reads
-it yet**, so no host program's store path has changed: that is step 4, and it is
-the commit that moves the boundary. Before that: the
+*State: **steps 0-4 built and green; decisions 1, 2 and 4 taken; 5 and 6 open,
+and only step 6 still waits on a decision.** The run-time half of `target.nix` is
+a rendered document — `host/profile.nix`, per target, in the store, read through
+one function — and **every host-side program reads it**. `capsule-provision`,
+`capsule-collect`, `capsule-baseline`, `capsule-refresh`, `capsule-brief` and the
+`capsule` front end take `--profile <name>` where they already take `--capsule`,
+refuse without one, and index into the document instead of into their own text.
+Not one of those store paths is a function of which project this host confines
+any more. Before that: the
 five guest-pushed scripts take every value they are about on their command line,
 the two that had no case suite have one, and each of the seven suites was watched
 going red against a deliberately broken copy of what it pins. The suites are then
@@ -42,16 +45,17 @@ path goes on serving everything.
 | `name`, `sizes` | `target` | the record's `profile` and `class` (`host/cli.nix:591`), the motd, `services.nix`'s `repo` default |
 | `statePaths`' `{unit}` hole, as `stateNeedsUnit` | `statePaths` | the front end's **own** text — usage, the status table's `printf` format, its header and its row, and the `unit` verb's parser (`host/cli.nix:111,169,513,519,554,1069-1090`) |
 
-The table is the inventory as read, and two of its names are gone: step 2 removed
-`snapshotFor` and `refreshFor`, and the values in the guest-side column arrive on
-a command line now (see *What steps 1 and 2 turned out to be*). Nothing else in
-it has moved — the store paths still *carry* those values, because the host
-program that spells the command line still gets them from `target.nix`.
+The table is the inventory as read. **Step 4 emptied its first six rows**: every
+value in them is looked up at run time now, and no store path in the right-hand
+column carries one. What is left is the last row, `stateNeedsUnit`, plus the two
+build-time gates beside it that decide whether `capsule-baseline` and
+`capsule-refresh` exist at all — the whole of step 6 — and one row's worth of
+`volumePath` in `capsule-inject`'s payload destinations, which is deliberately
+out of scope and says why below.
 
-Step 3 does not change a row of it either. Every value in the first five rows now
-also exists in a document (`host/profile.nix`), but *also* is the operative word:
-nothing reads that document, so the right-hand column is still the truth. Step 4
-is what empties it.
+The two names that went at step 2 (`snapshotFor`, `refreshFor`) were the first
+half of the same move; step 4 is the second, and there is nothing between a
+document and a program left to instantiate.
 
 `programVerbs` is the same coupling in its other form: which verbs exist at all
 is decided at build time by which `target.nix` fields are non-null.
@@ -172,6 +176,51 @@ stops this file from disagreeing with itself; it cannot stop a document edited
 after a slot booted from naming a checkout that image never made. That is the
 sharp edge above, it is `profile_snapshot`'s job, and it is step 4's.
 
+**4. Which name does a program load?** Not in the item when step 4 started, and
+the first thing it needed. Three candidates: the slot's assignment record
+`profile` field (written at every provision since
+[item 29](./029-the-record-is-front-end-written.md), read by nothing, and the
+field this was reserved for); an explicit argument, [item 28](./028-a-slot-has-no-default.md)'s
+shape; or the baked `target.name` as a default.
+
+**Taken: the argument, with no default anywhere in a program, and the front end
+resolving which name.** In full:
+
+- **A program takes `--profile <name>`, else `CAPSULE_PROFILE`, else refuses** —
+  `selectCapsule`'s shape one axis over, spliced beside it, stripping itself out
+  of `"$@"` before the program's own flag loop runs. Item 28's rule applies
+  unchanged and is sharper here than for a slot: the value a missing one would
+  fall back to is a *different project's* `guestPath` and `statePaths`, so a
+  collect would report success having taken nothing. That is
+  [item 47](./047-a-script-on-stdin-and-the-command-that-eats-it.md)'s shape with
+  a bigger blast radius, and it is why (c) is out — the coupling it reintroduces
+  is not in the store path, it is in the silence.
+- **The front end resolves the name**, in the order authority runs: an explicit
+  `--profile` wins, then the slot's record, then — for a slot nothing has
+  assigned — **the one profile this host has rendered, refusing when there are
+  none or several**. That last is not a default. It is the same latitude
+  `capsule <verb>` already takes with an unnamed slot (*the one that is up,
+  refusing when none or several are*), one axis over, and it degrades in the
+  right direction: the moment this host renders a second document, an unassigned
+  slot has to say which. Reading host state is a front end's job and a program's
+  disqualification ([item 20](./020-which-capsule-a-program-means.md)), so the
+  whole of this lives in `host/cli.nix`'s `profileNameFor` and nowhere else.
+
+**What an unassigned slot gets, stated plainly**, since the question was asked
+that way: on this host, the profile it would have got anyway, because this host
+declares one. On a host that declares two, a refusal naming both. There is no
+arrangement in which it gets a build-time literal.
+
+**And `profile_snapshot` stays owed.** Step 4 does not fill it, and the reason is
+decision 2's: a record holding the document's *bytes* is a second place
+`profileLoad` looks, which is exactly the property "one function, one directory"
+was bought for. What step 4 does pin is the **name** — inert since item 29 and
+load-bearing now — which closes the half of the sharp edge that a *rename or a
+removal* opens: an assigned slot whose document has gone gets a refusal naming
+the profile, where before it would have read whatever the build had baked. The
+half it does not close is a document *edited in place* after a slot booted; that
+still needs bytes, and bytes belong with the plain-file switch.
+
 **3. What does a fleet-wide status table do with a per-target predicate?**
 `stateNeedsUnit` shapes the front end's printed text, and `capsule all status` is
 one table for every slot. Three answers exist — the union of columns with blanks
@@ -181,6 +230,77 @@ here because step 6 reads as *one list of verbs* and it is not: the verb list is
 the easy half. **Still not decided**, and the deferral held exactly as written:
 step 3 is done and the predicate is still build-time, with every value around it
 in a document. It now gates step 6 alone.
+
+## What step 4 turned out to be
+
+**One seam, and step 2 had already put it in the right place.** Each of the five
+guest-pushed scripts exported the *tail* of its command line so no call site
+could order the values differently; step 4 is that export changing from a nix
+string to a **shell fragment** that prints the same values off a loaded profile.
+`argsFor`/`guestArgs` became `argsFragment`, `refresh`'s `invoke` became a
+function, `baselineRecord` became `baselineRecordDir`, and `guestRepo` became
+`guestRepoUrl`. Nothing else about any of those five moved, and none of their
+*scripts* changed at all — which is the clearest statement there is that step 2
+was the right shape.
+
+**The escaping went down by one, and that is a fact worth stating rather than a
+detail.** A value spliced into a program's text crossed **two** shells and was
+escaped twice (this host's, then the guest's). A value that is an *array element*
+at run time is not parsed by this host's shell at all, so exactly one `%q`
+survives the hop — `profileQuote` — and two would arrive backslashed. The same
+arithmetic, one lower, and the reason the count is checkable at all is that the
+render forbids a newline in any value, so the filter can be line-based.
+
+**The ninth suite, and it is over the two programs that carry the risk.** The
+other eight pin *guest* halves; none of them can see the host half that builds a
+guest's command line, which is precisely the half this step rewrote.
+`host/git-channel-cases.nix` runs the shipped `capsule-provision` and
+`capsule-collect` against fixture documents and asserts everything upstream of
+the door: the refusal with no profile, the refusal with an unrendered one, the
+*order* (a profile is refused before a policy, so a quarantine cannot be opened
+for a target nobody named), and — the ones that pin the values — two runs
+differing in one argument that name two different host checkouts and two
+different guest URLs. It cannot reach past the door and says so: both programs
+have `pkgs.openssh` in `runtimeInputs`, so nothing in a sandbox can stub `ssh`.
+
+**Two suites gained the case that closes the loop, and one of those failures is
+silent.** `snapshotArgs` and `observeArgs` are each one order of values, read
+from a document at one end and by a script at the other, and until now every
+suite composed that line *by hand* — so a suite and a program could disagree
+about the order and both pass. `snapshotCases` and `observeCases` now build the
+tail from the shipped fragment and run the shipped script with it. The snapshot's
+disagreement is loud (a ceiling that is a path) and degrades a collect to
+code-only, which is item 47's shape; the status's is **silent** — a plausible
+answer about three directories nobody named — and it also pins
+`<volumePath>/baseline`, a convention neither end declares and both derive.
+
+**Eight mutations, each red on its own rounds and nothing else.** The two worth
+keeping: giving `select` a fallback to this host's target went red only on the
+cases that assert the *reason* for a refusal and not on any that assert its exit
+status, because with a fixture directory the fallback fails too — a refusal for
+the wrong reason is a different program passing, and asserting the reason is what
+caught it. And two mutations were *rejected by shellcheck before the suite ran*
+(an unreachable branch, an overriding case pattern), which the mutation harness
+first reported as "nothing went red": a build that fails for another reason and a
+suite that finds nothing look identical from outside, so a mutation has to be one
+the build accepts.
+
+**What is deliberately out, and it is a row of the inventory above.**
+`capsule-inject`'s payload destinations still carry `volumePath` at build time,
+and that is the honest line rather than an omission: `setup.nix` is a **host**
+declaration of what this machine will hand a capsule, and a payload's destination
+is on the *volume* — whose mount point `vm/capsule.nix` bakes into the image.
+Making a credential declaration a function of a run-time document would be a
+different decision about a different owner. Same for `capsule-adopt`, which reads
+a quarantine on this host and no target value at all.
+
+**And what step 4 did not spend: the smoke test, which is spent now.** `capsule
+all status` off the new front end against the live fleet — two running capsules,
+every observed field present — and one `capsule-collect` against slot `e`, which
+resolved `doctrine` from that slot's record, built `ssh://agent@10.99.0.2/work/doctrine`
+from the document, and brought back **30 files, 566,960 bytes** of state under
+unit 251 plus the code refs. The failure this was owed against is a collect that
+reports success and brings back nothing; it brought back an exhibit.
 
 ## What step 3 turned out to be
 
@@ -360,14 +480,24 @@ it is still what those steps say:
    `capsule-provision`, `capsule-collect` and `capsule-brief` are byte-identical
    to HEAD's, checked against a throwaway worktree, which is the honest statement
    that step 3 is a render and not a switch.
-4. **Host programs read it after resolving `--capsule`**, exactly where
+4. **Done. Host programs read it after resolving `--capsule`**, exactly where
    `transport` already resolves a socket, and with the same refusal when unnamed
-   ([item 28](./028-a-slot-has-no-default.md)).
-5. **Pair the read with the units' permissions in `hostModuleUnits`** — a program
-   that opens `profileDir` and a unit whose user can traverse it. This is
-   [item 39](./039-a-bind-is-not-a-traversal.md)'s class exactly, it is not
-   catchable by the cases because a sandbox has one uid, and it is where the last
-   bug of this shape came from.
+   ([item 28](./028-a-slot-has-no-default.md)). See below.
+5. **Owed, and *not* at step 4 — it moved to the plain-file switch, which is a
+   change of fact rather than a deferral.** The pairing to assert is a program
+   that opens `profileDir` against a unit whose user can traverse it
+   ([item 39](./039-a-bind-is-not-a-traversal.md)'s class, uncatchable by the
+   cases because a sandbox has one uid). Two things have to be true for that
+   class to arise: the directory is host-owned rather than in the store, and a
+   *unit* opens it. Neither is true today — decision 2 put the documents in
+   `/nix/store`, which every uid can traverse, and the six readers are all
+   programs a human runs, none of them an `ExecStart`. So there is no
+   `profileDir` option and no `CAPSULE_PROFILE_DIR` in `host/services.nix`'s
+   `wrap`: a knob whose only legal value is the store render is a knob with no
+   user, and an assertion with no failure mode is a round that never
+   discriminates ([item 37](./037-a-teardown-that-only-unnames.md)). It becomes
+   real in the same commit the documents leave the store, and it is written here
+   so that commit cannot forget it.
 6. **`programVerbs` and `stateNeedsUnit` last**, since what exists at all becomes
    a property of the document rather than of the build, and that is the step most
    likely to want a decision nobody has made yet — decision 3 above, which is
@@ -409,16 +539,31 @@ is already safe. A refactor that reports success while collecting nothing is the
 failure mode this repo has already had once, in `host/refresh.nix`
 ([item 47](./047-a-script-on-stdin-and-the-command-that-eats-it.md)).
 
-**Step 3 did not spend any of that, and the reason is checkable rather than
-argued.** It adds a document, a library and a suite and changes no program: the
-four store paths above are byte-identical to HEAD's. So the smoke test is still
-owed in full, and it is owed at step 4 — the first commit in which a live slot's
-`capsule-provision` is a different store path from the one that provisioned it.
+**Step 3 did not spend any of that, and the reason was checkable rather than
+argued.** It added a document, a library and a suite and changed no program.
+
+**Step 4 spent it, both halves.** `capsule all status` off the new front end
+against the live fleet: ten rows, two of them running capsules, every observed
+field present and unchanged in shape — which exercises the record read, the
+document read, the argument order and the escaping over two real relay sockets.
+Then one `capsule-collect` against slot `e`, whose exhibit was already collected
+twice and whose result was therefore already safe: it resolved `doctrine` out of
+that slot's record, built the guest URL out of the document, and fetched **30
+files and 566,960 bytes** of state under unit 251 beside the code refs. A
+refactor that reports success while collecting nothing is what item 47 cost, and
+that is the number that says this one did not.
+
+One honest limit on that evidence: the module path's programs are what a live
+slot runs, and this host has not been rebuilt, so both halves were run from store
+paths built out of the working tree — the front end directly, and the collect
+through the same `host/programs.nix` construction `host/services.nix` makes, with
+the relay-socket transport. Same file, same arguments, same store path a rebuild
+will install.
 
 ## Which verb the evidence covers
 
-**Read**, twice, and then **Build** four times — steps 1, 2, 0 and 3, in that
-order. The first pass took `host/programs.nix`,
+**Read**, twice, and then **Build** five times — steps 1, 2, 0, 3 and 4, in that
+order — with a **Verify** on a live host at the end of the fifth. The first pass took `host/programs.nix`,
 `host/git-channel.nix`, `host/cli.nix` and `target.nix` plus the record-writing
 site, and produced the inventory. The second was a readiness pass over the plan
 this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
@@ -428,9 +573,12 @@ this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
 decisions 2 and 3, step 1's coverage gap and the `guestPath` edge. Every line
 reference above was checked against the file it names.
 
-Both passes were taken before anything was built. **Steps 0 to 3 are now built
+Both passes were taken before anything was built. **Steps 0 to 4 are now built
 and green.** 0, 1 and 2 were mechanical, scoped and needed none of the decisions;
-3 needed two of them and they are taken. **Steps 4 to 6 are not built**, and what
-step 6 waits on is decision 3 — step 4 and step 5 wait on nothing but the work.
+3 needed two of them; 4 needed a decision the item did not have, which is
+decision 4 above and is the one that took the longest. **Steps 5 and 6 are not
+built.** Step 6 waits on decision 3; step 5 waits on the documents leaving the
+store, which is a change of fact rather than a decision and is why it moved.
 The inventory is the reads' product and is the part worth trusting; the ordering
-is a judgement, and so far it has held.
+is a judgement, and it has held through five steps — with one correction, which
+is that step 5 turned out to belong later than step 6 rather than before it.

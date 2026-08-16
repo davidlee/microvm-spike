@@ -53,13 +53,13 @@
   # the `ssh_cmd` argv (host/guest-ssh.nix). Jail-shaped, so injected — and
   # required.
   transport,
-  # The target's own regeneration, run by the guest's login shell in `workdir`.
-  command,
-  # Where to run it — the guest's checkout.
-  workdir,
+  # Which *target*, and the same shape one axis over: a fragment that resolves
+  # `--profile` and loads the document, setting `$profile_refresh` and
+  # `$profile_guest_path` — the two values this file used to take as nix
+  # arguments (host/profile.nix, NOTES item 51 step 4). Required, and refusing
+  # without one, for `transport`'s reason.
+  profileSelect,
 }: let
-  cmd = lib.escapeShellArg command;
-
   # Pushed at each call rather than baked into the guest's closure, for
   # `host/guest-exec.nix`'s three reasons. Nothing is written to the volume: like
   # `observe`, it arrives on stdin, acts, and is gone.
@@ -196,15 +196,34 @@
 
   script = guestExec.checked runText;
 
-  # What points the script at this target, escaped twice because two shells parse
-  # it: the local one that builds the ssh argv, and the guest's, which is handed
-  # one string and splits it again (host/state-snapshot.nix says the same thing
-  # about the same hop).
-  args = lib.escapeShellArgs (map lib.escapeShellArg [workdir command]);
-
-  # One command line, so a caller may write `if ! ${invoke}; then`. Self-contained
-  # apart from `ssh_cmd`, which every transport fragment sets.
-  invoke = ''"''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} ${lib.escapeShellArg guestExec.loginRun} ${args} < ${script}'';
+  # One shell function, so a caller may write `if ! refreshInvoke; then` — it was
+  # one command *line* while both its values were nix strings, and it is a
+  # function now because they are read off a document at run time (NOTES item 51
+  # step 4). Self-contained apart from `ssh_cmd` and the `profile_*` variables,
+  # which the two fragments beside it set.
+  #
+  # **Escaped once, not twice.** A value spliced into a program's text was parsed
+  # by this host's shell and then by the guest's; an array element is parsed only
+  # by the guest's, so `profileQuote` runs once over each (host/profile.nix).
+  invoke = ''
+    refreshInvoke() {
+      local -a args
+      # Reachable only from `capsule-refresh` run by hand against a target that
+      # derives nothing: a provision asks the same question before it calls this,
+      # because there a missing command is a step to skip and not a failure.
+      if [ -z "$profile_refresh" ]; then
+        echo "capsule-refresh: profile '$profile_name' declares no refresh, so" >&2
+        echo "  there is nothing to regenerate in this capsule's checkout. That" >&2
+        echo "  is a target with nothing derived from its code, not a fault." >&2
+        return 1
+      fi
+      mapfile -t args < <(
+        printf '%s\n' "$profile_guest_path" "$profile_refresh" | profileQuote
+      )
+      "''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} \
+        ${lib.escapeShellArg guestExec.loginRun} "''${args[@]}" < ${script}
+    }
+  '';
 in {
   inherit invoke;
 
@@ -225,14 +244,17 @@ in {
     runtimeInputs = [pkgs.openssh];
     text = ''
       ${transport}
+      ${profileSelect}
+      ${invoke}
       if [ "$#" -gt 0 ]; then
-        echo "usage: capsule-refresh [--capsule <name>]" >&2
-        echo "  runs ${cmd} in the capsule's checkout, to regenerate the derived" >&2
-        echo "  state a provision cannot carry (NOTES item 33)." >&2
+        echo "usage: capsule-refresh [--capsule <name>] --profile <name>" >&2
+        echo "  runs the profile's refresh in the capsule's checkout, to" >&2
+        echo "  regenerate the derived state a provision cannot carry (NOTES" >&2
+        echo "  item 33). This one is: ''${profile_refresh:-none}" >&2
         exit 1
       fi
-      echo "capsule-refresh: ${cmd} in $capsule"
-      ${invoke}
+      echo "capsule-refresh: $profile_refresh in $capsule"
+      refreshInvoke
     '';
   };
 }

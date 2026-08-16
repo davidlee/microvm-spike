@@ -24,10 +24,14 @@
 # whole difference, and it is at the call site.
 {
   pkgs,
-  # Which repo is confined: `path` is what `capsule-provision` pushes from, and
-  # that is now the whole of what this file wants from a target. What a fetch may
-  # write is not the project's to say (NOTES item 36) — see `policies` below.
-  target,
+  lib,
+  # Which target this invocation is about, as a fragment that resolves
+  # `--profile` and loads the document (host/profile.nix, NOTES item 51 step 4).
+  # `path` — what `capsule-provision` pushes from — was the whole of what this
+  # file wanted from a target, and it is `$profile_path` now, so neither program
+  # here is a function of which project the host confines. What a fetch may write
+  # is not the project's to say either way (NOTES item 36) — see `policies`.
+  profileSelect,
   # The host's policy vocabulary (policies.nix): each entry's `collectMaxPackBytes`
   # and `mayCollect` are the two ingestion limbs, and a collect selects one by
   # name at run time. Baked as a case rather than taken as a byte count, for the
@@ -46,17 +50,23 @@
   # of work. `null` for a target that declares no `statePaths`, which degrades to
   # the code-only collect this program used to be.
   snapshot,
-  # The third step of a provision, as one shell command line (host/refresh.nix):
-  # regenerate the derived state the push cannot carry, in the checkout the push
-  # just made. `null` for a target that derives nothing from its checkout, which
-  # degrades to the two-step provision this program used to be (NOTES item 33).
+  # The third step of a provision, as a fragment defining `refreshInvoke`
+  # (host/refresh.nix): regenerate the derived state the push cannot carry, in
+  # the checkout the push just made. `null` for a target that derives nothing
+  # from its checkout, which degrades to the two-step provision this program used
+  # to be (NOTES item 33) — and since step 4 there is a *second*, run-time
+  # degradation beside it, because the profile a run is pointed at may declare no
+  # refresh even where this host's target does.
   refresh ? null,
   # The branch a capsule's work lives on inside the guest — a constant, and not
   # the target's to name (docs/contract-target.md). The guest's seed sets the
   # same one; they must agree or a provision moves a ref and checks nothing out,
   # which is why it is threaded from one place rather than spelled here.
   workBranch,
-  # The guest's checkout as a git URL. Jail-shaped, so injected.
+  # The guest's checkout as a git URL: a **fragment** defining `guestRepoUrl`,
+  # since step 4 — the host half is `net.nix`'s and the path half is the
+  # profile's, so it is built at run time (host/programs.nix). Jail-shaped, so
+  # injected.
   guestRepo,
   # Which capsule, how to reach it, and git's own view of that: a shell fragment
   # that sets `$capsule` and `ssh_cmd`, consumes `--capsule` out of `"$@"`
@@ -103,11 +113,18 @@
     runtimeInputs = [pkgs.git pkgs.openssh];
     text = ''
       ${gitSsh}
+      ${profileSelect}
+      ${guestRepo}
+      ${lib.optionalString (refresh != null) refresh}
       ${lib.optionalString (brief != null) brief.fragment}
+      guestUrl=$(guestRepoUrl)
       usage() {
         echo "usage: capsule-provision [--capsule <name>] <ref> [--force]${lib.optionalString (brief != null) " [--state <capsule>[:<stage>] | --state-from-host [--stage <name>] [--unit <token>]]"}" >&2
       }
-      src="''${CAPSULE_REPO:-${target.path}}"
+      # `CAPSULE_REPO` over the document, which is the shape this whole item
+      # generalises (NOTES item 51): what the lookup replaced is the *baked
+      # default*, and the environment still wins over both.
+      src="''${CAPSULE_REPO:-$profile_path}"
       ref=""
       force=""
       ${lib.optionalString (brief != null) ''
@@ -227,9 +244,10 @@
       # file still knows only a URL. An empty repo advertises no symref at all,
       # so no answer means unborn — which is the seed's case, and the seed is
       # what guarantees it there.
-      if ! advertised=$(git ls-remote --symref "${guestRepo}" HEAD); then
-        echo "capsule-provision: cannot reach ${guestRepo}" >&2
-        echo "  — is the VM up, and has it finished booting?" >&2
+      if ! advertised=$(git ls-remote --symref "$guestUrl" HEAD); then
+        echo "capsule-provision: cannot reach $guestUrl" >&2
+        echo "  — is the VM up, has it finished booting, and is that the" >&2
+        echo "  checkout its image made? (profile '$profile_name')" >&2
         exit 1
       fi
       guestHead=""
@@ -247,7 +265,7 @@
         exit 1
       fi
 
-      echo "capsule-provision: $src $ref ($(git -C "$src" rev-parse --short "$commit")) -> ${guestRepo}"
+      echo "capsule-provision: $src $ref ($(git -C "$src" rev-parse --short "$commit")) -> $guestUrl"
       # Always onto the guest's `${workBranch}`, whatever the source ref was
       # called: `receive.denyCurrentBranch=updateInstead` only checks out a push
       # to the branch the guest has checked out, and a provision that moved a
@@ -258,7 +276,7 @@
       # is the deliberate override. The guest also refuses either way while its
       # worktree is dirty — that is `updateInstead`, and it is the behaviour we
       # want.
-      if ! git -C "$src" push "${guestRepo}" \
+      if ! git -C "$src" push "$guestUrl" \
              "$force$commit:refs/heads/${workBranch}"; then
         echo "capsule-provision: push refused. Either the guest's worktree is" >&2
         echo "  dirty (finish or collect first), or this would discard commits" >&2
@@ -317,12 +335,23 @@
         # still leaves code worth having. Here, code without its derived state is
         # the trap — and it fails by *absence*, which reads as fine until
         # something answers from it.
-        echo "capsule-provision: regenerating derived state"
-        if ! ${refresh}; then
-          echo "capsule-provision: the code landed and the refresh did not." >&2
-          echo "  The checkout is at $commit; what it derives is stale or absent." >&2
-          echo "  Fix the cause, then 'capsule-refresh --capsule $capsule'." >&2
-          exit 1
+        # Asked of the document rather than assumed from the build: this
+        # program exists in a shape that runs a refresh because *this host's*
+        # target declares one, and the profile it was pointed at may not. A
+        # target that derives nothing from its checkout is a working absent
+        # path, so this is a step to skip rather than a provision to fail.
+        if [ -z "$profile_refresh" ]; then
+          echo "capsule-provision: profile '$profile_name' derives nothing from"
+          echo "  its checkout, so there is nothing to regenerate."
+        else
+          echo "capsule-provision: regenerating derived state"
+          if ! refreshInvoke; then
+            echo "capsule-provision: the code landed and the refresh did not." >&2
+            echo "  The checkout is at $commit; what it derives is stale or absent." >&2
+            echo "  Fix the cause, then 'capsule-refresh --capsule $capsule" >&2
+            echo "  --profile $profile_name'." >&2
+            exit 1
+          fi
         fi
       ''}
     '';
@@ -333,7 +362,11 @@
     runtimeInputs = [pkgs.git pkgs.openssh pkgs.coreutils];
     text = ''
       ${gitSsh}
+      ${profileSelect}
+      ${guestRepo}
+      ${lib.optionalString (snapshot != null) snapshot.argsFragment}
       ${quarantine.fragment}
+      guestUrl=$(guestRepoUrl)
       # The capsule names its own quarantine, and that used to be a separate
       # positional argument — so `capsule-collect faux` meant a directory while
       # `capsule-provision` meant a ref and neither meant a capsule. One
@@ -512,7 +545,11 @@
         # at the call site rather than defaulted in the script, because the other
         # origin is a human's desk and a default would make that one the quiet
         # case (NOTES item 42).
-        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" all ${snapshot.guestArgs} < ${snapshot.script}); then
+        # The tail of that command line, off the loaded profile and escaped
+        # once — an array element is parsed by the guest's shell and by no
+        # other (host/profile.nix, host/state-snapshot.nix).
+        mapfile -t snapArgs < <(snapshotArgs "$profile_guest_path" | profileQuote)
+        if line=$("''${ssh_cmd[@]}" ${guestHost} 'bash -s' -- "$stage" "$unit" all "''${snapArgs[@]}" < ${snapshot.script}); then
           IFS=$'\t' read -r oid stateBytes stateFiles <<<"$line"
           if [ "$oid" = - ]; then
             echo "capsule-collect: no state snapshot this run (see above)."
@@ -526,7 +563,7 @@
       # The policy on the line for the reason the unit's scope is: a byte count
       # that trips means nothing without the bound it tripped against, and a
       # collect that succeeded says which perimeter let it.
-      echo "capsule-collect: policy $policy — ${guestRepo} -> $quarantine"
+      echo "capsule-collect: policy $policy — $guestUrl -> $quarantine"
       # --no-tags is load-bearing, not tidiness: tag auto-following writes
       # refs/tags/* outside the namespace this refspec names, which is the one
       # way the guest could otherwise choose where its refs land. The second
@@ -554,7 +591,7 @@
       (
         ulimit -f "$maxBlocks"
         git -C "$quarantine" -c transfer.fsckObjects=true \
-          fetch --no-tags --atomic "${guestRepo}" "''${refspecs[@]}"
+          fetch --no-tags --atomic "$guestUrl" "''${refspecs[@]}"
       ) || {
         echo "capsule-collect: fetch failed — a malformed object, or a packfile" >&2
         echo "  over $maxBytes bytes (policy $policy's collectMaxPackBytes)." >&2

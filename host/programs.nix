@@ -68,6 +68,43 @@
   # reads it.
   quarantine = import ./quarantine.nix;
 
+  # The target's run-time half as a document, and the reader for it
+  # (host/profile.nix, NOTES item 51). Built **here** rather than at each of this
+  # file's three call sites for `observe`'s reason: a thing constructed twice is a
+  # thing one of them can construct differently, and the front end and the module
+  # both need this one. It is a function of `target` and of nothing else, so
+  # there is nothing for a second construction to differ in.
+  profile = import ./profile.nix {inherit pkgs lib target;};
+
+  # Which *target* an invocation is about, spliced where `transport` puts which
+  # *capsule* — the reader plus the `--profile` parse, as one thing a program
+  # splices once. The symmetry is the point: both resolve a name at run time,
+  # both strip it out of `"$@"`, and neither has a default (NOTES items 20, 28).
+  profileSelect = profile.fragment + profile.select;
+
+  # Where `capsule-baseline` writes its record. Beside the checkout, never inside
+  # it: a record in the worktree is a dirty worktree, and that is what the next
+  # `capsule-provision` refuses on.
+  #
+  # A fragment because two programs read one convention from opposite ends —
+  # `capsule-baseline` writes it and `capsule status` reads it back
+  # (host/observe.nix) — and two spellings of one path is how the two ends drift.
+  # Not a field of the document: where a *capsule* keeps a record is this repo's
+  # business and not the target's, so it is derived from `volumePath` here rather
+  # than declared in `target.nix`.
+  baselineRecordFragment = ''
+    baselineRecordDir() { printf '%s/baseline' "$profile_volume_path"; }
+  '';
+
+  # The guest's checkout as a URL, at run time: the host half is `net.nix`'s and
+  # the path half is the profile's. Three programs push or fetch over it
+  # (`capsule-provision`, `capsule-collect`, `capsule-brief`) and each splices
+  # this, for `gitSsh`'s reason — a mechanical conversion in three copies is
+  # three chances to get one wrong.
+  guestRepoFragment = ''
+    guestRepoUrl() { printf 'ssh://%s%s' ${lib.escapeShellArg guestHost} "$profile_guest_path"; }
+  '';
+
   # Whether a guest-authored tree may be written to a disk. Two programs write
   # one now — `capsule-adopt` onto this host, `capsule-brief` into another
   # capsule — so the check is a construction rather than a copy (NOTES item 35).
@@ -89,18 +126,11 @@
   # channel needs it inside a URL, the other two as an ssh destination.
   guestHost = "agent@${net.guest}";
 
-  # Where the guest's checkout is, as a URL.
+  # The same URL as a build-time string, for **`probe-netns-boot` and nothing
+  # else** (flake.nix). That probe is the deliberate exception to the addressing
+  # rule — it boots the real guest, whose image has `net.nix` and `target.nix` in
+  # it, so the real capsule *is* its subject. No program carries this any more.
   guestRepo = "ssh://${guestHost}${target.guestPath}";
-
-  # Where `capsule-baseline` writes its record. Beside the checkout, never inside
-  # it: a record in the worktree is a dirty worktree, and that is what the next
-  # `capsule-provision` refuses on.
-  #
-  # Exported, because `capsule status` reads the same record from the other side
-  # (host/observe.nix) and two spellings of one path is how the two ends drift.
-  # Well-defined even when `baseline` below is `null` — a target with no baseline
-  # has no records, which is what a status reporting `none` forever means.
-  baselineRecord = "${target.volumePath}/baseline";
 
   # The guest half of a collect's sideband — a store path, like `observe` below
   # and for the same reasons, pushed on stdin at each collect rather than baked
@@ -119,8 +149,9 @@
     else
       import ./state-snapshot.nix {
         inherit pkgs lib;
-        workdir = target.guestPath;
-        inherit (target) statePaths stateMaxBytes;
+        # For `needsUnit` alone; the templates the script substitutes arrive on
+        # its command line (NOTES item 51).
+        inherit (target) statePaths;
       };
 
   # How anything host-authored runs *inside* a live capsule: the build-time lint
@@ -130,12 +161,7 @@
 
   # The guest half of a status: one store path plus the command line that points
   # it at this target's paths (host/observe.nix).
-  observeHook = import ./observe.nix {
-    inherit pkgs lib;
-    workdir = target.guestPath;
-    recordDir = baselineRecord;
-    inherit (target) volumePath;
-  };
+  observeHook = import ./observe.nix {inherit pkgs;};
 
   # The third step of a provision — regenerate what the push cannot carry, in the
   # checkout the push just made (host/refresh.nix, NOTES item 33). `null` when
@@ -149,9 +175,7 @@
     then null
     else
       import ./refresh.nix {
-        inherit pkgs lib guestExec guestHost transport;
-        command = target.refresh;
-        workdir = target.guestPath;
+        inherit pkgs lib guestExec guestHost transport profileSelect;
       };
 
   # The inbound state half: one capsule's collected state pushed into another's
@@ -168,21 +192,20 @@
     then null
     else
       import ./brief.nix {
-        inherit pkgs lib guestExec guestHost guestRepo gitSsh quarantine exhibit;
-        workdir = target.guestPath;
+        inherit pkgs lib guestExec guestHost gitSsh quarantine exhibit profileSelect;
+        guestRepo = guestRepoFragment;
         # The fourth corner, and the one whose origin is not a capsule at all
-        # (NOTES item 42). `hostSnapshot` is the third instantiation of one
-        # text — the same function of a checkout `snapshotCases` uses — so a
-        # tree authored on this host is built by the program that builds every
-        # other one, and `slots` is what lets a source name be refused for not
-        # being a capsule.
-        hostCheckout = target.path;
-        # One store path and the arguments that point it at this host's checkout
-        # (NOTES item 51). It used to be a third instantiation of the same text;
-        # there is only one now, and what differs between the three callers is a
-        # command line.
+        # (NOTES item 42): a tree authored on this host is built by the program
+        # that builds every other one, at `$profile_path` rather than at the
+        # guest's checkout, and `slots` is what lets a source name be refused for
+        # not being a capsule.
+        #
+        # One store path and the fragment that points it at a checkout (NOTES
+        # item 51). It used to be a third instantiation of the same text, then
+        # one text and three command lines; the command lines are read off a
+        # document now and there is nothing left that is a function of a target.
         snapshotScript = stateSnapshot.script;
-        snapshotArgs = stateSnapshot.argsFor target.path;
+        snapshotArgs = stateSnapshot.argsFragment;
         inherit (stateSnapshot) needsUnit;
         slots = builtins.attrNames capsules.instances;
       };
@@ -195,18 +218,16 @@
     then null
     else
       import ./baseline.nix {
-        inherit pkgs guestExec guestHost transport;
-        command = target.baseline;
-        workdir = target.guestPath;
-        recordDir = baselineRecord;
-        measure = [target.guestPath] ++ target.cachePaths;
+        inherit pkgs guestExec guestHost transport profileSelect;
+        baselineRecord = baselineRecordFragment;
       };
 
   gitChannel = import ./git-channel.nix {
-    inherit pkgs target policies workBranch guestRepo guestHost gitSsh quarantine;
+    inherit pkgs lib policies workBranch guestHost gitSsh quarantine profileSelect;
+    guestRepo = guestRepoFragment;
     brief = briefHook;
     snapshot = stateSnapshot;
-    # The command line, not the module: the git channel runs a refresh and has no
+    # The fragment, not the module: the git channel runs a refresh and has no
     # business knowing what one is built out of.
     refresh =
       if refreshHook == null
@@ -214,7 +235,7 @@
       else refreshHook.invoke;
   };
 in {
-  inherit guestHost guestRepo baselineRecord;
+  inherit guestHost guestRepo profile;
 
   # The one thing here with no transport, built here anyway: the guest-side half
   # of a status is a *store path* the front end pushes over whichever door it
@@ -225,10 +246,18 @@ in {
   # module path came to be missing an argument the devshell path had.
   observe = observeHook.script;
 
-  # The three guest paths it reads, as a command line rather than as text in it
-  # (NOTES item 51). One opaque word to the front end, which is what keeps
-  # `host/cli.nix` knowing a program and not a set of guest paths.
-  observeArgs = observeHook.guestArgs;
+  # Everything the front end needs to *build* that program's command line, as one
+  # fragment (NOTES item 51 step 4): the profile reader, the record convention
+  # and the argument order, each from the file that owns it. One opaque splice to
+  # `host/cli.nix`, which is what keeps it knowing a program and not a set of
+  # guest paths — and deliberately **without** `profile.select`, because a front
+  # end resolves which target a slot means from this host's state rather than
+  # taking it on argv (NOTES item 20).
+  observeFragment = lib.concatStringsSep "\n" [
+    profile.fragment
+    baselineRecordFragment
+    observeHook.argsFragment
+  ];
 
   inherit (gitChannel) provision collect;
 
@@ -284,6 +313,27 @@ in {
     if stateSnapshot == null
     then null
     else stateSnapshot.script;
+
+  # The other end of that script's interface, for the same suite: the fragment
+  # `capsule-collect` and `capsule-brief` build its command line with. Exported
+  # beside the script because the two are one fact read from two ends, and
+  # nothing else can tell whether they agree (NOTES item 51 step 4).
+  snapshotArgsFragment =
+    if stateSnapshot == null
+    then null
+    else stateSnapshot.argsFragment;
+
+  # Which of the verbs below read a profile, so the front end knows which ones to
+  # fill a `--profile` in for. `inject` and `adopt` are not among them and that is
+  # the honest line rather than an oversight: a payload's destination is on the
+  # *volume* and a quarantine is on this host, so neither is a value the target
+  # supplies (setup.nix, host/adopt.nix). A list here rather than a predicate
+  # there, for `programVerbs`' reason — built once, beside the programs.
+  profileVerbs =
+    ["provision" "collect"]
+    ++ lib.optional (baselineHook != null) "baseline"
+    ++ lib.optional (refreshHook != null) "refresh"
+    ++ lib.optional (briefHook != null) "brief";
 
   # Whether this target's state paths are scoped to a unit of work (NOTES item
   # 32). The front end needs it for two things a program must not do: offer the

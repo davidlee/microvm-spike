@@ -54,13 +54,20 @@
 #
 # The templates are variadic, so they are last. Nothing here has a default except
 # the stage, and nothing infers a value it was not given.
+#
+# **And every one of them now comes off a document** (NOTES item 51 step 4).
+# What is left below is the one predicate a *host* program asks before it opens a
+# door — `needsUnit` — which is still eval-time and is step 6's, not this file's.
 {
   pkgs,
   lib,
-  # The guest's checkout.
-  workdir,
   # What the target declares as its out-of-band state (`target.nix`'s
-  # `statePaths`). An explicit allowlist and never "the ignored files": a
+  # `statePaths`). Read here for **one thing only**: whether this target's policy
+  # has a hole in it, which `capsule-collect` needs before it pushes anything and
+  # which is therefore still a property of the build (NOTES item 51, step 6). The
+  # templates the script actually substitutes arrive on its command line.
+  #
+  # An explicit allowlist and never "the ignored files": a
   # `.gitignore` routinely covers credentials, machine-local config and caches,
   # and `git add -f` over one is a loaded gun pointed wherever that list faces.
   #
@@ -72,12 +79,6 @@
   # (docs/probes.md). A target whose state is not per-unit writes no hole and
   # nothing here changes for it.
   statePaths,
-  # The ceiling, in bytes, on what one snapshot may carry. Refusing here rather
-  # than letting `capsule-collect`'s `ulimit -f` catch it later is deliberate:
-  # the fetch is atomic, so a packfile over that limit fails the *whole* collect
-  # and loses the code refs too. This way an over-budget state half is skipped
-  # and said, and the code still lands.
-  stateMaxBytes,
   # The ref the chain lives on, minus its stage. Guest-side, and never
   # `refs/heads/*`: no branch ever contains this tree.
   refPrefix ? "refs/capsule/state",
@@ -315,22 +316,29 @@
     files=$(git ls-tree -r --name-only "$tree" | wc -l)
     printf '%s\t%s\t%s\n' "$commit" "$bytes" "$files"
   '';
-  # The tail of the command line: the three values that used to be in the text
-  # above, in the order it reads them. Spelled once here so no call site can order
-  # them differently, and so the step that makes them run-time state has one place
-  # to change (NOTES item 51).
-  values = work: [work (toString stateMaxBytes)] ++ statePaths;
 in {
   inherit needsUnit script;
 
-  # **Two forms, because the two callers have a different number of shells
-  # between them and this script.** `capsule-brief --from-host` runs it here, so
-  # the host's shell parses the line once. `capsule-collect` sends it over ssh,
-  # which joins its arguments with spaces and hands the *remote* shell one string
-  # to parse again — so a value has to survive two parses and is escaped twice.
-  # Single-escaping the ssh form works for every value this target happens to
-  # declare and stops working at the first one with a space in it, which is the
-  # same silent shape as a `just` recipe interpolating `{{...}}` as text (CLAUDE.md).
-  argsFor = work: lib.escapeShellArgs (values work);
-  guestArgs = lib.escapeShellArgs (map lib.escapeShellArg (values workdir));
+  # The tail of the command line, and it was the one place step 4 had to change
+  # (NOTES item 51): the ceiling and the templates used to be nix values escaped
+  # into a caller's text, and they are read off a loaded profile now. Spelled
+  # once here so no call site can order them differently — which is what it was
+  # for while it was two nix functions, and is more so now that there are three
+  # callers and one of them crosses a door.
+  #
+  # **The checkout stays the caller's argument** and is the whole of what the two
+  # origins differ in: `capsule-collect` passes `$profile_guest_path` and
+  # `capsule-brief --from-host` passes `$profile_path` (NOTES item 42).
+  #
+  # One value per line, because that is what makes the far side one filter away:
+  # a caller sending this over ssh pipes it through `profileQuote`
+  # (host/profile.nix), and a caller running it here does not. There used to be
+  # two exports differing in an escaping, which is two chances to pick the wrong
+  # one.
+  argsFragment = ''
+    snapshotArgs() {
+      printf '%s\n' "$1" "$profile_state_max_bytes" \
+        ''${profile_state_paths[@]+"''${profile_state_paths[@]}"}
+    }
+  '';
 }

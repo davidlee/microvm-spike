@@ -1,5 +1,8 @@
-# `capsule`'s two policy limbs, run against a declaration that is not this
-# host's: the verb that selects one, and the collect that is filled from it.
+# `capsule`'s two *filled-in* flags, run against a declaration that is not this
+# host's: the policy a slot resolves to, and — since item 51 step 4 — the profile
+# it does. Both are the same shape, which is why they are one suite: a program
+# refuses without the flag, this front end reads host state and fills it, and an
+# explicit one wins.
 #
 # The third kind of check (CLAUDE.md), and its fourth instance. The branches
 # worth pinning are refusals a live host reaches expensively or destructively
@@ -22,13 +25,13 @@
   pkgs,
   lib,
   net,
-  target,
   capsules,
   policies,
   guestSsh,
   observe,
-  observeArgs,
+  observeFragment,
   programVerbs,
+  profileVerbs,
   stateNeedsUnit,
 }: let
   # Three slots, none of them this host's, each one a shape `capsules.nix`
@@ -54,8 +57,8 @@
       };
     };
   cli = import ./cli.nix {
-    inherit pkgs lib net target policies guestSsh;
-    inherit observe observeArgs programVerbs stateNeedsUnit;
+    inherit pkgs lib net policies guestSsh;
+    inherit observe observeFragment programVerbs profileVerbs stateNeedsUnit;
     capsules = fixture;
     moduleState = ''"$CASE_STATE"'';
     # NOTES item 41's branch and its failure, made reachable from a sandbox
@@ -80,8 +83,21 @@
 in
   pkgs.runCommand "capsule-policy-cases" {nativeBuildInputs = [pkgs.jq];} ''
     export CASE_STATE=$PWD/state
-    mkdir -p "$CASE_STATE" stub policies allow
+    mkdir -p "$CASE_STATE" stub policies allow profiles
     touch policies/${buildFile} policies/${sealedFile}
+
+    # The documents this host declares, and none of them is doctrine's: a
+    # fixture that borrowed live values would go on passing while the
+    # declaration moved onto it (item 38). One to start with, because the
+    # interesting transition is a host acquiring a second one.
+    export CAPSULE_PROFILE_DIR=$PWD/profiles
+    writeProfile() {
+      jq -n --arg n "$1" '{ schema: 1, name: $n, path: ("/h/" + $n),
+        guestPath: ("/vol/" + $n), volumePath: "/vol", cachePaths: [],
+        baseline: null, refresh: null, statePaths: [], stateMaxBytes: 0,
+        sizes: {vcpu: 1, mem: 1, volume: 1} }' > "profiles/$1.json"
+    }
+    writeProfile solo
 
     # What `work` execs once the front end has filled the flags in.
     # `capsule-collect` is deliberately *not* one of the front end's
@@ -91,6 +107,7 @@ in
     cat > stub/capsule-collect <<'EOF'
     #!/bin/sh
     echo "collect argv: $*"
+    echo "$*" > "$PWD/out.argv"
     EOF
     chmod +x stub/capsule-collect
     export PATH=$PWD/stub:$PATH
@@ -101,6 +118,10 @@ in
     fail=0
     run() {
       rc=0
+      # The stub's record of what it was handed, cleared per run: a stale one
+      # would let "nothing reached the program" pass on the previous call's
+      # argv, which is a round that never discriminates (item 37).
+      rm -f out.argv
       "$capsule" "$@" > out 2>&1 || rc=$?
     }
     ck() {
@@ -135,7 +156,7 @@ in
     run both collect
     ck "and a collect on one is filled from the same declaration" 0 "$rc"
     ckt "  as --policy, before the program sees it" \
-      saw "collect argv: --capsule both --policy sealed"
+      saw "collect argv: --capsule both --profile solo --policy sealed"
 
     # ------------------------------------------------------- the two refusals
     #
@@ -199,11 +220,11 @@ in
     run both collect
     ck "a collect is filled from the record once there is one" 0 "$rc"
     ckt "  and not from the declaration" \
-      saw "collect argv: --capsule both --policy build"
+      saw "collect argv: --capsule both --profile solo --policy build"
     run both collect --policy sealed
     ck "an explicit --policy wins" 0 "$rc"
     ckt "  and is not doubled" \
-      saw "collect argv: --capsule both --policy sealed"
+      saw "collect argv: --capsule both --profile solo --policy sealed"
 
     # ------------------------------------------- the proxy, and NOTES item 41
     #
@@ -267,6 +288,61 @@ in
     ckt "  the record did not move" test "$(gen one)" = 1
     ckt "  and still names the old policy" \
       test "$(jq -r .policy "$CASE_STATE/slot/one/assignment.json")" = build
+
+    # -------------------------------------- which target, and item 51 decision 4
+    #
+    # The same shape as the policy above and a different authority: a program
+    # refuses without a target, and *which* target a slot means is host state, so
+    # this front end is where it is answered. The three sources are asserted in
+    # the order they win.
+    run both collect --profile other
+    ck "an explicit --profile is passed through" 0 "$rc"
+    # Where the human put it, untouched: this front end fills a flag in and
+    # never reorders one somebody typed.
+    ckt "  and is not doubled either" \
+      saw "collect argv: --capsule both --policy build --profile other"
+
+    # An unassigned slot on a host with **two** targets. Not a default and not
+    # the first name: a slot's name says nothing about which project it holds, so
+    # there is nothing to guess from — the same refusal an unnamed slot gets when
+    # two are up, one axis over.
+    writeProfile duo
+    run both collect
+    ck "an unassigned slot refuses once this host declares two" 1 "$rc"
+    ckt "  naming both, rather than picking one" saw "duo solo"
+    ckt "  and saying which command assigns it" saw "provision <ref> --profile"
+    ckt "  with nothing having reached the program" test ! -s out.argv
+
+    # ...and the explicit form is still the way through, which is what makes the
+    # refusal a question rather than a wall.
+    run both collect --profile duo
+    ck "and --profile is the way through it" 0 "$rc"
+    ckt "  carrying the one that was named" \
+      saw "collect argv: --capsule both --policy build --profile duo"
+
+    # The record beats the ambiguity, and it is the field `capsule-provision`
+    # has written at every provision since item 29 and nothing read until now.
+    # Written here rather than provisioned, because a provision needs a guest.
+    # shellcheck disable=SC2016
+    jq '.profile = "solo"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
+    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    run both collect
+    ck "a slot whose record names a target needs no help" 0 "$rc"
+    ckt "  and it is the recorded one" \
+      saw "collect argv: --capsule both --profile solo --policy build"
+    # The record is read and the *other* slot is still ambiguous, which is what
+    # says this was per slot rather than the host acquiring an answer.
+    run one collect
+    ck "and its neighbour still refuses" 1 "$rc"
+    ckt "  naming both" saw "duo solo"
+
+    # A host that has rendered nothing at all: a different fault from an
+    # ambiguous one, and a refusal that names the directory rather than the slot.
+    rm profiles/solo.json profiles/duo.json
+    run one collect
+    ck "a host with no documents refuses too" 1 "$rc"
+    ckt "  and names where it looked" saw "$CAPSULE_PROFILE_DIR"
+    ckt "  rather than reporting an ambiguity" saw "has rendered no"
 
     [ "$fail" = 0 ] || exit 1
     cp "$log" $out

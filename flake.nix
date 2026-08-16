@@ -407,7 +407,11 @@
         inherit pkgs lib;
         target = t;
       };
-    hostProfile = render target;
+    # This host's own, taken from where the programs get it rather than built a
+    # second time: `host/programs.nix` constructs it because both of its callers
+    # need one and a value constructed twice is a value one of them can construct
+    # differently (CLAUDE.md). `render` stays for the suite's fixtures alone.
+    hostProfile = hostPrograms.profile;
 
     # Not one of those four: they run at the *agent*, over whichever transport
     # reaches a capsule, and this one runs at guest root over the link itself —
@@ -453,8 +457,8 @@
     # because a thing built at each of this file's two call sites is a thing one
     # of them can be missing.
     capsule-cli = import ./host/cli.nix {
-      inherit pkgs lib net target capsules policies guestSsh;
-      inherit (hostPrograms) observe observeArgs programVerbs stateNeedsUnit;
+      inherit pkgs lib net capsules policies guestSsh;
+      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateNeedsUnit;
     };
 
     # The third kind of check (CLAUDE.md): a host-side program's own text, run
@@ -480,6 +484,11 @@
     snapshotCases = import ./host/state-snapshot-cases.nix {
       inherit pkgs quarantine;
       snapshot = hostPrograms.stateSnapshotScript;
+      # The other end of the same command line (item 51 step 4): the fragment
+      # that builds it off a document, and the reader it needs.
+      snapshotArgs = hostPrograms.snapshotArgsFragment;
+      profileFragment = hostProfile.fragment;
+      inherit (hostProfile) inputs;
     };
 
     baselineCases = import ./host/baseline-cases.nix {
@@ -489,7 +498,8 @@
 
     observeCases = import ./host/observe-cases.nix {
       inherit pkgs;
-      inherit (hostPrograms) observe;
+      inherit (hostPrograms) observe observeFragment;
+      inherit (hostProfile) inputs;
     };
 
     refreshCases = import ./host/refresh-cases.nix {
@@ -497,12 +507,23 @@
       script = hostPrograms.refreshScript;
     };
 
+    # The ninth, and the first over a program that talks to a guest: what it can
+    # reach is everything upstream of the door, which is the whole of what step 4
+    # of [item 51](./docs/ledger/051-the-target-in-four-store-paths.md) rewrote.
+    # The slot name is this host's declaration and not a fixture, because the
+    # shipped program has that list baked in — see the file's own header.
+    gitChannelCases = import ./host/git-channel-cases.nix {
+      inherit pkgs lib;
+      inherit (hostPrograms) provision collect;
+      slot = builtins.head (builtins.attrNames capsules.instances);
+    };
+
     # The one suite whose subject is a *library* rather than a program, and the
     # only thing that builds the rendered document — which is why it is not
     # optional on anything (host/profile-cases.nix).
     profileCases = import ./host/profile-cases.nix {
       inherit pkgs lib;
-      inherit (hostProfile) fragment inputs dir name;
+      inherit (hostProfile) fragment select inputs dir name;
       # The same construction this host's own profile comes from, so the suite
       # can watch the render *refuse* a target. A throw is not a build, so it is
       # read at eval and asserted in the shell — `hostModuleUnits`' arrangement.
@@ -510,8 +531,8 @@
     };
 
     policyCases = import ./host/policy-cases.nix {
-      inherit pkgs lib net target capsules policies guestSsh;
-      inherit (hostPrograms) observe observeArgs programVerbs stateNeedsUnit;
+      inherit pkgs lib net capsules policies guestSsh;
+      inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateNeedsUnit;
     };
 
     # The host module has no build of its own — it is a NixOS module, and this
@@ -1244,7 +1265,7 @@
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
         inherit hostModuleUnits hostModulePrograms guardCases policyCases observeCases;
-        inherit profileCases;
+        inherit profileCases gitChannelCases;
         # The rendered run-time half of `target.nix`, so a human can read what a
         # program will resolve (host/profile.nix). `nix build .#capsule-profiles`.
         capsule-profiles = hostProfile.dir;

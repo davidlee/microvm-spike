@@ -27,6 +27,10 @@
   lib,
   # `host/profile.nix` as every caller gets it, never a second render.
   fragment,
+  # The argv parse every host-side program splices beside its `transport`
+  # (item 51 step 4). Its own subject: what a program does with no `--profile` is
+  # the refusal decision 4 turns on, and it is not reachable through `fragment`.
+  select,
   inputs,
   # The directory this host rendered, and the name of the document in it.
   dir,
@@ -145,6 +149,28 @@
       profileShow
     '';
   };
+
+  # The second subject, and the smallest thing that has one: a program's argv,
+  # parsed by the fragment every real program splices, with what survives the
+  # parse printed back. `left` is how a case asserts that a target's name did not
+  # stay in the arguments a ref or a payload name is read out of.
+  selector = pkgs.writeShellApplication {
+    name = "capsule-profile-select-probe";
+    runtimeInputs = inputs;
+    text = ''
+      ${fragment}
+      ${select}
+      printf 'left\t%s\n' "$*"
+      profileShow
+      profileNames | sed 's/^/declared\t/'
+      # The hop's escaping, round-tripped rather than compared against a spelling
+      # of what `%q` produces: what has to hold is that a second shell reading
+      # these words gets the values back, and asserting the *bytes* would be
+      # asserting about bash's choice of quoting style.
+      printf '%s\n' "$profile_path" ''${profile_cache_paths[@]+"''${profile_cache_paths[@]}"} \
+        | profileQuote | sed 's/^/quoted\t/'
+    '';
+  };
 in
   pkgs.runCommand "capsule-profile-cases" {nativeBuildInputs = [pkgs.jq];} ''
     fail=0
@@ -159,7 +185,7 @@ in
     field() { awk -F'\t' -v k="$1" '$1 == k {print $2}' out; }
     run() { rc=0; ${lib.getExe probe} "$@" >out 2>err || rc=$?; }
     saw() {
-      if grep -qF "$1" err; then echo "ok   ...and says '$1'" >>"$log"
+      if grep -qF -- "$1" err; then echo "ok   ...and says '$1'" >>"$log"
       else echo "FAIL missing reason '$1' in: $(cat err)" >&2; fail=1; fi
     }
 
@@ -242,6 +268,74 @@ in
     ck "a path with a space survives the read" "/home/h/two words" "$(field path)"
     ck "  and so does one in an array" "/work/a cache" "$(field cachePath)"
     ck "  and a command line keeps its spacing" "just  test --all" "$(field baseline)"
+
+    # ------------------------------------------------- which profile a program means
+    #
+    # Decision 4, at the layer that takes it: a program is handed a name and
+    # refuses without one. Its own directory, so a case about *what this host
+    # declares* is not a case about what the rest of this file happened to write.
+    mkdir -p sel
+    cp profiles/alpha.json profiles/beta.json profiles/spaced.json sel/
+    runsel() { rc=0; CAPSULE_PROFILE_DIR=$PWD/sel ${lib.getExe selector} "$@" >out 2>err || rc=$?; }
+
+    runsel --profile alpha
+    ck "a named profile is what a program loads" 0 "$rc"
+    ck "  and it is the one named" /home/h/alpha "$(field path)"
+    ck "  with nothing of it left in the arguments" "" "$(field left)"
+    runsel --profile=beta
+    ck "the joined form names one too" 0 "$rc"
+    ck "  and it is that one" /srv/beta "$(field path)"
+
+    # The half `selectCapsule` exists for: a program's own flag loop must not see
+    # this, or a target's name is one more thing a ref could be read as.
+    runsel --profile alpha some-ref --force
+    ck "everything else survives the parse" 0 "$rc"
+    ck "  in the order it arrived" "some-ref --force" "$(field left)"
+
+    runsel some-ref
+    ck "and a program with no profile refuses rather than defaulting" 1 "$rc"
+    saw "which target?"
+    # The reason, not only the status: a refusal that said "no such profile"
+    # would send a human looking for a document instead of for an argument.
+    saw "nothing to fall back to"
+    ck "  having read nothing" "" "$(field path)"
+
+    rc=0; CAPSULE_PROFILE=beta CAPSULE_PROFILE_DIR=$PWD/sel ${lib.getExe selector} >out 2>err || rc=$?
+    ck "the environment names one, as CAPSULE_NAME does" 0 "$rc"
+    ck "  and is what loads" /srv/beta "$(field path)"
+    rc=0; CAPSULE_PROFILE=beta CAPSULE_PROFILE_DIR=$PWD/sel ${lib.getExe selector} --profile alpha >out 2>err || rc=$?
+    ck "an explicit --profile wins over it" 0 "$rc"
+    ck "  which is the one-off form winning, as everywhere here" /home/h/alpha "$(field path)"
+
+    runsel --profile
+    ck "a --profile with nothing after it refuses" 1 "$rc"
+    saw "--profile needs the name"
+    runsel --profile nosuch
+    ck "and a name this host has not rendered refuses" 1 "$rc"
+    saw "no profile named 'nosuch'"
+
+    # ------------------------------------------------ what this host declares
+    #
+    # The front end's half, and the only reader of it: resolving what an
+    # *unassigned* slot means is host-state resolution, which a program may not
+    # do (item 20). Asserted as the whole list, since a reader that returned the
+    # first entry would pass a containment test.
+    runsel --profile alpha
+    ck "the declared set is every document in the directory" \
+      "alpha beta spaced" "$(field declared | tr '\n' ' ' | sed 's/ $//')"
+
+    # ------------------------------------------------------------ across the door
+    #
+    # A value read out of a document and then handed to a guest-pushed script is
+    # parsed once more, by the guest's shell (host/guest-exec.nix). Round-tripped
+    # through a second parse rather than compared against a spelling of `%q`:
+    # what has to hold is that the words come back, and the quoting style is
+    # bash's business.
+    runsel --profile spaced
+    eval "back=( $(field quoted | tr '\n' ' ') )"
+    ck "a value with a space survives a second shell" "/home/h/two words" "''${back[0]}"
+    ck "  and so does one out of an array" "/work/a cache" "''${back[1]}"
+    ck "  as two words and not four" 2 "''${#back[@]}"
 
     # --------------------------------------------------------------- the refusals
     #

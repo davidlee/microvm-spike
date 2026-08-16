@@ -37,7 +37,10 @@
   # Where to ssh, e.g. `agent@10.99.0.2`. Jail-shaped, so injected.
   guestHost,
   # The guest's checkout as a git URL — this pushes the state commit in over the
-  # same channel `capsule-provision` pushes code over. Jail-shaped, so injected.
+  # same channel `capsule-provision` pushes code over. Jail-shaped, so injected,
+  # and a **fragment** rather than a string since item 51 step 4: the host half
+  # of the URL is `net.nix`'s and the path half is the profile's, so it is built
+  # at run time by `guestRepoUrl` (host/programs.nix).
   guestRepo,
   # Which capsule, how to reach it, and git's own view of that: a fragment
   # setting `$capsule`, `ssh_cmd` and `GIT_SSH_COMMAND` (host/programs.nix).
@@ -48,8 +51,12 @@
   quarantine,
   # Whether a guest-authored tree may be written at all (host/exhibit.nix).
   exhibit,
-  # The guest's checkout, which is where the tree lands.
-  workdir,
+  # Which *target*, and the same shape `transport` has one axis over: a fragment
+  # resolving `--profile` and loading the document (host/profile.nix, NOTES item
+  # 51 step 4). It replaces three nix arguments here — the guest's checkout, this
+  # host's, and the snapshot's command line — with `profile_guest_path`,
+  # `profile_path` and a call to `snapshotArgs`.
+  profileSelect,
   # ---------------------------------------------------------------- host origin
   #
   # The three below are [item 42](../docs/ledger/042-a-state-half-no-capsule-has-held.md):
@@ -58,17 +65,16 @@
   # downstream of "which commit, and what code was it of" is the sequence that
   # already existed.
   #
-  # The human's own checkout — `target.path`. Read here and by
-  # `capsule-provision`, both always as the human (NOTES item 11).
-  hostCheckout,
   # The guest's snapshot, verbatim — the same store path, not a second
   # instantiation of the same text (host/state-snapshot.nix, NOTES item 51). Run
   # locally rather than pushed on stdin, because there is no door in front of
   # this one.
   snapshotScript,
-  # What points it at this host's checkout: the checkout, the ceiling and the
-  # declared templates, in the order the script reads them. A command line rather
-  # than a build, which is what lets one program serve more than one project.
+  # What points it at a checkout: a fragment defining `snapshotArgs <work>`,
+  # which prints the ceiling and the declared templates off the loaded profile in
+  # the order that script reads them (host/state-snapshot.nix). A fragment rather
+  # than a string since step 4 — it used to be a nix function of the checkout,
+  # which is one store path per project.
   snapshotArgs,
   # Whether this target's state paths are scoped to a unit of work, which decides
   # whether `--unit` is required here exactly as it decides it for a collect.
@@ -211,10 +217,6 @@
   '';
 
   script = guestExec.checked runText;
-
-  # The guest's checkout, escaped twice: ssh joins its arguments with spaces and
-  # the guest's shell parses the result again (host/guest-exec.nix).
-  guestArgs = lib.escapeShellArgs [(lib.escapeShellArg workdir)];
   # `rec`, so the standalone program is the fragment plus an argument parse
   # rather than a second spelling of the same sequence.
 in rec {
@@ -238,12 +240,16 @@ in rec {
   '';
   # The whole of it as one shell function, so `capsule-provision --state` and
   # `capsule-brief` are one construction and not two careful ones. It needs
-  # `$capsule` and `ssh_cmd` in scope, which every transport fragment sets, and
-  # it brings its own quarantine and exhibit fragments so that a call site has
-  # exactly one thing to splice.
+  # `$capsule` and `ssh_cmd` in scope, which every transport fragment sets, the
+  # `profile_*` variables `profileSelect` sets, and `guestRepoUrl`, which the
+  # call site's own `guestRepo` fragment defines — spliced there rather than here
+  # because `capsule-provision` pushes over the same URL and would otherwise
+  # define it twice. It brings its own quarantine, exhibit and snapshot-argument
+  # fragments so that a call site has exactly one thing to splice.
   fragment = ''
     ${quarantine.fragment}
     ${exhibit.fragment}
+    ${snapshotArgs}
 
     # `<capsule>[:<stage>]` — the source, and which link of its chain. Two tokens
     # on one argument, each bounded before it reaches a ref or a path, and both
@@ -336,7 +342,7 @@ in rec {
       # something a flag should make easy. It also means a later collect from
       # this capsule at this stage chains onto what it was given, which is the
       # provenance record item 32 described and reserved.
-      if ! git --git-dir="$q" push --quiet ${lib.escapeShellArg guestRepo} \
+      if ! git --git-dir="$q" push --quiet "$(guestRepoUrl)" \
         "$commit:refs/capsule/state/$stage"; then
         echo "capsule-brief: could not push that commit into $capsule — is the VM" >&2
         echo "  up, and has it already got a commit at '$stage'? A collect of its" >&2
@@ -346,8 +352,10 @@ in rec {
         return 1
       fi
 
+      # One `%q`, because an array element is parsed by the guest's shell and by
+      # no other (host/profile.nix).
       if ! line=$("''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} 'bash -s' -- \
-        "$commit" "$codeOid" ${guestArgs} < ${script}); then
+        "$commit" "$codeOid" "$(printf '%q' "$profile_guest_path")" < ${script}); then
         echo "capsule-brief: the guest refused to lay that state out (above)." >&2
         return 1
       fi
@@ -406,13 +414,14 @@ in rec {
     # snapshot builds in one of its own, which is the contamination item 32
     # actually guarded against.
     briefDropHostRef() {
-      git -C ${lib.escapeShellArg hostCheckout} update-ref -d \
+      git -C "$profile_path" update-ref -d \
         "refs/capsule/state/$1" 2>/dev/null || true
     }
 
     briefHostState() {
       local stage="''${1:-implementation}" unit="''${2:-}"
       local q line commit bytes files codeOid guestHead hostHead rc=0
+      local -a snapArgs
       ${quarantine.checkToken ''"$stage"'' "'--stage $stage'"}
       ${lib.optionalString needsUnit ''
       # The same rule as `capsule-collect --unit`, refused here for the same
@@ -428,8 +437,8 @@ in rec {
       ${quarantine.checkToken ''"$unit"'' "'--unit $unit'"}
     ''}
 
-      if ! q=$(git -C ${lib.escapeShellArg hostCheckout} rev-parse --absolute-git-dir 2>/dev/null); then
-        echo "capsule-brief: ${hostCheckout} is not a git repository, so there is" >&2
+      if ! q=$(git -C "$profile_path" rev-parse --absolute-git-dir 2>/dev/null); then
+        echo "capsule-brief: $profile_path is not a git repository, so there is" >&2
         echo "  no checkout here to take a unit's state out of." >&2
         return 1
       fi
@@ -450,8 +459,8 @@ in rec {
       # exactly what the confined side is there to catch. A guest that cannot be
       # asked falls through to the push, which has its own message.
       if guestHead=$("''${ssh_cmd[@]}" ${lib.escapeShellArg guestHost} \
-        "git -C ${lib.escapeShellArg workdir} rev-parse HEAD" 2>/dev/null); then
-        hostHead=$(git -C ${lib.escapeShellArg hostCheckout} rev-parse HEAD 2>/dev/null || echo -)
+        "git -C $(printf '%q' "$profile_guest_path") rev-parse HEAD" 2>/dev/null); then
+        hostHead=$(git -C "$profile_path" rev-parse HEAD 2>/dev/null || echo -)
         if [ "$guestHead" != "$hostHead" ]; then
           echo "capsule-brief: this checkout is at $hostHead and $capsule is at" >&2
           echo "  $guestHead. A state tree is worktree content, so it is only ever" >&2
@@ -467,7 +476,8 @@ in rec {
       briefDropHostRef "$stage"
       # `declared`: this origin is a human's desk, so nothing outside the
       # target's declared paths travels (host/state-snapshot.nix, NOTES item 42).
-      if ! line=$(bash ${snapshotScript} "$stage" "$unit" declared ${snapshotArgs}); then
+      mapfile -t snapArgs < <(snapshotArgs "$profile_path")
+      if ! line=$(bash ${snapshotScript} "$stage" "$unit" declared "''${snapArgs[@]}"); then
         echo "capsule-brief: no state snapshot of this host's checkout (above)." >&2
         briefDropHostRef "$stage"
         return 1
@@ -510,6 +520,8 @@ in rec {
     runtimeInputs = [pkgs.git pkgs.openssh pkgs.coreutils pkgs.bash];
     text = ''
       ${gitSsh}
+      ${profileSelect}
+      ${guestRepo}
       ${fragment}
 
       usage() {
@@ -520,7 +532,7 @@ in rec {
         echo "  second agent can read the first one's working state. Both capsules"
         echo "  must be at the same commit; the stage defaults to 'implementation'."
         echo
-        echo "  --from-host takes the same state out of ${hostCheckout} instead,"
+        echo "  --from-host takes the same state out of $profile_path instead,"
         echo "  for a unit of work no capsule has driven yet. Nothing is archived:"
         echo "  the checkout it came from is the original."
       }

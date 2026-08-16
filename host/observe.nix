@@ -29,19 +29,12 @@
 #
 # All three required: a status that guessed at a path would answer confidently
 # about a directory nobody named.
-{
-  pkgs,
-  lib,
-  # The guest's checkout.
-  workdir,
-  # Where `capsule-baseline` writes its record. Beside the checkout, never inside
-  # it, for that program's reasons.
-  recordDir,
-  # The volume's mount point — the fleet's binding constraint is disk
-  # (docs/probes.md), so this is the one figure here that is about the slot
-  # rather than about the work in it.
-  volumePath,
-}: let
+#
+# **And all three now come off a loaded profile** (NOTES item 51 step 4), which
+# is why this file takes no path at all any more: `argsFragment` below is the
+# command line, and `host/cli.nix` splices it rather than learning what `/work`
+# is.
+{pkgs}: let
   # Deliberately not `set -e`: every question below is allowed to have no answer,
   # and a missing checkout is a state to report rather than an error to abort on.
   # The contract with the caller is *exactly one line on stdout*, so a failure to
@@ -104,7 +97,13 @@
 in {
   inherit script;
 
-  # Escaped twice, because ssh joins its arguments with spaces and the guest's
-  # shell parses the result again (host/guest-exec.nix).
-  guestArgs = lib.escapeShellArgs (map lib.escapeShellArg [workdir recordDir volumePath]);
+  # The three paths, in the order the script reads them, off a loaded profile.
+  # `baselineRecordDir` is not a field of the document — it is this repo's
+  # convention about where a record lives, defined once beside the other reader
+  # of it (host/programs.nix) rather than derived here and again there.
+  argsFragment = ''
+    observeArgs() {
+      printf '%s\n' "$profile_guest_path" "$(baselineRecordDir)" "$profile_volume_path"
+    }
+  '';
 }

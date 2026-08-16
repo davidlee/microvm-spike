@@ -7,6 +7,55 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 happens next.
 
 Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)'s
+step 4 was built and its fourth decision taken**: **every host-side program reads
+the target's run-time half out of a document now**, so not one of them is a
+function of which project this host confines. `capsule-provision`,
+`capsule-collect`, `capsule-baseline`, `capsule-refresh`, `capsule-brief` and the
+`capsule` front end take `--profile <name>` exactly where they already take
+`--capsule`, and **refuse without one** — no default, and emphatically not this
+host's own target, because on a host with two documents a fallback runs a verb
+against the wrong project's `guestPath` and `statePaths` and reports success
+having taken nothing ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)'s
+shape with a bigger blast radius). **Which name is the front end's to resolve**
+(decision 4): an explicit `--profile` wins, then the slot's assignment record
+`profile` field — written at every provision since item 29 and read by nothing
+until today — then, for a slot nothing has assigned, the one profile this host
+has rendered, refusing when there are none or several. That last is the same
+latitude `capsule <verb>` already takes with an unnamed slot, one axis over, and
+it is a front end's alone: a program that read host state to pick a target would
+be item 20's mistake. `profile_snapshot` **stays owed** and the reason is
+decision 2's — bytes in a record are a second place `profileLoad` looks — but the
+*name* being load-bearing already closes the half of the sharp edge a renamed or
+deleted document opens. Mechanically it is step 2's seam changing type: each
+guest-pushed script's exported command-line tail went from a nix string to a
+shell fragment printing the same values off a loaded profile, none of the five
+*scripts* changed at all, and the escaping went **down by one** — an array
+element at run time is parsed by the guest's shell and by no other, so one `%q`
+is exactly right where a value spliced into a program's text needed two.
+`host/git-channel-cases.nix` is the **ninth** suite and the first over a program
+that talks to a guest: it pins everything upstream of the door, including that a
+profile is refused *before* a policy, and two runs differing in one argument that
+name two different host checkouts and two different guest URLs. `snapshotCases`
+and `observeCases` gained the case that closes their own loop — the command line
+built by the shipped fragment, run against the shipped script, since until now
+both ends were composed by hand in the suite and could have disagreed silently.
+`just cases` is **322** (was 256). Eight mutations, each red on its own rounds
+and nothing else; two of them were rejected by shellcheck before the suite ran,
+which reads identically to "nothing went red" from outside and is worth knowing.
+**Step 5 moved rather than being deferred**: the tmpfiles/`User` pairing
+assertion is [item 39](./ledger/039-a-bind-is-not-a-traversal.md)'s class, and
+that class cannot arise while the documents are a store path every uid can
+traverse and every reader is a program a human runs — so there is no `profileDir`
+option and no `CAPSULE_PROFILE_DIR` in the module's `wrap`, and step 5 belongs to
+the commit that takes the documents out of the store. **The item's owed smoke
+test is spent, both halves**: `capsule all status` off the new front end against
+the live fleet, and one `capsule-collect` against slot `e` — 30 files, 566,960
+bytes of state under unit 251, plus the code refs. `just`, `just units` and `just
+cases` green. Two things are deliberately **not** switched and say so: the verb
+list and `stateNeedsUnit` are still build-time (step 6, gated on decision 3), and
+`capsule-inject`'s payload destinations still carry `volumePath`, because
+`setup.nix` is a *host* declaration and a payload's destination is on the volume.
+Before that, the same day, after **that item's
 step 3 was built and its first two decisions taken**: `target.nix`'s run-time
 half is a **document** now — `host/profile.nix` renders `<name>.json` per target
 into a store path, and `profileLoad` is the one function that reads one back,

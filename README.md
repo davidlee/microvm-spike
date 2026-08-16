@@ -6,6 +6,17 @@
 
 ![oubliette](./oubliette.png)
 
+## What for?
+
+- Run a fleet of secure microvms on a NixOS host
+  - Secure agent confinement, for safe unattended execution of untrusted code
+
+
+## Architecture
+
+Architecture [walkthrough with diagrams](./architecture-walkthrough.md).
+
+## 
 
 A **capsule**: a [firecracker](https://github.com/firecracker-microvm/firecracker) [microVM](https://github.com/microvm-nix/microvm.nix) used to confine a coding agent. 
 
@@ -278,6 +289,16 @@ The units, per capsule and per host:
   worth of it. There is no default slot: the name says nothing about what is in
   the capsule, so a program acting on one nobody chose would have nothing to
   give the mistake away (NOTES item 28).
+- **Which *target* is an argument too, and the same deal**: `--profile <name>`,
+  else `CAPSULE_PROFILE`, else a refusal (NOTES item 51). The target's run-time
+  values — where the checkout is, what the baseline and refresh commands are,
+  which paths are its out-of-band state — are a rendered document
+  (`nix build .#capsule-profiles` to read this host's), and a program loads one
+  rather than carrying them. No default here either, and for a sharper reason: on
+  a host confining two projects a fallback would run a verb against the wrong
+  one's paths and report success having taken nothing. **`capsule <slot> <verb>`
+  fills it in for you** from the slot's assignment record, so in practice you
+  type it only when driving a program directly.
 - **The guard is a start dependency (`BindsTo`)**, so no proxy can come up while
   a namespace is missing, forwarding, or missing a drop — and all of them stop
   when one does. It does not restart itself: a refusal stays a refusal until you
@@ -314,7 +335,7 @@ The guest boots with an **empty** `/work/doctrine`. Give it history from the
 host, naming the base commit — any branch, tag or sha in the target repo:
 
 ```
-capsule-provision main
+capsule-provision --profile doctrine main
 ```
 
 History is not everything a capsule needs. `$HOME` is on the volume, and
@@ -344,7 +365,7 @@ A provisioned capsule still has empty caches, so the first build in it is the
 slow one. Take it deliberately, and keep the number:
 
 ```
-capsule-baseline           # runs target.nix's `baseline` to green, and records it
+capsule-baseline --profile doctrine   # runs the profile's `baseline` to green, and records it
 ```
 
 The run detaches in the guest and writes its log and one line of
@@ -367,7 +388,7 @@ quarantine repo — `--no-tags`, fsck'd, under a packfile ceiling — and prints
 landed with its sha:
 
 ```
-capsule-collect            # -> .vm/host/collect/capsule.git
+capsule-collect --profile doctrine --policy build   # -> .vm/host/collect/<name>.git
 just branches              # what is in there
 just fetch                 # second step: quarantine -> the repo you work in
 ```
@@ -399,13 +420,17 @@ that state was the state of
 | `capsule-net down`  | remove it. Refuses while a VM runs; `--force` overrides.    |
 | `capsule-net verify`| report the perimeter's state without touching the link.      |
 | `capsule-host --policy NAME` | tinyproxy + the perimeter watch, serving that policy's allowlist. Foreground, unprivileged. Refuses without a policy. |
-| `capsule-provision REF` | push `REF` from the target repo onto the guest's branch. |
+| `capsule-provision REF` | push `REF` from the profile's repo onto the guest's branch. |
 | `capsule-collect`   | fetch the guest's refs into a quarantine repo named for it.  |
 | `capsule-inject [PAYLOAD...] [--force]` | push the payloads declared in `setup.nix` — credentials into `/work/home`, secrets to `/work/.env`. `capsule <name> start` runs it. |
-| `capsule-baseline [--detach]` | run `target.nix`'s `baseline` in the guest to green; record it on the volume. |
-| `capsule-refresh`   | run `target.nix`'s `refresh` in the guest's checkout — the step a provision takes itself, on its own. |
+| `capsule-baseline [--detach]` | run the profile's `baseline` in the guest to green; record it on the volume. |
+| `capsule-refresh`   | run the profile's `refresh` in the guest's checkout — the step a provision takes itself, on its own. |
 | `capsule-adopt DIR` \| `--list` | validate the collected state half and lay it out in `DIR`, which must be empty or absent. |
 | `capsule-brief SRC[:STAGE]` | put capsule `SRC`'s collected state into this capsule's checkout. Both must be at the same commit. |
+
+Every row above except `capsule-net`, `capsule-host`, `capsule-inject` and
+`capsule-adopt` also takes `--capsule NAME` and `--profile NAME`, and refuses
+without either; `capsule <slot> <verb>` supplies both.
 
 The last three exist only while `target.nix` declares a `refresh` or any
 `statePaths`; a target that omits them gets no program rather than one that

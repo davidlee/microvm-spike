@@ -8,10 +8,12 @@
 # once, to `<name>.json`, and a program looks one up at run time the way it
 # already resolves `--capsule`.
 #
-# **Nothing reads it yet.** Step 3 renders and validates; step 4 points the
-# programs at it. The suite beside this file is what builds it, which is
-# deliberate — a document nothing builds is a document nothing checks
-# ([item 37](../docs/ledger/037-a-teardown-that-only-unnames.md)).
+# **Step 4 is what reads it.** Every host-side program that used to carry a
+# target's values in its text now takes `--profile <name>` and loads one here,
+# right where `transport` already resolves `--capsule` — so `select` below is
+# `selectCapsule`'s shape (host/guest-ssh.nix) one axis over, and neither of them
+# has a default. Which *name* a verb on a slot means is the front end's to
+# resolve, never a program's ([item 20](../docs/ledger/020-which-capsule-a-program-means.md)).
 #
 # **Per target, not per host** (item 51, decision 1). `<dir>/<name>.json`, with
 # the slot's assignment record naming which — the shape `policyDir` already pays
@@ -41,7 +43,10 @@
 # document is edited after a slot booted. The assertion below is half an answer:
 # it pins the derivation (`guestPath` *is* `volumePath`/`name`) so the two cannot
 # drift by construction here. Pinning a *slot* to the profile it was built with
-# is `profile_snapshot` in the assignment record (host/record.nix) and is step 4.
+# is `profile_snapshot` in the assignment record (host/record.nix), and step 4
+# did **not** fill it: what step 4 pins is the *name*, which the record has
+# carried since item 29 and which nothing read until now. Bytes in a record would
+# be a second place `profileLoad` looks, which is the one thing decision 2 bought.
 {
   pkgs,
   lib,
@@ -277,6 +282,20 @@ in {
           ;;
       esac
 
+      # The same guard over the three sizes, and for one more reason than the
+      # ceiling has: `host/cli.nix` builds the assignment record's `class` out of
+      # two of them, so a size that is not a number would reach jq as malformed
+      # JSON *after* a provision had already landed — a record that cannot be
+      # written about work that did.
+      for f in "$profile_vcpu" "$profile_mem" "$profile_volume_size"; do
+        case "$f" in
+          "" | *[!0-9]* | 0)
+            profileFail "$file declares a size that is not a positive integer: '$f'"
+            return 1
+            ;;
+        esac
+      done
+
       # The pairing, checked here as well as at render: a ceiling is what keeps
       # an over-budget state half from taking a collect's code refs down with it
       # (host/state-snapshot.nix), so declared paths with no ceiling is a
@@ -294,6 +313,11 @@ in {
     # times over. (A comment whose first word is the linter's name is a
     # *directive* to it, and an unparseable one is a build failure: this
     # paragraph cost one.)
+    # SC2329: a library's function is not called by every program that splices
+    # the library. This one is read by the suite beside this file and by a human;
+    # what it is *for* inside a program is keeping every variable above
+    # referenced, which is the SC2034 half of the same problem (item 51 step 3).
+    # shellcheck disable=SC2329
     profileShow() {
       printf 'name\t%s\n' "$profile_name"
       printf 'path\t%s\n' "$profile_path"
@@ -309,5 +333,90 @@ in {
       for p in "''${profile_cache_paths[@]}"; do printf 'cachePath\t%s\n' "$p"; done
       for p in "''${profile_state_paths[@]}"; do printf 'statePath\t%s\n' "$p"; done
     }
+
+    # Which documents this host has rendered, one name per line. Read by the
+    # **front end** and by nothing else: resolving what an *unassigned* slot
+    # means is an answer about host state, which is a front end's latitude and
+    # never a program's (item 20, host/cli.nix). A program that listed this
+    # directory to pick a name would be probing for which target it means.
+    #
+    # SC2329, and the honest reason: exactly one caller, in the shared fragment
+    # because it is `profileDir`'s directory and no second definition of that may
+    # drift from this one.
+    # shellcheck disable=SC2329
+    profileNames() {
+      local f n
+      for f in "$(profileDir)"/*.json; do
+        [ -e "$f" ] || continue
+        n=''${f##*/}
+        printf '%s\n' "''${n%.json}"
+      done
+    }
+
+    # A filter, one value per line in and one per line out, for values on their
+    # way into a guest-pushed script's argument list. The rule is
+    # host/guest-exec.nix's and the arithmetic is one lower than it used to be: a
+    # value **spliced into a program's text** crossed two shells and was escaped
+    # twice, and a value that is an *array element* at run time is not parsed by
+    # this host's shell at all — so ssh's join and the guest's re-parse are the
+    # only parse left, and one `%q` is exactly right. Two would arrive
+    # backslashed.
+    #
+    # Line-based, which is sound only because the render refuses a newline in any
+    # value — the same fact `profileLoad`'s `mapfile` rests on, read at the other
+    # end.
+    #
+    # SC2329: a program that reads a profile and pushes nothing into a guest —
+    # `capsule-provision`, whose values all stay on this host — has nothing to
+    # quote.
+    # shellcheck disable=SC2329
+    profileQuote() {
+      local v
+      while IFS= read -r v; do printf '%q\n' "$v"; done
+    }
+  '';
+
+  # Which profile, spliced where `transport` already resolves which capsule — and
+  # the same shape for the same reason (`selectCapsule`, host/guest-ssh.nix):
+  # `--profile <name>`, else `CAPSULE_PROFILE`, else a **refusal**. It strips
+  # itself out of `"$@"` before a program's own flag loop runs, so a target's name
+  # cannot be confused with a ref or a payload.
+  #
+  # **No default, and (item 51, decision 4) not even this host's own target.** A
+  # baked fallback is the one thing that fails silently: on a host with two
+  # documents it makes a collect run against the wrong project's `guestPath` and
+  # `statePaths` and report success having taken nothing, which is
+  # [item 47](../docs/ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)'s
+  # shape with a bigger blast radius. Item 28's rule applies unchanged: the value
+  # a missing one would fall back to is the failure.
+  select = ''
+    profileName="''${CAPSULE_PROFILE:-}"
+    unprofiled=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --profile)
+          shift
+          [ "$#" -gt 0 ] || {
+            echo "--profile needs the name of a profile" >&2
+            exit 1
+          }
+          profileName="$1"
+          ;;
+        --profile=*) profileName="''${1#--profile=}" ;;
+        *) unprofiled+=("$1") ;;
+      esac
+      shift
+    done
+    set -- ''${unprofiled[@]+"''${unprofiled[@]}"}
+
+    if [ -z "$profileName" ]; then
+      echo "''${0##*/}: which target? '--profile <name>', or CAPSULE_PROFILE in" >&2
+      echo "  the environment. The values this program is about arrive at run" >&2
+      echo "  time rather than in its text, so there is nothing to fall back to" >&2
+      echo "  — or say it once, as 'capsule <name> <verb>', which fills it from" >&2
+      echo "  the slot's assignment record." >&2
+      exit 1
+    fi
+    profileLoad "$profileName" || exit 1
   '';
 }

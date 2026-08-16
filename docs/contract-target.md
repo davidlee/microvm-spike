@@ -71,27 +71,27 @@ changes until they are built.
 
 | field | owner | read by | required | absent path |
 | --- | --- | --- | --- | --- |
-| `name` | profile | guest (checkout dir, motd), host (`services.capsule-perimeter.repo` default) | yes | — |
-| `path` | **source** | host: `capsule-provision`'s source repo | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host — and having two host-side overrides where no other field has any is the tell that it was never project state |
-| `volumePath` | capsule | both: the volume's mount point, and what `caches`/`guestConfig`/records resolve against | yes | — |
-| `guestPath` | capsule | both: the guest's checkout | derived | — |
+| `name` | profile | guest (checkout dir, motd), host (`services.capsule-perimeter.repo` default). **It is also the document's filename**, so it is the name every host-side program is given as `--profile` | yes | — |
+| `path` | **source** | host: `capsule-provision` looks it up (its push source), `capsule-brief --from-host` (the checkout it snapshots), `capsule <slot> fetch` (the repo a quarantine lands in) | yes | `CAPSULE_REPO`, or the module's `repo` option, overrides it per host — and having two host-side overrides where no other field has any is the tell that it was never project state |
+| `volumePath` | capsule | guest: the mount point, and what `caches`/`guestConfig` resolve against. host: `capsule status` looks it up for the disk figure and for `<volumePath>/baseline`, which is where `capsule-baseline` writes its record | yes | — |
+| `guestPath` | capsule | guest: the checkout the seed creates. host: looked up by all five programs — it is the path half of the guest's git URL and the working directory of every script pushed into a capsule | derived | — |
 | `toolsPackage` | flavour | guest: `packages.<system>.<name>` from the target's own flake | in practice yes | `null` — the guest gets `extraTools` only, and loses the no-drift property that made threading the target's list worth it. **Available only to a target whose whole tool set is a list of nixpkgs attr names**: `extraTools` is a supplement, never a substitute, so anything built by a function — a `python3.withPackages (…)` has no attr name — has to export a package (NOTES item 23) |
 | `extraTools` | flavour | guest: nixpkgs attr names, resolved against the *guest's* pkgs | no | `[]` |
 | ~~`allowlist`~~ | — | — | **no such field** | deleted, and nothing replaces it: what a capsule may talk to is a host policy selected per slot from a declared set, never named by the project in it ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) — see below |
 | `caches` | profile | guest: env var → directory under the volume, and the dirs the seed creates and chowns | no | `{}` — everything then writes wherever its tool defaults, which for a RAM-backed root means guest RAM |
-| `cachePaths` | capsule | guest seed, and `capsule-baseline`'s before/after sizing | derived | — |
+| `cachePaths` | capsule | guest seed (build time); host: `capsule-baseline` looks them up for its before/after sizing | derived | — |
 | ~~`defaultBranch`~~ | — | — | **no such field** | deleted, and nothing replaces it: the guest's branch is the constant `work`, spelled once in `flake.nix` and threaded to its two consumers — see below |
 | ~~`collectMaxPackBytes`~~ | — | — | **no such field** | deleted with `allowlist` and for its reason: how much may come back out of a capsule is host policy about ingestion. It and `mayCollect` are a policy's, and `capsule-collect` resolves them from `--policy <name>` ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) |
 | `statePaths` | **policy** | guest: what `capsule-collect` snapshots into a sideband commit beside the code refs (NOTES item 32). A **template** list — each entry may hold one `{unit}`, filled at collect from the assignment. Also what gates `capsule-adopt`, the validating extractor at the far end ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)), and `capsule-brief`, which puts one capsule's snapshot into another's checkout ([item 35](./ledger/035-briefing-a-capsule-with-state.md)). **And host-side, at `path`**: `capsule-brief --from-host` reads the same templates in *your* checkout, for a unit no capsule has driven yet ([item 42](./ledger/042-a-state-half-no-capsule-has-held.md)) — so these paths are now read on both sides of the door, and what travels from the host is these paths and nothing else | no | `[]` — the snapshot is not built, so the collect is the code-only program it was before item 32, and there is no state ref for an extractor to read |
-| `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
+| `stateMaxBytes` | **policy** | guest: the ceiling on one such snapshot, checked before the commit is made — looked up by `capsule-collect` and `capsule-brief --from-host`, which put it on that script's command line | with `statePaths` | — (required once `statePaths` is non-empty; the pair is the unit that may be omitted, not either half) |
 | `commands` | profile | guest: the motd's line about the target's own entrypoints | no | `""` |
-| `baseline` | profile | host: the command `capsule-baseline` runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
-| `refresh` | profile | host: the command `capsule-provision` runs in the checkout after the push, and `capsule-refresh` runs on demand. **It is run with stdin closed and must not need it** — the script carrying it arrives on the guest shell's own stdin, so a command that reads stdin reads the rest of that script ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)). May write tracked files; its tracked output is committed in the guest, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) — which is also why a target that writes tracked files here can only be briefed *during* a provision, never after one | no | `null` — as `baseline`: no program, rather than one with nothing to run. A provision is then the two steps it was before |
-| `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
+| `baseline` | profile | host: `capsule-baseline` looks up the command it runs in the checkout | no | `null` — the program is not built at all, rather than shipped unable to work |
+| `refresh` | profile | host: `capsule-provision` looks up the command it runs in the checkout after the push, and `capsule-refresh` runs the same one on demand. **It is run with stdin closed and must not need it** — the script carrying it arrives on the guest shell's own stdin, so a command that reads stdin reads the rest of that script ([item 47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)). May write tracked files; its tracked output is committed in the guest, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) — which is also why a target that writes tracked files here can only be briefed *during* a provision, never after one | no | `null` — as `baseline`: no program, rather than one with nothing to run. A provision is then the two steps it was before |
+| `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them. host: `capsule <slot> provision` looks up `vcpu` and `mem` for the assignment record's `class` | yes | — |
 | `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
-**Half of that table is now also a document, and the boundary has not moved
-yet.** `host/profile.nix` renders `name`, `path`, `guestPath`, `volumePath`,
+**Half of that table is a document, and the boundary has moved.**
+`host/profile.nix` renders `name`, `path`, `guestPath`, `volumePath`,
 `cachePaths`, `baseline`, `refresh`, `statePaths`, `stateMaxBytes` and `sizes` to
 `<name>.json` — the **run-time half**, meaning the fields a host-side program
 needs *after* it has resolved which capsule it means. The other five
@@ -100,16 +100,36 @@ the guest image and stay build-time, because a document naming them would
 describe an image the running slot may not be. The document's keys are the field
 names above, deliberately: a renamed key would be a second vocabulary.
 
-Nothing reads it yet, so the `read by` column is unchanged and every field is
-still interpolated into the store paths that read it. What the render adds today
-is a set of checks that were nowhere before —`guestPath` must stay derived from
-`volumePath` and `name`, a cache must live under the volume, a state template
-must be relative, hole-free-or-single-holed and paired with a ceiling, and no
-value may carry a newline. Those are conditions this table already stated in
-prose and nothing enforced. When step 4 of
-[item 51](./ledger/051-the-target-in-four-store-paths.md) points the programs at
-the document, this column becomes *which program looks the field up* rather than
-*which store path carries it*, and that is the commit that moves the boundary.
+**Every host-side program reads those ten fields at run time**
+([item 51](./ledger/051-the-target-in-four-store-paths.md) step 4), so the
+`read by` column above says *which program looks a field up* and no longer *which
+store path carries it*: `capsule-provision`, `capsule-collect`,
+`capsule-baseline`, `capsule-refresh`, `capsule-brief` and the `capsule` front
+end each load one document and index into it. The consequence for a second target
+is the whole point — it is a document beside this one, not a rebuild of six
+programs.
+
+**Which document is an argument, and there is no default.** A program takes
+`--profile <name>` (or `CAPSULE_PROFILE`) and refuses without one, exactly as it
+takes `--capsule` ([item 28](./ledger/028-a-slot-has-no-default.md)). The name is
+resolved by the *front end*, which is the only thing here allowed to read host
+state: an explicit `--profile` wins, then the slot's assignment record `profile`
+field, then — for a slot nothing has assigned — the one profile this host has
+rendered, refusing when there are none or several. A target's name therefore
+appears in a program's text nowhere at all.
+
+The render also adds a set of checks that were nowhere before — `guestPath` must
+stay derived from `volumePath` and `name`, a cache must live under the volume, a
+state template must be relative, hole-free-or-single-holed and paired with a
+ceiling, and no value may carry a newline. Those are conditions this table
+already stated in prose and nothing enforced.
+
+**What has *not* moved, and it is the honest limit.** The document is a store
+path, so a second target is still a rebuild away — what has stopped being a
+rebuild apart is the programs. And three fields of this table are still read at
+*build* time by the host: `statePaths` decides whether `capsule-collect` has a
+`--unit` flag at all, and `baseline`/`refresh` decide whether their programs
+exist. That is item 51's step 6.
 
 **Two of those rows are struck out, and that is what the column was for.**
 `allowlist` and `collectMaxPackBytes` were host controls — what a capsule may
@@ -275,17 +295,21 @@ construction rather than because of anything the confinement promises:
 
 Everything crossing the boundary is host-initiated, runs as the human, and takes
 the capsule as an argument rather than being built per capsule
-([item 20](./ledger/020-which-capsule-a-program-means.md)).
+([item 20](./ledger/020-which-capsule-a-program-means.md)) — **and, since
+[item 51](./ledger/051-the-target-in-four-store-paths.md) step 4, the target as
+an argument too, for the same reason one axis over**. Both refuse without one and
+neither has a default. In practice a human types neither: `capsule <slot> <verb>`
+fills both in from this host's declaration and the slot's record.
 
 | command | arguments | touches the target repo? |
 | --- | --- | --- |
-| `capsule-provision` | `[--capsule <name>] <ref> [--force] [--state <capsule>[:<stage>] \| --state-from-host [--stage <name>] [--unit <token>]]` — any commit-ish in `path` | yes: reads it, as you. The only program that does. A provision is a three-step sequence: push, then the state half if either origin is named — `--state` from a capsule's quarantine ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) or `--state-from-host` from this checkout ([items 42](./ledger/042-a-state-half-no-capsule-has-held.md), [47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)) — then `refresh` in the guest when the target declares one ([item 33](./ledger/033-provision-is-a-sequence.md)). It is not finished when the push lands, and step (2) is *inside* it because a refresh that writes tracked files leaves no moment afterwards when a brief can land |
-| `capsule-collect` | `[--capsule <name>] [--stage <name>] [--unit <token>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)). `--unit` fills the hole in those paths and is **required** when they have one; `capsule <slot> collect` supplies it from the record |
+| `capsule-provision` | `[--capsule <name>] --profile <name> <ref> [--force] [--state <capsule>[:<stage>] \| --state-from-host [--stage <name>] [--unit <token>]]` — any commit-ish in `path` | yes: reads it, as you. The only program that does. A provision is a three-step sequence: push, then the state half if either origin is named — `--state` from a capsule's quarantine ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) or `--state-from-host` from this checkout ([items 42](./ledger/042-a-state-half-no-capsule-has-held.md), [47](./ledger/047-a-script-on-stdin-and-the-command-that-eats-it.md)) — then `refresh` in the guest when the target declares one ([item 33](./ledger/033-provision-is-a-sequence.md)). It is not finished when the push lands, and step (2) is *inside* it because a refresh that writes tracked files leaves no moment afterwards when a brief can land |
+| `capsule-collect` | `[--capsule <name>] --profile <name> --policy <name> [--stage <name>] [--unit <token>]` | no: fetches into a host-authored quarantine named for the capsule. It does write *in the guest* when the target declares `statePaths` — one ref under `refs/capsule/state/`, never the agent's index, worktree or branches ([item 32](./ledger/032-the-sideband-channel.md)). `--unit` fills the hole in those paths and is **required** when they have one; `capsule <slot> collect` supplies it from the record |
 | `capsule-inject` | `[--capsule <name>] [payload...] [--force]` | no: `setup.nix`'s payloads |
-| `capsule-baseline` | `[--capsule <name>] [--detach]` | no: runs `baseline` in the guest's checkout |
-| `capsule-refresh` | `[--capsule <name>]` | no: runs `refresh` in the guest's checkout. The same step `capsule-provision` takes itself — separate for a hand checkout in the guest, and for retrying the half that failed. It does **commit in the guest** when the refresh writes tracked files, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) |
+| `capsule-baseline` | `[--capsule <name>] --profile <name> [--detach]` | no: runs `baseline` in the guest's checkout |
+| `capsule-refresh` | `[--capsule <name>] --profile <name>` | no: runs `refresh` in the guest's checkout. The same step `capsule-provision` takes itself — separate for a hand checkout in the guest, and for retrying the half that failed. It does **commit in the guest** when the refresh writes tracked files, and only onto a tree that was clean before it ran ([item 33](./ledger/033-provision-is-a-sequence.md)) |
 | `capsule-adopt` | `[--capsule <name>] [--stage <name>] <dir>` or `--list` | no, and it does not touch the *capsule* either — the first program here with no transport. Reads the quarantine, validates a guest-authored tree (symlink targets, gitlinks, paths), lays it out with git's own writer into a directory that must be empty or absent ([item 34](./ledger/034-adopting-a-guest-authored-tree.md)) |
-| `capsule-brief` | `[--capsule <name>] <source>[:<stage>]`, or `--from-host [--stage <name>] [--unit <token>]` | **either**. From a capsule: no — it reads *another* capsule's quarantine and pushes that state commit into this one's checkout, so a second agent can read the first's working state. From `--from-host`: **yes, it reads `path`, as you** — the second program to do so, for a unit whose out-of-band state has never been inside a capsule ([item 42](./ledger/042-a-state-half-no-capsule-has-held.md)). It writes one ref there and drops it again, keeping no archive; a source that is not a declared slot is refused, because a quarantine is what a capsule sent back. Validated host-side by the same check `capsule-adopt` runs either way, and refused guest-side unless the capsule is at the state's `code-oid` ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) |
+| `capsule-brief` | `[--capsule <name>] --profile <name> <source>[:<stage>]`, or `--from-host [--stage <name>] [--unit <token>]` | **either**. From a capsule: no — it reads *another* capsule's quarantine and pushes that state commit into this one's checkout, so a second agent can read the first's working state. From `--from-host`: **yes, it reads `path`, as you** — the second program to do so, for a unit whose out-of-band state has never been inside a capsule ([item 42](./ledger/042-a-state-half-no-capsule-has-held.md)). It writes one ref there and drops it again, keeping no archive; a source that is not a declared slot is refused, because a quarantine is what a capsule sent back. Validated host-side by the same check `capsule-adopt` runs either way, and refused guest-side unless the capsule is at the state's `code-oid` ([item 35](./ledger/035-briefing-a-capsule-with-state.md)) |
 
 `<ref>` is required, and there is nothing left it could be defaulted to: it is
 a ref in the *target repo*, and `work` is the guest's branch, which is the whole
@@ -297,7 +321,9 @@ Environment, in the order a program consults it:
 | variable | what |
 | --- | --- |
 | `CAPSULE_NAME` | which capsule, when `--capsule` is not given. There is no default — `capsules.default` was deleted ([item 28](./ledger/028-a-slot-has-no-default.md)) and a program refuses without a name |
-| `CAPSULE_REPO` | overrides `target.nix`'s `path` for `capsule-provision` |
+| `CAPSULE_PROFILE` | which target, when `--profile` is not given. No default, for `CAPSULE_NAME`'s reason and one sharper: on a host with two documents a fallback would run a verb against the wrong project's paths and report success ([item 51](./ledger/051-the-target-in-four-store-paths.md), decision 4) |
+| `CAPSULE_PROFILE_DIR` | where the rendered documents are. Defaults to what this host built, so nothing has to set it |
+| `CAPSULE_REPO` | overrides the profile's `path` for `capsule-provision` and `capsule <slot> fetch`. It still wins: what the lookup replaced is the *baked default*, not the environment |
 | `CAPSULE_ROOT` | this checkout, for resolving a policy's allowlist file and the default state directory |
 | `CAPSULE_STATE` | where quarantines live — `/var/lib/capsule` on the module path, `$CAPSULE_ROOT/.vm/host` otherwise. Written by `capsule-collect`, read by `capsule-adopt` and `capsule-brief`; one definition, `host/quarantine.nix` |
 | `CAPSULE_ALLOWLIST` | the allowlist file the proxy serves. **Required, with no fallback** — a proxy that picks one because none was named is the fleet-wide default this repo stopped having. The devshell path fills it from `capsule-host --policy <name>`, the module path from a per-slot symlink ([item 36](./ledger/036-a-policy-is-selected-not-named.md)) |

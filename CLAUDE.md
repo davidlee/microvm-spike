@@ -33,7 +33,7 @@ evaluates). `just` (default) runs the build, units, and fmt.
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
 not mention them. `guardCases`, `briefCases`, `snapshotCases`, `refreshCases`, `observeCases`,
-`baselineCases`, `policyCases` and `profileCases`
+`baselineCases`, `policyCases`, `profileCases` and `gitChannelCases`
 *run* a host-side
 program's own text with a substitute for the one thing tying it to this host
 (`just cases`), and are the answer whenever the interesting branches are ones a
@@ -45,7 +45,18 @@ command that fails or eats its own stdin, the baseline's by having a build that
 can be asked to fail, the status's by catching an unprovisioned volume or a run
 in flight before it leaves that state, the front end's by editing the declared
 pool and writing the live record of a slot somebody is using, the profile's by
-holding two targets at once and by handing the render a target no host declares.
+holding two targets at once and by handing the render a target no host declares,
+and the git channel's by confining a second project. **That last is the only one
+over a program that talks to a guest, and what it can reach is everything
+upstream of the door** — `pkgs.openssh` is in its subjects' `runtimeInputs`, so
+nothing in a sandbox can stub `ssh`, and that is a boundary to respect rather
+than work around.
+**A suite that composes a program's command line by hand pins only one end of
+it.** `snapshotArgs` and `observeArgs` are an order of values printed at one end
+and read at the other, and a suite spelling that order itself would agree with
+itself while the two ends disagreed — silently, in the status's case. So those
+two suites build the tail from the *shipped fragment* and run the *shipped
+script* with it.
 All three kinds are in `just build`, so a failing case is a failing
 build — **check that when you add one**: `observeCases` and `baselineCases` were
 written, wired into `just cases`, and left out of `just build` for a session
@@ -74,11 +85,19 @@ shipped copies stay one store path — exactly as all of them take `transport`.
 `baseline`'s runner take their checkout — and their ceiling, their command, their
 declared paths — on the command line, so a suite runs the store path a capsule
 runs rather than a second render of the same text, and one program serves any
-number of targets. Values reaching a guest cross **two** shells (this host's,
-building the ssh argv, and the guest's, handed one string), so they are escaped
-twice; `host/guest-exec.nix`'s `loginRun` is `bash -l -c 'bash -s "$@"'` for
-exactly that reason and `host/baseline.nix` uses the same `"$0" "$@"` shape to
-keep a third parse out of a staged run. Two
+number of targets. **And the host side of that command line is built from a
+document at run time** (item 51 step 4), so each of those files exports the *tail*
+as a shell fragment and no call site can order the values differently.
+`host/guest-exec.nix`'s `loginRun` is `bash -l -c 'bash -s "$@"'` for exactly
+that reason and `host/baseline.nix` uses the same `"$0" "$@"` shape to keep a
+third parse out of a staged run.
+**How many times a value is escaped depends on where it lives, and the count went
+down by one.** A value *spliced into a program's text* crosses **two** shells —
+this host's, building the ssh argv, and the guest's, handed one string — and is
+escaped twice. A value that is an **array element at run time** is not parsed by
+this host's shell at all, so exactly one `%q` is right and two arrive
+backslashed; `profileQuote` (host/profile.nix) is that one filter, and it can be
+line-based only because the render refuses a newline in any value. Two
 rules for writing a case: assert the *reason* as well as the exit status, since a
 refusal for the wrong reason is a different program passing; and check the suite
 can fail by mutating the behaviour it claims to pin — the skip in
@@ -223,7 +242,14 @@ Break these and the confinement stops meaning anything:
   record and re-points that slot's allowlist link under one `flock`, then
   restarts its proxy.
 - **`target.nix` is the same deal for the repo under confinement** — name, path,
-  tools package, caches, sizes. Threaded the same way. It has
+  tools package, caches, sizes. Its build-time half is threaded the same way; its
+  **run-time half is a rendered document** (`host/profile.nix`) that every
+  host-side program loads at run time, taking `--profile <name>` where it takes
+  `--capsule <name>` and refusing without one (NOTES item 51). Which name a verb
+  on a slot means is resolved by the **front end** — explicit flag, then the
+  slot's record, then the one profile this host declares, refusing when several —
+  because a program that reads host state to pick a target is item 20's mistake.
+  No program carries a target's values or its name. It has
   **no branch field** and gets none back: the guest's branch is `workBranch` in
   `flake.nix`, a constant, because a name that identifies the work is not
   project state (docs/contract-target.md). `capsule-provision <ref>` is a ref in

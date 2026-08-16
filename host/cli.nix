@@ -31,7 +31,6 @@
   pkgs,
   lib,
   net,
-  target,
   capsules,
   # The host's policy vocabulary (policies.nix). Read for two things a program
   # may not do: validate a selection against the set the *slot* declares, and
@@ -58,10 +57,17 @@
   # (host/observe.nix). A path and not a set of guest paths, deliberately: this
   # file asks a capsule what is true and does not know what `/work` is.
   observe,
-  # What points that program at this target's paths, as **one opaque word** for
-  # the same reason (NOTES item 51). The paths moved out of `observe`'s text and
-  # into its command line; they did not move into this file's vocabulary.
-  observeArgs,
+  # What builds that program's command line, as **one opaque splice** for the
+  # same reason (NOTES item 51 step 4): the profile reader, the record
+  # convention and the argument order, composed in `host/programs.nix` beside the
+  # paths they are about. The paths moved out of `observe`'s text and then off
+  # `target.nix` entirely; they did not move into this file's vocabulary, and the
+  # only thing this file spells about a target is a *name*.
+  observeFragment,
+  # Which verbs' programs read a profile, so this front end knows which ones to
+  # fill a `--profile` in for (host/programs.nix). `inject` and `adopt` are not
+  # among them, because neither is about a value the target supplies.
+  profileVerbs,
   # Where the module keeps its state: quarantines and the assignment records. The
   # allowlist links are *not* in here — they are the one thing a proxy must read,
   # and this directory is the one place it may not (NOTES item 39,
@@ -340,8 +346,8 @@ in
         # which would make `capsule b provision --capsule a` succeed
         # against the wrong capsule quietly. Refuse rather than resolve.
         work() {
-          local n="$1" prog arg
-          prog=$(program "$n" "capsule-$2")
+          local n="$1" v="$2" prog arg
+          prog=$(program "$n" "capsule-$v")
           shift 2
           for arg in ''${1+"$@"}; do
             case "$arg" in
@@ -351,6 +357,17 @@ in
                 ;;
             esac
           done
+          # The other half of what a front end is for, and the same shape as
+          # `--policy` on a collect: the program refuses without a target and
+          # this is where the host state that answers it lives (NOTES item 51,
+          # decision 4). An explicit one is passed through untouched rather than
+          # doubled.
+          if profileVerb "$v"; then
+            profileNameFor "$n" ''${1+"$@"} || exit 1
+            if [ "$profileGiven" = no ]; then
+              set -- --profile "$profileName" ''${1+"$@"}
+            fi
+          fi
           "$prog" --capsule "$n" "$@"
         }
 
@@ -455,6 +472,81 @@ in
         # quarantine, and a record is written by exactly one.
         recordRoot=${moduleState}
         ${record.fragment}
+        ${observeFragment}
+
+        # Which target a verb on this slot is about — the *only* place that
+        # question is answered, and it is answered from host state, which is why
+        # it is here (NOTES item 51, decision 4). Three sources, in the order
+        # authority runs:
+        #
+        #   - an explicit `--profile` in the argv, which is the one-off form and
+        #     wins, exactly as `--policy` does over a slot's declaration;
+        #   - the slot's assignment record, written at every provision since
+        #     item 29 and read by nothing until now;
+        #   - and for a slot nothing has assigned, the one profile this host has
+        #     rendered — refusing when there are none or several.
+        #
+        # That last is this front end's own latitude and not a default: it is the
+        # same shape as resolving an unnamed verb to the slot that is *up*, one
+        # axis over, and it degrades the right way — the moment this host renders
+        # two documents, an unassigned slot has to say which. A **program** gets a
+        # name or a refusal and never a guess (item 20); what a program must not
+        # do is exactly what this does.
+        #
+        # Sets `profileName` and `profileGiven`.
+        profileNameFor() {
+          local n="$1"
+          local -a rendered
+          profileName=""
+          profileGiven=no
+          shift
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              --profile)
+                profileGiven=yes
+                if [ "$#" -gt 1 ]; then
+                  profileName="$2"
+                  shift
+                fi
+                ;;
+              --profile=*)
+                profileName="''${1#--profile=}"
+                profileGiven=yes
+                ;;
+            esac
+            shift
+          done
+          [ "$profileGiven" = yes ] && return 0
+
+          profileName=$(recordField "$n" profile)
+          [ "$profileName" != - ] && return 0
+
+          mapfile -t rendered < <(profileNames)
+          case "''${#rendered[@]}" in
+            1) profileName=''${rendered[0]} ;;
+            0)
+              echo "capsule: nothing to be about — this host has rendered no" >&2
+              echo "  profiles, so $(profileDir) holds no target for '$n'." >&2
+              return 1
+              ;;
+            *)
+              echo "capsule: '$n' has no assignment and this host declares more" >&2
+              echo "  than one target: ''${rendered[*]}. A slot's name says nothing" >&2
+              echo "  about which, so there is nothing to guess from — 'capsule $n" >&2
+              echo "  provision <ref> --profile <name>' assigns it, or --profile" >&2
+              echo "  for this one command." >&2
+              return 1
+              ;;
+          esac
+        }
+
+        # Whether a verb's program takes one at all (host/programs.nix).
+        profileVerb() {
+          case "$1" in
+        ${lib.concatMapStringsSep "\n" (v: "    ${lib.escapeShellArg v}) return 0 ;;") profileVerbs}
+            *) return 1 ;;
+          esac
+        }
 
         ${proxyControl}
 
@@ -464,8 +556,16 @@ in
         # rather than one per column, which is what Plan D D5 asks for.
         observed() {
           local ssh_argv=()
+          local -a args
           door "$1" probe || return 1
-          "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- ${observeArgs} < ${observe} 2>/dev/null
+          # A slot with no resolvable target is a row of `-` rather than a
+          # diagnostic per slot: `capsule all status` is one table, and a slot
+          # nothing has assigned on a host with two targets has nothing to be
+          # observed *about*. The `gen` column already says it is unassigned.
+          profileNameFor "$1" 2>/dev/null || return 1
+          profileLoad "$profileName" 2>/dev/null || return 1
+          mapfile -t args < <(observeArgs | profileQuote)
+          "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- "''${args[@]}" < ${observe} 2>/dev/null
         }
 
         # A baseline stamp is **the host's** UTC, minted host-side so both ends
@@ -577,7 +677,11 @@ in
         # `capsule-provision --capsule a <ref>` directly provisions without
         # recording, the same way it bypasses every other thing a front end does.
         recordProvisioned() {
-          local n="$1" ref="''${2--}" oid
+          local n="$1" prof="$2" ref="''${3--}" oid
+          # The profile this provision was *taken under*, not one resolved a
+          # second time: the caller has it, and re-resolving after the record has
+          # been written would read the field this is about to set.
+          profileLoad "$prof" || return 1
           oid=$(observed "$n" | cut -f1)
           if [ -z "$oid" ] || [ "$oid" = - ]; then
             echo "capsule: provisioned, but the guest did not answer for its HEAD, so" >&2
@@ -592,8 +696,8 @@ in
             '.base = {ref: $ref, oid: $oid} | .profile = $profile | .class = $class' \
             --arg ref "$ref" \
             --arg oid "$oid" \
-            --arg profile ${lib.escapeShellArg target.name} \
-            --argjson class ${lib.escapeShellArg (builtins.toJSON {inherit (target.sizes) mem vcpu;})} \
+            --arg profile "$prof" \
+            --argjson class "$(printf '{"mem":%s,"vcpu":%s}' "$profile_mem" "$profile_vcpu")" \
             > /dev/null
         }
 
@@ -791,14 +895,17 @@ in
             ;;
 
           # The second step: quarantine -> the repo you work in, once you have looked.
-          # `CAPSULE_REPO` before `target.path` because that is what the git channel's
-          # own default does (host/git-channel.nix), and a capsule's refs are already
-          # namespaced by its name, so N quarantines fetch into one repo without
-          # colliding.
+          # `CAPSULE_REPO` before the profile's `path` because that is what the git
+          # channel's own lookup does (host/git-channel.nix), and a capsule's refs are
+          # already namespaced by its name, so N quarantines fetch into one repo
+          # without colliding. **Which** repo is now a per-slot answer: two slots on
+          # two targets fetch into two checkouts, which is the whole of item 51.
           fetch)
             for t in "''${targets[@]}"; do
               if q=$(quarantineOf "$t"); then
-                git -C "''${CAPSULE_REPO:-${target.path}}" fetch "$q" \
+                profileNameFor "$t" || exit 1
+                profileLoad "$profileName" || exit 1
+                git -C "''${CAPSULE_REPO:-$profile_path}" fetch "$q" \
                   'refs/capsule/*:refs/capsule/*'
               else
                 echo "nothing collected yet — capsule $t collect" >&2
@@ -838,7 +945,7 @@ in
           # Write-if-absent makes the repeat a no-op rather than a second answer.
           setup)
             work "$name" provision ''${1+"$@"}
-            recordProvisioned "$name" ''${1+"$@"}
+            recordProvisioned "$name" "$provisionProfile" ''${1+"$@"}
             work "$name" inject
             ${lib.optionalString (builtins.elem "baseline" programVerbs) ''work "$name" baseline''}
             ;;
@@ -870,6 +977,10 @@ in
             fi
           fi
         ''}
+            # Resolved before the program runs and reused below, because after it
+            # the record this reads from is the record this provision writes.
+            profileNameFor "$name" ''${1+"$@"} || exit 1
+            provisionProfile=$profileName
             work "$name" provision ''${provArgs[@]+"''${provArgs[@]}"}
             # The *original* argv, and the array above exists so it stays that
             # way: this reads `$2` as the ref that was asked for, so anything

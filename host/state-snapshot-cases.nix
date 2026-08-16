@@ -29,14 +29,36 @@
   # three call sites (a capsule, a host origin, this sandbox) one store path.
   # This is that store path, arriving here rather than being rebuilt.
   snapshot,
+  # And the other end of the same interface, which is what step 4 made worth
+  # pinning: `snapshotArgs` builds that command line off a loaded profile
+  # (host/state-snapshot.nix), so the order in the fragment and the order in the
+  # script are two readings of one fact — and a suite that only ever composed the
+  # line by hand would agree with itself. `profileFragment` is the reader it
+  # needs; both arrive from `host/programs.nix`, never re-rendered.
+  snapshotArgs,
+  profileFragment,
+  inputs,
 }: let
+  # The fragment plus the smallest `main` that exercises it: load a document,
+  # print the tail. `host/profile-cases.nix`'s arrangement, one file over.
+  argv = pkgs.writeShellApplication {
+    name = "capsule-snapshot-argv";
+    runtimeInputs = inputs;
+    text = ''
+      ${profileFragment}
+      ${snapshotArgs}
+      profileLoad "$1"
+      snapshotArgs "$2"
+    '';
+  };
+
   # The bound as a program, so the case suite runs the real fragment rather
   # than a description of it (host/quarantine.nix).
   token = pkgs.writeText "capsule-token-check" ''
     ${quarantine.checkToken ''"$1"'' "'unit $1'"}
   '';
 in
-  pkgs.runCommand "capsule-snapshot-cases" {nativeBuildInputs = [pkgs.git];} ''
+  pkgs.runCommand "capsule-snapshot-cases" {nativeBuildInputs = [pkgs.git pkgs.jq];} ''
     export HOME=$PWD GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
     export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t
     export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -61,6 +83,25 @@ in
     paths=('.doctrine/state/slice/{unit}' '.doctrine/slice/{unit}')
     max=67108864
     snap() { bash ${snapshot} "$1" "$2" "$3" src "$max" "''${paths[@]}"; }
+
+    # ------------------------------------------- the command line, off a document
+    #
+    # The seam item 51 step 4 moved, and the one thing neither end pins on its
+    # own: `snap` above composes this line by hand, and a collect composes it
+    # from a profile. Two orders that must be one — and the failure if they are
+    # not is the one this repo has already had, a collect that reports success
+    # and brings back half a result (item 47).
+    mkdir -p profiles
+    jq -n --arg m "$max" --arg a "''${paths[0]}" --arg b "''${paths[1]}" \
+      '{ schema: 1, name: "fixture", path: "/h/fixture", guestPath: "/vol/fixture",
+         volumePath: "/vol", cachePaths: [], baseline: null, refresh: null,
+         statePaths: [$a, $b], stateMaxBytes: ($m | tonumber),
+         sizes: {vcpu: 1, mem: 1, volume: 1} }' > profiles/fixture.json
+    mapfile -t fromDoc < <(CAPSULE_PROFILE_DIR=$PWD/profiles ${pkgs.lib.getExe argv} fixture src)
+    ck "the tail is the checkout it was handed" src "''${fromDoc[0]}"
+    ck "  then the ceiling" "$max" "''${fromDoc[1]}"
+    ck "  then every declared template, in order" "''${paths[*]}" "''${fromDoc[*]:2}"
+    ck "  and nothing else" 4 "''${#fromDoc[@]}"
 
     # ------------------------------------------------------- the token bound
     #
