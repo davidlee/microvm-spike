@@ -570,6 +570,49 @@ in
           profileNeedsUnit
         }
 
+        # The one interception, and it is the one thing item 20 keeps out of a
+        # program: state that crosses between this host's checkout and a guest
+        # is scoped by a unit of work, the program refuses without a token, and
+        # reading this host's record is a front end's job (NOTES items 20, 32,
+        # 42). Four verbs need it — `setup`, `provision`, `collect`, `brief` —
+        # and the fourth is what made it a function rather than a fourth
+        # careful copy (NOTES item 53).
+        #
+        # `carrier` is the argv word that means *this invocation carries state*:
+        # `--state-from-host` for a provision, `--from-host` for a brief, and
+        # `-` for a collect, where every invocation does. An explicit `--unit`
+        # always wins, because a one-off under another unit's scope is a human's
+        # call and re-recording an assignment as a side effect of reading it
+        # would be this front end deciding something nobody asked it to.
+        #
+        # Conditioned on the *document* and never on the build (item 51 step 6):
+        # filling it in for a target with no hole would hand the program a flag
+        # it refuses, so a stale token on a record would make an unrelated
+        # collect impossible. `slotNeedsUnit`'s third answer — no target
+        # resolved at all — is "do not intervene" here, because the program
+        # behind this makes that refusal with the better message.
+        #
+        # **Prints the two words rather than mutating argv**, so a caller that
+        # must keep the argv it was given can have both: `provisionSlot` records
+        # the ref that was *asked for*, and anything prepended for the program's
+        # benefit would be recorded as the base a slot is pinned to.
+        unitScope() {
+          local n="$1" carrier="$2" a carries=no given=no token
+          shift 2
+          if [ "$carrier" = - ]; then carries=yes; fi
+          for a in ''${1+"$@"}; do
+            case "$a" in
+              --unit | --unit=*) given=yes ;;
+              "$carrier") carries=yes ;;
+            esac
+          done
+          [ "$carries" = yes ] || return 0
+          [ "$given" = no ] || return 0
+          slotNeedsUnit "$n" ''${1+"$@"} || return 0
+          token=$(recordField "$n" unit)
+          [ "$token" = - ] || printf '%s\n' --unit "$token"
+        }
+
         # Whether a verb's program takes one at all (host/programs.nix).
         profileVerb() {
           case "$1" in
@@ -742,6 +785,43 @@ in
             --arg profile "$prof" \
             --argjson class "$(printf '{"mem":%s,"vcpu":%s}' "$profile_mem" "$profile_vcpu")" \
             > /dev/null
+        }
+
+        # What provisioning a slot is, in one place: the scope this host fills
+        # in, the profile the push is taken under, the push, and the record.
+        # `setup` is a provision with two more steps after it (NOTES item 53's
+        # verb 1), so it calls this rather than repeating the four — which it
+        # did, minus the scope, which is how `capsule <slot> setup <ref>
+        # --state-from-host` came to be refused where the same flags on a
+        # provision succeeded.
+        #
+        # Leaves the document loaded, because the caller's next question —
+        # whether this target declares a baseline — is about that same document
+        # and resolving it a second time would read the record this has just
+        # written.
+        provisionSlot() {
+          local n="$1" prof
+          local -a scope=()
+          shift
+          mapfile -t scope < <(unitScope "$n" --state-from-host ''${1+"$@"})
+          # Resolved before the program runs and held in a local, because after
+          # it the record this reads from is the record this provision writes.
+          profileNameFor "$n" ''${1+"$@"} || return 1
+          prof=$profileName
+          profileLoad "$prof" || return 1
+          work "$n" provision ''${scope[@]+"''${scope[@]}"} ''${1+"$@"}
+          # The profile this provision was taken under, then the *original*
+          # argv: two readers of one argv, and only the program wanted the
+          # addition.
+          #
+          # The profile argument is **not** optional and was missing here from
+          # step 4 until step 6: `recordProvisioned` takes `<name> <profile>
+          # <ref>`, so the ref was landing in the profile's place and every
+          # `capsule <slot> provision <ref>` died on `no profile named '<ref>'`
+          # after the code had already been pushed. Nothing caught it because
+          # this path needs a guest and the step that added the parameter spent
+          # its smoke test on a status and a collect.
+          recordProvisioned "$n" "$prof" ''${1+"$@"}
         }
 
         # What is inside a capsule's namespace — its own `ip_forward=0`, the tap's
@@ -1029,17 +1109,12 @@ in
           # started by hand, or that has rebooted since, has had no start of ours.
           # Write-if-absent makes the repeat a no-op rather than a second answer.
           setup)
-            # Resolved here and not left to `work`, for two reasons that arrived
-            # together. The record below needs the profile this provision was
-            # taken *under* — `provision)` resolves it into `provisionProfile`
-            # and this branch never runs that one, so the variable was unbound
-            # and `set -u` killed a setup after the push had landed. And the
-            # baseline step is now a question about the document rather than
-            # about the build (item 51 step 6), which needs the same answer.
-            profileNameFor "$name" ''${1+"$@"} || exit 1
-            profileLoad "$profileName" || exit 1
-            work "$name" provision ''${1+"$@"}
-            recordProvisioned "$name" "$profileName" ''${1+"$@"}
+            # The provision, its scope and its record are `provisionSlot`'s, and
+            # this branch is the two steps after them. It used to be four lines
+            # of its own that had drifted from `provision)`'s by exactly the
+            # interception (item 53), and the document it leaves loaded is what
+            # the baseline question below reads (item 51 step 6).
+            provisionSlot "$name" ''${1+"$@"}
             work "$name" inject
             # Skipped rather than refused when the target declares none: a setup
             # with no baseline is finished, not failed. `capsule-baseline` would
@@ -1056,54 +1131,12 @@ in
           # because provisioning is the one verb that changes what a slot *is* and
           # so the one that has something to record.
           provision)
-            provArgs=(''${1+"$@"})
-            # The same interception as `collect` and `brief --from-host`, for the
-            # same one reason: state taken from this host's checkout is scoped by
-            # a unit the program may not read (NOTES items 20, 42). It reaches
-            # provision because the brief moved inside it (NOTES item 47), so the
-            # scoping had to follow — a flag whose value the front end fills in
-            # one place and not the other is a scope that silently never applies.
-            #
-            # Conditioned on the *document* since step 6. Filling it in for a
-            # target with no hole would hand the program a flag it refuses, so a
-            # stale token on a record would make an unrelated provision
-            # impossible.
-            fromHost=no
-            unitGiven=no
-            for a in ''${1+"$@"}; do
-              case "$a" in
-                --state-from-host) fromHost=yes ;;
-                --unit | --unit=*) unitGiven=yes ;;
-              esac
-            done
-            if [ "$fromHost" = yes ] && [ "$unitGiven" = no ] \
-               && slotNeedsUnit "$name" ''${1+"$@"}; then
-              recordedUnit=$(recordField "$name" unit)
-              if [ "$recordedUnit" != - ]; then
-                provArgs=(--unit "$recordedUnit" ''${provArgs[@]+"''${provArgs[@]}"})
-              fi
-            fi
-            # Resolved before the program runs and reused below, because after it
-            # the record this reads from is the record this provision writes.
-            profileNameFor "$name" ''${1+"$@"} || exit 1
-            provisionProfile=$profileName
-            work "$name" provision ''${provArgs[@]+"''${provArgs[@]}"}
-            # The profile this provision was taken under, then the *original*
-            # argv — the array above exists so that stays original: this reads
-            # the ref that was asked for, so anything the front end prepended for
-            # the program's benefit would be recorded as the base a slot is
-            # pinned to. Two readers of one argv, and only one wanted the
-            # addition.
-            #
-            # The profile argument is **not** optional and was missing here from
-            # step 4 until step 6: `recordProvisioned` takes `<name> <profile>
-            # <ref>`, so the ref was landing in the profile's place and every
-            # `capsule <slot> provision <ref>` died on `no profile named
-            # '<ref>'` after the code had already been pushed. Nothing caught it
-            # because the front end's provision path needs a guest and the step
-            # that added the parameter spent its smoke test on a status and a
-            # collect.
-            recordProvisioned "$name" "$provisionProfile" ''${1+"$@"}
+            # The scope it carries reaches provision because the brief moved
+            # inside it (NOTES item 47), so the scoping had to follow — a flag
+            # whose value the front end fills in one place and not the other is
+            # a scope that silently never applies. `setup` was that other place
+            # until item 53, which is why the four steps are one function now.
+            provisionSlot "$name" ''${1+"$@"}
             ;;
 
           # The whole record, for when a column is not enough. `jq .` rather than
@@ -1311,11 +1344,9 @@ in
           # second thing to keep true.
           collect)
             policyGiven=no
-            unitGiven=no
             for a in ''${1+"$@"}; do
               case "$a" in
                 --policy | --policy=*) policyGiven=yes ;;
-                --unit | --unit=*) unitGiven=yes ;;
               esac
             done
             # So an unassigned slot ingests under exactly the policy its proxy is
@@ -1323,18 +1354,10 @@ in
             if [ "$policyGiven" = no ]; then
               set -- --policy "$(effectivePolicy "$name")" ''${1+"$@"}
             fi
-            # And the scope, from the same record — but only where the slot's
-            # *document* has somewhere to put it (item 51 step 6). This used to
-            # be conditioned on the build, so on a host with two targets a
-            # recorded token would be handed to a program that refuses it, and a
-            # perfectly ordinary collect would have become impossible.
-            if [ "$unitGiven" = no ] && slotNeedsUnit "$name" ''${1+"$@"}; then
-              recordedUnit=$(recordField "$name" unit)
-              if [ "$recordedUnit" != - ]; then
-                set -- --unit "$recordedUnit" ''${1+"$@"}
-              fi
-            fi
-            work "$name" collect ''${1+"$@"}
+            # And the scope, from the same record. Unconditional — every collect
+            # takes state out of a guest — which is what `-` says.
+            mapfile -t unitArgs < <(unitScope "$name" - ''${1+"$@"})
+            work "$name" collect ''${unitArgs[@]+"''${unitArgs[@]}"} ''${1+"$@"}
             ;;
 
           # Intercepted for the same one thing, in the one direction that needs
@@ -1344,22 +1367,8 @@ in
           # already scoped when it was collected, and re-scoping it here would be
           # a second answer to a question that is settled.
           brief)
-            fromHost=no
-            unitGiven=no
-            for a in ''${1+"$@"}; do
-              case "$a" in
-                --from-host) fromHost=yes ;;
-                --unit | --unit=*) unitGiven=yes ;;
-              esac
-            done
-            if [ "$fromHost" = yes ] && [ "$unitGiven" = no ] \
-               && slotNeedsUnit "$name" ''${1+"$@"}; then
-              recordedUnit=$(recordField "$name" unit)
-              if [ "$recordedUnit" != - ]; then
-                set -- --unit "$recordedUnit" ''${1+"$@"}
-              fi
-            fi
-            work "$name" brief ''${1+"$@"}
+            mapfile -t unitArgs < <(unitScope "$name" --from-host ''${1+"$@"})
+            work "$name" brief ''${unitArgs[@]+"''${unitArgs[@]}"} ''${1+"$@"}
             ;;
 
           *) work "$name" "$verb" ''${1+"$@"} ;;

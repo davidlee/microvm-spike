@@ -156,6 +156,13 @@ in
     # (item 37).
     unsaw() { ! grep -qF -- "$1" out; }
     gen() { jq -r .generation "$CASE_STATE/slot/$1/assignment.json"; }
+    # Which document a slot resolves to, written the way a provision would if
+    # there were a guest to provision against. Six rounds below turn on it and
+    # the write is the same two lines every time.
+    assign() {
+      jq --arg p "$2" '.profile = $p' "$CASE_STATE/slot/$1/assignment.json" > tmp.json
+      mv tmp.json "$CASE_STATE/slot/$1/assignment.json"
+    }
 
     # ------------------------------------- what an unassigned slot resolves to
     #
@@ -407,9 +414,7 @@ in
     # The record beats the ambiguity, and it is the field `capsule-provision`
     # has written at every provision since item 29 and nothing read until now.
     # Written here rather than provisioned, because a provision needs a guest.
-    # shellcheck disable=SC2016
-    jq '.profile = "solo"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
-    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    assign both solo
     run both collect
     ck "a slot whose record names a target needs no help" 0 "$rc"
     ckt "  and it is the recorded one" \
@@ -446,9 +451,7 @@ in
     # The other side of the fork, so neither answer is a constant. Same slot,
     # same record, one different document.
     writeProfile holed '["state/{unit}/notes"]'
-    # shellcheck disable=SC2016
-    jq '.profile = "holed"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
-    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    assign both holed
     run both unit u1
     ck "and a unit against a holed one is taken" 0 "$rc"
     ckt "  the record says so" \
@@ -463,9 +466,7 @@ in
     # document it resolves to has nowhere to put it, so the front end must stop
     # filling it in — the program refuses a flag that scopes nothing, and a
     # front end that supplied one would make an unrelated collect impossible.
-    # shellcheck disable=SC2016
-    jq '.profile = "solo"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
-    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    assign both solo
     run both collect
     ck "a recorded unit is not filled in for a target with no hole" 0 "$rc"
     ckt "  so the argv is the one that target's collect accepts" \
@@ -526,13 +527,52 @@ in
     ckt "  so nothing ran one" test "$(cat out.argv)" = "--capsule both"
 
     writeProfile built '[]' 'just test'
-    # shellcheck disable=SC2016
-    jq '.profile = "built"' "$CASE_STATE/slot/both/assignment.json" > tmp.json
-    mv tmp.json "$CASE_STATE/slot/both/assignment.json"
+    assign both built
     run both setup somecommit
     ck "a target that declares one still gets it" 0 "$rc"
     ckt "  as the last step of the sequence" saw "baseline argv: --capsule both --profile built"
     ckt "  and says nothing about skipping" unsaw "declares no baseline"
+
+    # ------------------------- the scope a setup carries, and NOTES item 53
+    #
+    # A `setup` *is* a provision, so state taken from this host's checkout is
+    # scoped by the same token — and the interception was written into
+    # `provision)`, `collect)` and `brief)` and not here, so the flags that
+    # worked on a provision reached the state snapshot with nothing to scope by
+    # and were refused there. Three copies of one construction were already one
+    # too many; these rounds are over the fourth call site of the function they
+    # became, and the first two of them are the same pair `provision` has.
+    assign both holed
+    run both setup somecommit --state-from-host
+    ck "a setup that carries state is scoped from the record" 0 "$rc"
+    ckt "  with the token beside the profile, before the program sees it" \
+      saw "provision argv: --capsule both --profile holed --unit u1 somecommit --state-from-host"
+    ckt "  and the rest of the sequence still ran" saw "inject argv:"
+
+    # The carrier is the whole of what says an invocation has state to scope:
+    # a setup that asks for none needs no token, and one filled in anyway is a
+    # flag the program has nothing to apply.
+    run both setup somecommit
+    ck "a setup that carries none is not scoped" 0 "$rc"
+    ckt "  so the argv is the one that provision accepts" \
+      saw "provision argv: --capsule both --profile holed somecommit"
+
+    # An explicit one wins and is not doubled, the same rule as `--policy` and
+    # `--profile` two verbs over: a one-off under another unit's scope is a
+    # human's call.
+    run both setup somecommit --state-from-host --unit u9
+    ck "an explicit --unit wins on a setup too" 0 "$rc"
+    ckt "  and is not doubled" \
+      saw "provision argv: --capsule both --profile holed somecommit --state-from-host --unit u9"
+
+    # And the *document* decides whether there is anywhere to put one — the
+    # stale-token round above, on the verb that did not have it. `built`
+    # declares no state paths and the record still names `u1`.
+    assign both built
+    run both setup somecommit --state-from-host
+    ck "a setup on a target with no hole is not scoped either" 0 "$rc"
+    ckt "  so the stale token stays on the record, unread" \
+      saw "provision argv: --capsule both --profile built somecommit --state-from-host"
 
     # A host that has rendered nothing at all: a different fault from an
     # ambiguous one, and a refusal that names the directory rather than the slot.

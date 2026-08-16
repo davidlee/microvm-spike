@@ -6,7 +6,59 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)
+Last updated 2026-08-16, after **`capsule <slot> fetch` stopped half-succeeding,
+and the interception `setup` never had became one function** — the two
+prerequisites [item 53](./ledger/053-three-coarse-verbs.md) names, in the order
+it names them, with the three verbs themselves still unbuilt.
+
+**A fetch answers for each half separately**, which is
+[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s third finding.
+A quarantine holds two ref namespaces and they are two different questions, so
+the verb fetches them separately — off `host/quarantine.nix`'s `codeRefsOf` and
+`stateRefsOf`, so the names are read where they are declared — and says `code:`
+and `state:` on their own lines. The remedy it prints for a refused half is the
+**archive**, `refs/capsule/<slot>/gen/<n>/` off the record's own generation,
+rather than the `+` that would make the first assignment unreachable in the one
+place it is durable. And a sweep runs every slot and fails at the end, where
+`set -e` on a rejected fetch used to cut it short wherever it had got to. Six
+rounds in `policyCases`, built from two commits off one base plus a state chain
+that fast-forwards over them, because reaching it on a host costs two assignments
+to one slot; three mutations, each red on its own rounds, and a fourth
+**rejected by shellcheck before the suite ran**, which reads exactly like nothing
+went red. Run on this host against slot `e` both ways: `code: landed / state:
+landed` on the current pair, and the refusal naming `refs/capsule/e/gen/7/` with
+the divergent one restored under it. **The key is untouched** — a slot's second
+assignment still overwrites the first's refs in the quarantine — and the archive
+is still a thing a human does after being told to, in the repository rather than
+in the quarantine. Making it automatic is item 53's decision 3 and belongs to
+`handoff`.
+
+**And the interception is one function at four call sites, not four copies.**
+`provision)`, `collect)` and `brief)` each filled `--unit` from the record where
+the slot's document has a hole for one, and `setup)` did not — so `capsule <slot>
+setup <ref> --state-from-host` reached the state snapshot with no token and was
+refused, where the same flags on `provision` succeeded. Verb 1 of item 53 did not
+work without spelling the token twice. Two functions, because the duplication had
+a second layer: **`unitScope <slot> <carrier> …argv`** is the interception, and it
+*prints* the two words rather than mutating argv — which is what lets the record
+go on reading the ref that was **asked for**, since a flag prepended for the
+program's benefit would otherwise be recorded as the base a slot is pinned to.
+`carrier` is the argv word meaning *this invocation carries host-side state*:
+`--state-from-host`, `--from-host`, or `-` for a collect, where it is
+unconditional. **`provisionSlot <slot> …argv`** is the four steps a provision
+*is* — scope, the profile it is taken under, the push, the record — because
+`setup` is a provision with two steps after it and had its own copy of those four
+minus the scope, which is exactly how the drift arrived. `just cases` is **405**
+(was 384); `just`, `just check` and `just units` green. Nine of those rounds are
+the new ones, with four mutations each red on its own rounds and a fifth rejected
+by shellcheck again. Smoke test spent is the read-only one: `capsule all status`
+off the new front end against the live fleet, `d` and `e` both still driving
+SL-251. **Nothing destructive was run on a production slot**, so the interception
+itself is pinned by cases and not by a live setup. Still unbuilt and item 53's:
+`handoff`, `land`, the automatic generation rename, and `setup --unit`/`--purpose`
+as record writes of its own.
+
+Before that, the same day, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)
 was closed by its step 6, with decision 3 — open since step 3 — taken first**.
 **Nothing about a host-side program is a function of which project this host
 confines any more**: not the values it carries (step 4), not whether it exists,
@@ -558,6 +610,38 @@ it too**, from a second concurrent pair that replicated the durations — so ste
 
 ## Where it got to
 
+- **Three acts doctrine thinks of as one, and the habit that carries them is the
+  part that failed.** [Item 53](./ledger/053-three-coarse-verbs.md), written the
+  day the hand-run sequence failed in production: `SL-251` was landed from a
+  collect four hours stale, three commits short of the guest that filled it, so
+  the review body already committed in slot `d` never crossed, the reconcile
+  re-derived it host-side under a second id, and the unit closed carrying **two
+  divergent reviews of itself**. Nothing refused, because nothing compares an
+  exhibit against the guest it came from — `status` prints the guest's head,
+  `branches` prints the quarantine's tip, and no verb reads both.
+
+  **The vocabulary question costs nothing**, which is why this is a composition
+  item rather than a design one: doctrine's *slice* is the record's `unit`
+  ([32](./ledger/032-the-sideband-channel.md)) and its *audit* is `purpose`, so
+  no program learns `slice`, `audit`, `review` or `accept`. The three verbs are
+  `setup <ref> --unit --purpose --state-from-host`, a new `handoff <src>`, and
+  `land`; only the middle is machinery that does not exist. All three belong in
+  the **front end** ([20](./ledger/020-which-capsule-a-program-means.md)) — a
+  `handoff` program would read host state three times inside a thing that must
+  not do it once.
+
+  **All four questions are decided** and the item holds the reasoning: `land`
+  writes no branch unless handed a name, `handoff` refuses on a modified tracked
+  file and only that (read from the exhibit, not from the guest), the pre-force
+  archive is generation-keyed in the human's repository, and the verify is a
+  refusal with **no `--stale`** — whose corollary is that `handoff` and `land`
+  need the source capsule *running*, because the guest's head is the only place
+  the comparison exists.
+
+  **Two prerequisites are built** — the fetch that half-succeeded and the
+  interception `setup` did not have, both above. The three verbs are not, and
+  neither is the automatic archive rename that makes `handoff`'s force safe.
+
 - **A capsule was handed to another slot, and the sequence written down for it
   was the wrong one.** The c→d migration, and the first run of
   `capsule-provision --state <capsule>` — the composite's quarantine origin,
@@ -625,9 +709,12 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   [item 41](./ledger/041-a-delegable-verb-that-ends-in-root.md)'s shape: two
   things that must move together, and no definition of what a failure leaves.
 
-  **Nothing was built.** Three things not to conflate now instead of two, and the
-  new one — the state ref's lifetime is the *volume's* — is the only one that
-  cannot be decided by naming a quarantine differently.
+  **Nothing was built that day. The third finding has been since**, and only that
+  one: `fetch` names each half, prints the archive as the remedy, and a sweep
+  fails at the end instead of stopping at the first refusal. Three things not to
+  conflate now instead of two, and the new one — the state ref's lifetime is the
+  *volume's* — is the only one that cannot be decided by naming a quarantine
+  differently.
 
 - **The read that gated volume verbs is taken, and it inverted what it was
   afraid of.** [Item 49](./ledger/049-who-owns-a-state-directory.md), so
@@ -2052,10 +2139,14 @@ It is in flight rather than finished, and one of the two is cheap.
   charge is low enough to squeeze the guest** — 6144 was not, and nothing says
   where that boundary is. §0's recommendation needs rewriting rather than
   re-running.
-- **`generation` is written and never checked.** The refusal half — a command
-  stating the generation it acts for, so a stale controller is told rather than
-  obeyed — waits for D6. Nothing today can be stale, so nothing today notices the
-  field is inert.
+- **`generation` is read once and still never checked.** `capsule <slot> fetch`
+  names `refs/capsule/<slot>/gen/<n>/` off it when a half is refused, which is
+  the field's first reader — but that is a *name*, not a decision, and nothing
+  yet renames anything or refuses on it. The archive rename is item 53's decision
+  3 and belongs to `handoff`; the refusal half — a command stating the generation
+  it acts for, so a stale controller is told rather than obeyed — waits for D6.
+  Nothing today can be stale, so nothing today notices the rest of the field is
+  inert.
 - **`capsule-provision` called directly still writes no record**, deliberately
   ([item 29](./ledger/029-the-record-is-front-end-written.md)). So a slot can be
   provisioned with no `base` pinned, and the only thing that says so is a missing

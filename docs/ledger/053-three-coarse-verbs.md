@@ -1,11 +1,16 @@
 # NOTES item 53 — three coarse verbs, and the words that must not enter them
 
-*State: **all four questions decided; the first prerequisite is built and green.**
+*State: **all four questions decided; the first prerequisite is built and green,
+and so is the gap below.**
 `capsule <slot> fetch` now answers for the code and state halves separately and
 prints the archive that unblocks a refusal, which is
 [item 50](./050-a-quarantine-outlives-its-assignment.md)'s third finding and the
 half of decision 3 a human can run by hand — the automatic rename, and the three
-verbs themselves, are still unbuilt. Proposed the day the hand-run sequence failed
+verbs themselves, are still unbuilt. The interception `setup)` did not have is
+now `unitScope`, one function at four call sites, and the four steps a provision
+is are `provisionSlot`, which `setup)` calls instead of repeating — so verb 1
+works without spelling the token twice. Nine rounds in `policyCases`, four
+mutations each red on its own rounds. Proposed the day the hand-run sequence failed
 in production. doctrine drove `SL-251` in slot `d`, and the work was landed from
 a collect four hours stale: three commits short of `d`'s head, so the review body
 it had already committed never crossed, the reconcile re-derived the review
@@ -121,19 +126,45 @@ the programs it calls read none of it. A `handoff` program would have to know
 which slot is a source, which quarantine holds it and which record carries the
 token, which is three readings of host state inside a thing that must not do one.
 
-## The gap found while reading for this
+## The gap found while reading for this — **built**
 
-`provision)`, `collect)` and `brief)` each fill `--unit` from the record when the
-slot's document has a hole for one (`host/cli.nix:1033`, `:1276`, `:1310`).
-**`setup)` does not**, and `setup` *is* a provision — so `capsule <slot> setup
-<ref> --state-from-host` reaches the state snapshot with no token and is refused,
-where the same flags on `provision` succeed. Verb 1 does not work today without
-spelling the token twice.
+`provision)`, `collect)` and `brief)` each filled `--unit` from the record when
+the slot's document has a hole for one, and **`setup)` did not** — so `capsule
+<slot> setup <ref> --state-from-host` reached the state snapshot with no token
+and was refused, where the same flags on `provision` succeeded. Verb 1 did not
+work without spelling the token twice.
 
-The fix is not a fourth copy of the interception. Three call sites of one
-construction were already one too many when step 6 of
+The fix was not a fourth copy. Three call sites of one construction were already
+one too many when step 6 of
 [item 51](./051-the-target-in-four-store-paths.md) made the predicate a question
-about a document; a fourth is the point at which it becomes a function.
+about a document; a fourth is the point at which it becomes a function. Two of
+them, because the duplication had a second layer:
+
+- **`unitScope <slot> <carrier> …argv`** is the interception, at all four call
+  sites. It **prints** the two words rather than mutating argv, which is what
+  lets a caller keep the argv it was handed — the record reads the ref that was
+  *asked for*, and a flag prepended for the program's benefit would be recorded
+  as the base a slot is pinned to. `carrier` is the argv word meaning *this
+  invocation carries host-side state*: `--state-from-host` for a provision,
+  `--from-host` for a brief, `-` for a collect, where it is unconditional. The
+  three answers of `slotNeedsUnit` are unchanged and the document still decides.
+- **`provisionSlot <slot> …argv`** is the four steps a provision *is* — scope,
+  the profile it is taken under, the push, the record — because `setup` is a
+  provision with two steps after it. `setup)` had its own copy of those four
+  minus the scope, which is exactly how the drift arrived; it now calls this and
+  reads the document `provisionSlot` leaves loaded for its baseline question.
+
+Nine rounds in `policyCases`, over the fourth call site: a setup that carries
+state is scoped from the record, one that carries none is not, an explicit
+`--unit` wins and is not doubled, and a setup on a target with no hole is not
+scoped even with a stale token on the record. Four mutations, each red on its own
+rounds — carrier ignored, document predicate skipped, nothing ever prepended, and
+an explicit flag not honoured. A fifth, dropping the array from the `work` call,
+was **rejected by shellcheck before the suite ran**, which is the failure that
+reads exactly like nothing went red (item 50 hit the same one).
+
+Not built, and still verb 1's: `setup` does not yet take `--unit <token>` or
+`--purpose <text>` as record writes of its own.
 
 ## The four questions, decided
 
