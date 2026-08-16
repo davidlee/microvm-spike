@@ -10,6 +10,9 @@
 ^claude\.com$
 ^platform\.claude\.com$
 
+# Deepseek
+^platform\.deepseek\.com$
+
 # npm / bun
 ^registry\.npmjs\.org$
 
