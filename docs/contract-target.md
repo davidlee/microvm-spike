@@ -90,6 +90,27 @@ changes until they are built.
 | `sizes` | class (`vcpu`, `mem`) / volume (`volume`) | guest: `vcpu`, `mem`, `volume`; and whatever `guestConfig` derives from them | yes | — |
 | `guestConfig` | profile | guest: path-under-the-volume → file content, rendered into the closure and linked on by the seed | no | `{}` |
 
+**Half of that table is now also a document, and the boundary has not moved
+yet.** `host/profile.nix` renders `name`, `path`, `guestPath`, `volumePath`,
+`cachePaths`, `baseline`, `refresh`, `statePaths`, `stateMaxBytes` and `sizes` to
+`<name>.json` — the **run-time half**, meaning the fields a host-side program
+needs *after* it has resolved which capsule it means. The other five
+(`toolsPackage`, `extraTools`, `caches`, `commands`, `guestConfig`) are inputs to
+the guest image and stay build-time, because a document naming them would
+describe an image the running slot may not be. The document's keys are the field
+names above, deliberately: a renamed key would be a second vocabulary.
+
+Nothing reads it yet, so the `read by` column is unchanged and every field is
+still interpolated into the store paths that read it. What the render adds today
+is a set of checks that were nowhere before —`guestPath` must stay derived from
+`volumePath` and `name`, a cache must live under the volume, a state template
+must be relative, hole-free-or-single-holed and paired with a ceiling, and no
+value may carry a newline. Those are conditions this table already stated in
+prose and nothing enforced. When step 4 of
+[item 51](./ledger/051-the-target-in-four-store-paths.md) points the programs at
+the document, this column becomes *which program looks the field up* rather than
+*which store path carries it*, and that is the commit that moves the boundary.
+
 **Two of those rows are struck out, and that is what the column was for.**
 `allowlist` and `collectMaxPackBytes` were host controls — what a capsule may
 talk to, and how much may come back — sitting in the same file as `commands` and

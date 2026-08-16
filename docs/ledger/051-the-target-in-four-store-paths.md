@@ -1,14 +1,16 @@
 # NOTES item 51 — the four programs still spell the target, and it is item 20 one level up
 
-*State: **steps 0, 1 and 2 built and green; 3-6 gated on three decisions.** The
+*State: **steps 0-3 built and green; decisions 1 and 2 taken; 4-6 open, and only
+step 6 still waits on a decision.** The run-time half of `target.nix` is a
+rendered document now — `host/profile.nix`, per target, in the store, read
+through one function — with a suite pinning both halves of it. **Nothing reads
+it yet**, so no host program's store path has changed: that is step 4, and it is
+the commit that moves the boundary. Before that: the
 five guest-pushed scripts take every value they are about on their command line,
 the two that had no case suite have one, and each of the seven suites was watched
 going red against a deliberately broken copy of what it pins. The suites are then
 out of `flake.nix` and beside what they pin, one file each, which halved that
-file. Nothing about
-*where* the values come from has changed yet — they are still `target.nix`'s,
-spelled by the host program that makes the call — so no store path has stopped
-being a function of the target. That is step 3 onward.
+file. All of it is
 [Plan D](../plan-d-fleet.md) §6.4, which that
 file names as **D7's first task rather than a detail of it** and says is worth
 doing even if flavours never happen. Written up here rather than left as a
@@ -45,6 +47,11 @@ The table is the inventory as read, and two of its names are gone: step 2 remove
 a command line now (see *What steps 1 and 2 turned out to be*). Nothing else in
 it has moved — the store paths still *carry* those values, because the host
 program that spells the command line still gets them from `target.nix`.
+
+Step 3 does not change a row of it either. Every value in the first five rows now
+also exists in a document (`host/profile.nix`), but *also* is the operative word:
+nothing reads that document, so the right-hand column is still the truth. Step 4
+is what empties it.
 
 `programVerbs` is the same coupling in its other form: which verbs exist at all
 is decided at build time by which `target.nix` fields are non-null.
@@ -108,20 +115,21 @@ Three things, and they are why the shape is obvious rather than inventive:
   ([CLAUDE.md](../../CLAUDE.md)) paying for itself in a direction it was not built
   for — the seam a test needed is the seam a run-time value needs.
 
-## The decisions not taken
+## The decisions
 
-Three, not one — and two of them gate step 3 rather than being taken during it.
-Steps 1 and 2 need none of them, which is why the order of work starts where it
-does.
+Three, not one — and two of them gated step 3 rather than being taken during it.
+Steps 1 and 2 needed none of them, which is why the order of work starts where it
+does. **1 and 2 are taken and built; 3 is still open and now gates only step 6.**
 
-**1. Is the profile document per target, or one for the host?** Per target —
-`profileDir/<name>.json`, with the slot's record naming which — is the eventual
-shape and mirrors `policyDir` exactly. One document for the host is less work
-today and is a second thing to migrate later. **Recommended: per target**, on the
-grounds that the interim saves an hour and the migration costs a day, and that
-`policyDir` has already paid for the shape.
+**1. Is the profile document per target, or one for the host?** **Taken: per
+target**, as recommended. `<dir>/<name>.json`, one document per project, and the
+slot's record will name which — the shape `policyDir` had already paid for. The
+grounds were that the interim saves an hour and the migration costs a day; what
+building it added is that *the suite wanted it anyway*, since the claim the whole
+item is about ("one reader, N targets") is only assertable with two documents in
+one directory.
 
-**2. Where does the document live, and who validates it?** Step 3 says *checked
+**2. Where does the document live, and who validates it?** Step 3 said *checked
 at build for free*, and that is true only while nix is what renders it. The
 precedent it cites cuts the other way: `policyDir` defaults into this checkout
 (`host/services.nix:458`) and every allowlist under it is a plain file
@@ -138,9 +146,31 @@ at once and the item should not pretend otherwise:
   program will index into, the `{unit}` hole's boundedness, and the paths' shape.
   That validator is work this item does not currently list.
 
-**Recommended: render to a store path first and read it through one function**,
-so the plain-file switch is a change of where that function looks rather than a
-change to every caller. Not decided.
+**Taken: a store path first, read through one function**, so the plain-file
+switch is a change of where that function looks rather than a change to every
+caller. `profileLoad` is that function and `CAPSULE_PROFILE_DIR` is where it
+looks — `CAPSULE_REPO`'s own shape, which is the precedent this generalises. The
+limit stands and belongs here rather than at step 4: **this does not reach
+§6.1's controller that never runs `nixos-rebuild`.** Two targets are still a
+rebuild apart. What has stopped being a rebuild apart is the *programs*, which is
+the item's claim.
+
+**What building it settled that the decision did not, and it makes the plain-file
+switch cheaper than this section assumed.** "Checked at build for free" is free
+only in the sense that nix *runs* the check — somebody writes it, and there are
+eleven now where there were none. But every one of them turned out to be
+**intra-document**: they compare a field against another field of the same
+document or against a shape, and not one of them needs anything nix knows. So a
+plain file does not lose them, it re-runs them per invocation, and the switch is
+transcribing eleven predicates into `profileLoad` beside the seven that are
+already there. That is much less than "a validator this item does not list".
+
+**What neither shape has is the check that matters most**, and naming it is worth
+more than the eleven: nothing compares the document to *the guest image the slot
+is actually running*. The render pins `guestPath` to `volumePath`/`name`, which
+stops this file from disagreeing with itself; it cannot stop a document edited
+after a slot booted from naming a checkout that image never made. That is the
+sharp edge above, it is `profile_snapshot`'s job, and it is step 4's.
 
 **3. What does a fleet-wide status table do with a per-target predicate?**
 `stateNeedsUnit` shapes the front end's printed text, and `capsule all status` is
@@ -148,9 +178,65 @@ one table for every slot. Three answers exist — the union of columns with blan
 where a target has none, a table per target, or the column always present and
 empty — and they are a front-end decision that outlives this item. It is named
 here because step 6 reads as *one list of verbs* and it is not: the verb list is
-the easy half. Not decided, and it is the only one of the three that could
-reasonably be deferred past step 3, since the predicate can stay build-time while
-every *value* around it has moved.
+the easy half. **Still not decided**, and the deferral held exactly as written:
+step 3 is done and the predicate is still build-time, with every value around it
+in a document. It now gates step 6 alone.
+
+## What step 3 turned out to be
+
+**A document nothing reads is a document nothing builds, so the suite is what
+builds it.** `host/profile.nix` renders and validates; nothing consumes it until
+step 4, which makes it precisely the shape of
+[item 37](./037-a-teardown-that-only-unnames.md) — a thing named by no flake
+output and reached by no unit. So `profileCases` loads the *shipped* document
+from the *baked* directory as its first case, with no environment set, which is
+what puts the render in `just build` at all. Everything after that is fixtures.
+
+**The suite's subject is a library, and that is a first here.** The reader is a
+shell fragment for [`host/record.nix`](../../host/record.nix)'s reason — the
+programs that will call it are already separate store paths, and a profile
+*program* would be one more thing to install that each of them would still have
+to call. So the suite splices the fragment it was handed into the smallest `main`
+there is (`profileLoad`, then `profileShow`) and reads that. One text, handed
+down from `flake.nix`, not a second render.
+
+**And `profileShow` is not only for the suite.** A library that sets eleven
+variables inside a program that uses three of them is SC2034 a dozen times over,
+and `writeShellApplication` fails a build on it. A function that prints all of
+them makes every one referenced within the fragment, which is the honest fix
+rather than a suppression — and it is also what a `capsule <slot> profile` verb
+would print. (Cost, in passing: a comment whose first word is `shellcheck` is a
+*directive* to it, and an unparseable directive is a build failure.)
+
+**The render's own refusals are pinned at eval, because a throw is not a build.**
+Eleven fixtures, each differing from a rendering target in exactly one thing,
+run through `builtins.tryEval` and reported as `refused`/`RENDERED` lines the
+shell asserts — `hostModuleUnits`' arrangement, one level down. With a **control**
+beside them, since a render that refused everything would otherwise read as this
+suite passing ([item 37](./037-a-teardown-that-only-unnames.md) again: a round
+that never discriminates). The fixture target is nobody's — borrowing doctrine's
+values would make it pass by standing still
+([item 38](./038-a-probe-that-became-a-borrower.md)).
+
+**One construction, so `render` is the function and the profile is it applied.**
+`flake.nix` needed the file as a function of a target for the suite's fixtures
+and as a value for this host, and building both would be two careful
+constructions of one thing (CLAUDE.md). `hostProfile = render target`.
+
+**Two mutations that mattered, out of five.** Gutting the required-field loop went
+red on exactly four cases and nothing else; replacing the line-per-value read with
+a `@tsv` row went red on the two fixtures that exist for it — the target with
+`null` commands, because bash treats tab as IFS *whitespace* so an empty column
+collapses and every later field shifts up by one, and the target with spaces in
+its paths. That trap is the reason the reader is one value per line, and the
+comment saying so is now load-bearing. The other three (the env override ignored,
+the `guestPath` derivation check dropped, the newline check dropped) each went red
+on their own case alone.
+
+**Two things fixed in passing.** `just build` was missing `observeCases` and
+`baselineCases` — added in step 2, added to `just cases`, never added to the
+build, so two of the seven suites were not failing the build they are supposed to
+fail. And `just build` now names `profileCases`, which is the eighth.
 
 ## What steps 1 and 2 turned out to be
 
@@ -261,10 +347,19 @@ it is still what those steps say:
    says out loud that two of the five move unpinned. The first is the cheaper
    answer and is the same shape three times over; the second is a choice, not an
    oversight, and must be written as one.
-3. **Render the profile document.** `target.nix`'s run-time half → JSON, authored
-   in nix and checked at build for free, read at run time by a program. §6.1's
-   *validated document, not a nix file*, with `perimeter/egress-allow.txt` as the
-   standing precedent for a plain file that is deliberately not a store path.
+3. **Done. Render the profile document.** `target.nix`'s run-time half → JSON,
+   authored in nix and checked at build, read at run time through one function.
+   §6.1's *validated document, not a nix file*, with `perimeter/egress-allow.txt`
+   as the standing precedent for the plain file it is deliberately not yet.
+
+   **What it came to:** `host/profile.nix` — ten fields, `schema: 1`, eleven
+   checks at render and seven at read, plus `profileLoad`/`profileShow` as a
+   fragment. `host/profile-cases.nix` is 57 cases, the eighth suite. The document
+   is `capsule-profiles` as a flake output so a human can read what a program will
+   resolve. **No host program's store path moved** — `capsule-cli`,
+   `capsule-provision`, `capsule-collect` and `capsule-brief` are byte-identical
+   to HEAD's, checked against a throwaway worktree, which is the honest statement
+   that step 3 is a render and not a switch.
 4. **Host programs read it after resolving `--capsule`**, exactly where
    `transport` already resolves a socket, and with the same refusal when unnamed
    ([item 28](./028-a-slot-has-no-default.md)).
@@ -314,9 +409,15 @@ is already safe. A refactor that reports success while collecting nothing is the
 failure mode this repo has already had once, in `host/refresh.nix`
 ([item 47](./047-a-script-on-stdin-and-the-command-that-eats-it.md)).
 
+**Step 3 did not spend any of that, and the reason is checkable rather than
+argued.** It adds a document, a library and a suite and changes no program: the
+four store paths above are byte-identical to HEAD's. So the smoke test is still
+owed in full, and it is owed at step 4 — the first commit in which a live slot's
+`capsule-provision` is a different store path from the one that provisioned it.
+
 ## Which verb the evidence covers
 
-**Read**, twice, and then **Build** three times — steps 1, 2 and 0, in that
+**Read**, twice, and then **Build** four times — steps 1, 2, 0 and 3, in that
 order. The first pass took `host/programs.nix`,
 `host/git-channel.nix`, `host/cli.nix` and `target.nix` plus the record-writing
 site, and produced the inventory. The second was a readiness pass over the plan
@@ -327,9 +428,9 @@ this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
 decisions 2 and 3, step 1's coverage gap and the `guestPath` edge. Every line
 reference above was checked against the file it names.
 
-Both passes were taken before anything was built. **Steps 0, 1 and 2 are now
-built and green** — each was mechanical, scoped and needed none of the decisions.
-**Steps 3 to 6 are not**, and what they wait on is the three
-decisions above rather than more reading — 1 and 2 before step 3, 3 before step
-6. The inventory is the reads' product and is the part
-worth trusting; the ordering is a judgement.
+Both passes were taken before anything was built. **Steps 0 to 3 are now built
+and green.** 0, 1 and 2 were mechanical, scoped and needed none of the decisions;
+3 needed two of them and they are taken. **Steps 4 to 6 are not built**, and what
+step 6 waits on is decision 3 — step 4 and step 5 wait on nothing but the work.
+The inventory is the reads' product and is the part worth trusting; the ordering
+is a judgement, and so far it has held.

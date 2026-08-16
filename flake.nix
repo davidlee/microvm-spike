@@ -388,6 +388,27 @@
       };
     };
 
+    # The same values, rendered instead of interpolated — `target.nix`'s run-time
+    # half as `<name>.json`, plus the one function that reads one back
+    # ([item 51](./docs/ledger/051-the-target-in-four-store-paths.md) step 3).
+    # Nothing consumes it yet; step 4 points the programs above at it, and until
+    # then the suite beside it is what builds it.
+    #
+    # Built here rather than inside `host/programs.nix` for that file's own
+    # reason: it is a function of `target` and of nothing else — no transport, no
+    # capsule — so a second construction would have nothing to differ in, and one
+    # store path is the honest statement of that.
+    # A function of a target rather than the value, because the suite beside it
+    # pins the render's *refusals* and needs to apply it to a fixture — and one
+    # construction is the rule (CLAUDE.md), so this host's own profile is that
+    # function applied to this host's target rather than a second import.
+    render = t:
+      import ./host/profile.nix {
+        inherit pkgs lib;
+        target = t;
+      };
+    hostProfile = render target;
+
     # Not one of those four: they run at the *agent*, over whichever transport
     # reaches a capsule, and this one runs at guest root over the link itself —
     # every capsule has the same one, since the namespace is what tells two of
@@ -474,6 +495,18 @@
     refreshCases = import ./host/refresh-cases.nix {
       inherit pkgs lib;
       script = hostPrograms.refreshScript;
+    };
+
+    # The one suite whose subject is a *library* rather than a program, and the
+    # only thing that builds the rendered document — which is why it is not
+    # optional on anything (host/profile-cases.nix).
+    profileCases = import ./host/profile-cases.nix {
+      inherit pkgs lib;
+      inherit (hostProfile) fragment inputs dir name;
+      # The same construction this host's own profile comes from, so the suite
+      # can watch the render *refuse* a target. A throw is not a build, so it is
+      # read at eval and asserted in the shell — `hostModuleUnits`' arrangement.
+      inherit render;
     };
 
     policyCases = import ./host/policy-cases.nix {
@@ -1211,6 +1244,10 @@
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
         inherit hostModuleUnits hostModulePrograms guardCases policyCases observeCases;
+        inherit profileCases;
+        # The rendered run-time half of `target.nix`, so a human can read what a
+        # program will resolve (host/profile.nix). `nix build .#capsule-profiles`.
+        capsule-profiles = hostProfile.dir;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-restart probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;

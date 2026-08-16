@@ -7,6 +7,34 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 happens next.
 
 Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)'s
+step 3 was built and its first two decisions taken**: `target.nix`'s run-time
+half is a **document** now — `host/profile.nix` renders `<name>.json` per target
+into a store path, and `profileLoad` is the one function that reads one back,
+looking where `CAPSULE_PROFILE_DIR` says or at the baked render, which is
+`CAPSULE_REPO`'s shape generalised from an override to a lookup. Per target
+(decision 1) and in the store (decision 2), both as the item recommended; the
+plain-file half is deferred and the limit is written down rather than discovered
+later — **two targets are still a rebuild apart**, and what has stopped being a
+rebuild apart is the programs. **Nothing reads it yet**: `capsule-cli`,
+`capsule-provision`, `capsule-collect` and `capsule-brief` are byte-identical to
+the commit before, checked against a throwaway worktree, so this is a render and
+not a switch and none of the item's owed smoke test was spent. Eleven checks fire
+at render and seven more at read, where there were none of either: `guestPath`
+must stay derived from `volumePath` and `name`, a cache must live under the
+volume, a state template must be relative, `..`-free and single-holed and paired
+with a ceiling, and no value may carry a newline. `profileCases` is 57 cases and
+the **eighth** suite — the first whose subject is a *library* rather than a
+program, so it splices the shipped fragment into the smallest `main` there is,
+and the first whose fixtures are read at **eval**, since the render's refusals
+are throws and a throw is not a build. Five mutations, each red on its own cases
+and nothing else; the one worth keeping is that a tab-separated row loses an empty
+column, because bash treats tab as IFS *whitespace* — which is why the reader is
+one value per line and why the two fixtures that catch it exist. **And two suites
+were found not to be in `just build`**: `observeCases` and `baselineCases` were
+added in step 2 and to `just cases`, never to the build, so two of seven were not
+failing the build they exist to fail. `just`, `just units` and `just cases` (256
+cases) green; nothing switched, no capsule touched. Before that, the same day,
+after **that item's
 step 0 was built**: the seven case suites are out of `flake.nix` and beside what
 they pin, one file each — `host/guard-cases.nix`, `host/brief-cases.nix`,
 `host/state-snapshot-cases.nix`, `host/baseline-cases.nix`,

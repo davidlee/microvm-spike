@@ -33,7 +33,7 @@ evaluates). `just` (default) runs the build, units, and fmt.
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
 not mention them. `guardCases`, `briefCases`, `snapshotCases`, `refreshCases`, `observeCases`,
-`baselineCases` and `policyCases`
+`baselineCases`, `policyCases` and `profileCases`
 *run* a host-side
 program's own text with a substitute for the one thing tying it to this host
 (`just cases`), and are the answer whenever the interesting branches are ones a
@@ -44,14 +44,24 @@ of work in a checkout that holds several, the refresh's by giving it a target
 command that fails or eats its own stdin, the baseline's by having a build that
 can be asked to fail, the status's by catching an unprovisioned volume or a run
 in flight before it leaves that state, the front end's by editing the declared
-pool and writing the live record of a slot somebody is using. All three kinds are in `just build`, so a failing case is a failing
-build. **One suite per file, beside the program it pins** —
+pool and writing the live record of a slot somebody is using, the profile's by
+holding two targets at once and by handing the render a target no host declares.
+All three kinds are in `just build`, so a failing case is a failing
+build — **check that when you add one**: `observeCases` and `baselineCases` were
+written, wired into `just cases`, and left out of `just build` for a session
+(NOTES item 51 step 3). **One suite per file, beside the program it pins** —
 `host/<name>-cases.nix`, a function of `pkgs`, `lib` and **the store path the
 program ships**, with a short `import` in `flake.nix` (NOTES item 51 step 0).
-Two of them are handed a fixture instead and say so in their headers: the guard's
-stubbed kernel, the front end's pool that is not this host's. A new suite goes in
+Three of them are handed a fixture instead and say so in their headers: the
+guard's stubbed kernel, the front end's pool that is not this host's, the
+profile's target that is nobody's. A new suite goes in
 its own file and takes its subject as an argument — never a second render of the
-text it claims to pin.
+text it claims to pin. **A suite whose subject is a *library* rather than a
+program** takes the fragment its callers get and splices it into the smallest
+`main` that exercises it (`host/profile-cases.nix`); and when what it pins is a
+`throw` rather than a program, the verdicts are read at eval with
+`builtins.tryEval` and asserted in the shell, which is `hostModuleUnits`'
+arrangement one level down.
 
 The seam that makes the third kind possible is worth reusing rather than
 reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
