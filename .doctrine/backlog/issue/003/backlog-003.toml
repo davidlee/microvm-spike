@@ -1,15 +1,15 @@
 schema = "doctrine.backlog"
 version = 1
 
-id = 1
-slug = "switch-this-host-onto-head"
-title = "Switch this host onto HEAD"
-kind = "chore"
+id = 3
+slug = "a-dirty-worktree-push-refusal-offers-force-which-cannot-fix-it"
+title = "A dirty-worktree push refusal offers --force, which cannot fix it"
+kind = "issue"
 status = "open"
-resolution = ""
+resolution = ""                 # seeded empty so `backlog edit` sets it in place
 created = "2026-08-16"
 updated = "2026-08-16"
-tags = []
+tags = ["area:cli"]
 
 # outbound-only (ADR-004). Cross-kind structural edges (e.g. references with a role
 # — `originates_from` for backlog→slice provenance — governed_by, related, drift) are

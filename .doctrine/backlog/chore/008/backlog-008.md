@@ -9,6 +9,12 @@ flake change:
   deleted the *service* for — the git channel stopped serving and the directory
   stayed.
 
+Two more of the same class, found 2026-08-17 and added here rather than opened as
+their own item: `.vm/--help` and `.vm/--list` in this checkout, both dated
+2026-08-11, are `ISS-002`'s artefacts. That issue is **resolved** — the flag is no
+longer read as a VM name — but resolving it did not remove what it had already
+created, and nothing else claims them.
+
 The general question behind them is **quarantine retention**, which is open and
 belongs to the confined project's corpus: doctrine's `DEC-193` is proposed there.
 That is *doctrine's* id, not this repo's — the two id spaces are strictly
