@@ -17,7 +17,7 @@ config.
 
 ## Where this stands
 
-Where the *work* is up to is [status.md](./status.md), and the probe results and
+Where the *work* is up to is `doctrine backlog list`, and the probe results and
 figures this plan reasons from are [probes.md](./probes.md) — neither is
 repeated here. What is specific to this plan:
 

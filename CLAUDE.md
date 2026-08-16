@@ -10,9 +10,10 @@ everything else is [docs/](./docs/index.md), which maps question to file.
 **Governance is doctrine's** — `.doctrine/project-orientation.md` is the way in,
 and `ADR-001` is the scope: routing here is backlog-first, larger programs of
 work get a slice, and this repo's id space is strictly separate from the
-doctrine corpus it confines. [docs/status.md](./docs/status.md) still holds the
-present tense and is **being retired** into runtime state, backlog and knowledge
-records — read it, don't grow it. Two more before proposing changes:
+doctrine corpus it confines. **No file holds the present tense** —
+`capsule all status` says what is true on this host, `doctrine backlog list` what
+is next, `doctrine knowledge list` what is open, and `STD-001` is the rule for
+what any of it counts as evidence for. Two more before proposing changes:
 [docs/ledger/](./docs/ledger/index.md) is a **closed archive** of rationale and
 gaps, one file per item (`NNN-slug.md`) — **several obvious-looking ideas are
 recorded there as considered-and-rejected** — cited from source as `NOTES item
@@ -27,7 +28,7 @@ non-firecracker shapes, `plan-c-multi-capsule.md` is what N capsules on one host
 would cost, `plan-e-room.md` is a guest that is **not** a capsule — several
 people ssh'd into one shared box — and is the first test of whether the
 machinery underneath is separable from the product. Do not put present-tense
-state in a plan; that is `status.md`'s job.
+state in a plan; that is a backlog or knowledge record's job.
 
 ## Working here
 

@@ -21,7 +21,7 @@ follows from refusing to make it a slot.
 
 ## Where this stands
 
-Nothing is built. Where the *work* is up to is [status.md](./status.md); figures
+Nothing is built. Where the *work* is up to is `doctrine backlog list`; figures
 are [probes.md](./probes.md); the reasoning this leans on is in the
 [ledger](./ledger/index.md), chiefly items 18, 28, 32, 37 and 38.
 

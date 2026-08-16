@@ -1,7 +1,8 @@
 # Contract — what a slot is assigned, and who may say so
 
-**Part of this is built now.** [status.md](./status.md) owns the present tense and
-is where to read what; this file stays the shape rather than the report. It was
+**Part of this is built now.** `doctrine backlog list` and `doctrine knowledge
+list` own the present tense and are where to read what; this file stays the shape
+rather than the report. It was
 fixed *before* [Plan D](./plan-d-fleet.md) D1 wrote a persistent record, because a
 record is the most likely place for today's one-target assumptions to survive a
 transition that was meant to remove them — and that worked: what D1 had to decide

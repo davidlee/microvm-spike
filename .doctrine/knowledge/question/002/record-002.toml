@@ -1,0 +1,27 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 2
+slug = "which-stage-does-a-host-authored-commit-land-at"
+title = "Which stage does a host-authored commit land at"
+record_kind = "question"
+status = "open"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+question = "Which stage does a host-authored commit land at, and can a chain cross stage names?"
+why_matters = "implementation is a default somebody picked. An audit capsule cannot parent the implementation state it was briefed with; the fix is ~10 lines and the semantics are what is undecided."
+answer      = ""
+answered_by = ""
+answered_on = ""
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)

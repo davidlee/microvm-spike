@@ -12,8 +12,10 @@ The same repo, two contracts, and neither implies the other. A different client
 could import this evidence without being confined by it, and a different target
 could be confined without holding a single requirement.
 
-Which of the below has actually been answered is [status.md](./status.md)'s to
-say, and every figure is [probes.md](./probes.md)'s. This file names the
+Which of the below has actually been answered is `doctrine backlog list`'s and
+`doctrine knowledge list`'s to say, and every figure is [probes.md](./probes.md)'s.
+**Every id in the table below is doctrine's**, in doctrine's corpus — this repo's
+`.doctrine/` is a separate id space (`ADR-001` term 2). This file names the
 surface. [import-doctrine.md](./import-doctrine.md) is a different thing again —
 a **disposable round packet** that directed one round of probes; it is deleted
 when its findings land as records. This file is the durable part.
@@ -29,12 +31,12 @@ tooling is the reader.
 | record | what it asks of a capsule | where this repo's answer is kept |
 | --- | --- | --- |
 | `RFC-025` § *The microVM turn* | the frame for replacing the bubblewrap boundary | [design.md](./design.md) |
-| `IMP-426` | the work item every round here reports into | [status.md](./status.md) |
+| `IMP-426` | the work item every round here reports into | `doctrine backlog list` |
 | `SPEC-030` | the capsule contract as written against bubblewrap and measured there — this boundary is the candidate replacement | [threat-model.md](./threat-model.md) |
 | `REQ-448`, `DEC-191` | the authority floor: no canonical ref mutation, no canonical credentials, no writable shared object store, no control-plane state | [threat-model.md](./threat-model.md); the git channel's direction is [item 18](./ledger/018-git-channel-direction.md) |
 | `REQ-450` | fresh mutable state on five axes — checkout, repository, runtime, temporary state, process | [probes.md](./probes.md), `freshness.sh` |
 | `REQ-454`, `RT-1`, `CPT-002` | verification runs in a *separate* fresh capsule from the work it judges | [probes.md](./probes.md), `two-capsules.sh`; the N case is [plan-c-multi-capsule.md](./plan-c-multi-capsule.md) |
-| `REQ-451`, `REQ-452`, `QUE-213` | ingestion bounds, and the ceiling a `fetch` has no knob for | [item 18](./ledger/018-git-channel-direction.md); the byte/disk bound is open in [status.md](./status.md) |
+| `REQ-451`, `REQ-452`, `QUE-213` | ingestion bounds, and the ceiling a `fetch` has no knob for | [item 18](./ledger/018-git-channel-direction.md); the byte/disk bound is `RSK-006` |
 | `DEC-135`, `ADR-020` | the host's git never runs in a capsule-authored repository — the rule is about execution context, not about bundles | `host/git-channel.nix`: a host-authored quarantine, `--no-tags`, `transfer.fsckObjects` |
 | `ASM-010` | the host never hands guest-authored filesystem metadata to the host kernel | `vm/capsule.nix`: the volume is read with fuse2fs or debugfs, never `mount` |
 | `QUE-212`, `DEC-192`, `EVD-016`, `EVD-017` | which direction a result leaves by | [item 18](./ledger/018-git-channel-direction.md) — host-initiated both ways, the daemon deleted rather than confined |

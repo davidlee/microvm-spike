@@ -357,5 +357,5 @@ Source: [`docs/threat-model.md`](./threat-model.md).
 | State handoff | [`host/brief.nix`](../host/brief.nix) |
 | Guest-tree validation | [`host/exhibit.nix`](../host/exhibit.nix) |
 | Host extraction | [`host/adopt.nix`](../host/adopt.nix) |
-| Current truth | [`docs/status.md`](./status.md) |
+| Current truth | `capsule all status` (this host), `doctrine backlog list` (next), `doctrine knowledge list` (open) |
 | Security claim | [`docs/threat-model.md`](./threat-model.md) |

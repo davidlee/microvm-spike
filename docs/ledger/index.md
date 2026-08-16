@@ -37,9 +37,9 @@ is the ratchet and not the work being more interesting.**
 Resolved items are kept because the reasoning is the value — several of them
 record a wrong first answer next to the measurement that corrected it, which is
 what stops it being proposed again. Present tense belongs to
-[status.md](../status.md) and figures to [probes.md](../probes.md); an item that
-has become a bare status flag should shrink to a pointer at one of them the next
-time it is touched.
+`doctrine backlog list` and `doctrine knowledge list`, and figures to
+[probes.md](../probes.md); an item that has become a bare status flag should
+shrink to a pointer at one of them the next time it is touched.
 
 | # | item | state |
 | --- | --- | --- |

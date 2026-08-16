@@ -639,7 +639,7 @@ So the cold build is **109 s ± ~5%** rather than one reading, and the ~1.1 GiB
 of volume it costs reproduced twice to within a MiB. Each of the three proves
 its own coldness by the same arithmetic — `.cargo` after exceeds all three
 caches before. What is still n = 1 is *sequential*: nothing here says what two
-of these cost run at once, which is the [open](./status.md) load question and
+of these cost run at once, which is the open load question (`QUE-004`) and
 the reason these three are the control for it.
 
 ## The cold build, on a second target

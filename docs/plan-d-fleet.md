@@ -14,7 +14,8 @@ thrown away.
 
 Limitations here are structural: consequences of where a value lives, not of
 what has been built yet. Where something is merely unrun, this says so and links
-to [status.md](./status.md), which owns the present tense.
+to `doctrine backlog list` and `doctrine knowledge list`, which own the present
+tense.
 
 ## 0. Settled
 
@@ -860,7 +861,7 @@ Not answerable from doctrine, and worth asking before the first one arrives:
 ## 9. Order of work
 
 **Steps 1–5 are taken and 6–8 are not.** Which is *not* this file's to say — the
-present tense is [status.md](./status.md)'s — but the ordering argument only
+present tense is a backlog record's — but the ordering argument only
 reads correctly if you know which end of it you are standing at, so each step
 below is annotated in place with what closed it, as L12 and L13 are. The three
 things this plan named and nothing tracked are in the ledger now:

@@ -1,0 +1,27 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 5
+slug = "what-is-time-to-interactive-for-a-fresh-capsule"
+title = "What is time-to-interactive for a fresh capsule"
+record_kind = "question"
+status = "open"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+question = "What is time-to-interactive for a fresh capsule - boot plus provision plus setup plus a cold baseline build?"
+why_matters = "8.31s means provisioned, not interactive. The 109s and the 22 assertions come from different runs and must not be quoted as one result."
+answer      = ""
+answered_by = ""
+answered_on = ""
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)

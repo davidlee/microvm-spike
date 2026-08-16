@@ -1,0 +1,27 @@
+schema = "doctrine.knowledge"
+version = 1
+
+id = 1
+slug = "is-a-brief-top-up-a-scoped-additive-verb-or-a-refusal"
+title = "Is a brief top-up a scoped additive verb or a refusal"
+record_kind = "question"
+status = "open"
+created = "2026-08-16"
+updated = "2026-08-16"
+tags = []
+
+[facet]                         # every field typed; seeded empty (captured later)
+question = "Is a brief top-up a scoped additive verb (--only-absent) or a refusal that says brief before you start?"
+why_matters = "Decides whether a capsule already inside the window is served or restarted. The second is cleaner; the first is what the day wanted."
+answer      = ""
+answered_by = ""
+answered_on = ""
+
+[evidence]                      # free-text citations (supports / contradicts / notes)
+supports    = []
+contradicts = []
+notes       = []
+
+[relationships]                 # verb-written edges (set by doctrine supersede)
+supersedes    = []   # record ids this one replaces (set by doctrine supersede)
+superseded_by = []   # set on superseded predecessor (verb-written, ADR-004 §5)

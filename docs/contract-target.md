@@ -8,7 +8,8 @@ a target must supply, and what it may rely on the capsule to provide.
 The *rule* that produced this shape is in [CLAUDE.md](../CLAUDE.md) ("doctrine
 is the guinea pig, not the design") and the history is
 [item 16](./ledger/016-target-agnostic.md). Neither is restated here. How far
-any of it has been exercised is [status.md](./status.md)'s to say; this file
+any of it has been exercised is `doctrine backlog list`'s to say — `RSK-002` is
+the three absent paths, `IMP-004` the second target that would run them; this file
 describes the interface, not its state. Usage — the commands in order, with a
 live target — is [README.md](../README.md).
 

@@ -1,7 +1,7 @@
 # Contract — what a flavour is, and where its tools come from
 
-**Composition is built; selection is not.** [status.md](./status.md) owns the
-present tense, and [item 31](./ledger/031-the-fragment-vocabulary.md) is what
+**Composition is built; selection is not.** `CON-001` (`doctrine knowledge show
+CON-001`) owns the present tense, and [item 31](./ledger/031-the-fragment-vocabulary.md) is what
 was built and why. In short: `fragments.nix` is the host's vocabulary, `extras`
 in `flake.nix` is one selection for the whole fleet, and `vm/capsule.nix`
 composes it onto the target's floor — so the two owners below are two files

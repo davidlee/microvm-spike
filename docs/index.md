@@ -10,7 +10,7 @@ evaluations, and the frozen ledger.
 
 | question | doc |
 | --- | --- |
-| where is this up to, what is next, what is still open? | [status.md](./status.md) |
+| where is this up to, what is next, what is still open? | `doctrine backlog list` and `doctrine knowledge list` — [status.md](./status.md) is a tombstone that maps the old sections onto them |
 | why is it built like this? | [design.md](./design.md) |
 | what must a repo be, for this to confine it? | [contract-target.md](./contract-target.md) |
 | what is a slot assigned, and who may say so? | [contract-assignment.md](./contract-assignment.md) — record and policy built, selection of a profile unbuilt |
@@ -41,22 +41,25 @@ evaluations, and the frozen ledger.
 - **[probes.md](./probes.md) owns the figures.** Link to it instead of copying a
   number — the last time a measurement lived in three files, two of them were
   the harness's own patience rather than the capsule's.
-- **[status.md](./status.md) owns the present tense, and holds no other.** Plans
-  record what a thing would cost, not whether it has happened yet — and status
-  records what is true, not how it got true. Its four sections each state what
-  leaves them and where it goes, because the version with no eviction rule
-  reached 2463 lines ([item 54](./ledger/054-status-grew-a-changelog.md)). The
-  past-tense exception is bounded on purpose: **five recent entries, evicting**,
-  since recency ordering is the one thing neither `git log` nor a ledger item's
-  own header gives a reader arriving cold.
+- **No file in `docs/` owns the present tense.** `capsule all status` answers
+  what is true on this host, `git log` answers how it got true, and
+  `doctrine backlog list` / `doctrine knowledge list` answer what is next and
+  what is open. Plans record what a thing would cost, never whether it has
+  happened. [status.md](./status.md) is the tombstone that maps the old sections
+  onto those, and it is kept only because ~40 places link to it — an authored
+  present tense reached 2463 lines here
+  ([item 54](./ledger/054-status-grew-a-changelog.md)), and the eviction rule
+  written to bound it was itself unenforced.
 - **`contract-*.md` are the governing artifacts**, and they split by *authority*
   rather than by where a value happens to live: what a repo owes
   (`-target`), what the guest can do (`-flavour`), what a slot is assigned and
   who may say so (`-assignment`), and doctrine's two roles (`-doctrine`). Two of
   them describe a shape that is only partly built and say so at the top; a design
-  artifact carries no state, so what exists is still status.md's to say.
-- There is no changelog. `git log` is the record, and the ledger's resolved
-  items carry the reasoning a changelog would lose. **That is a claim on the
+  artifact carries no state, so what exists is a backlog or knowledge record's to
+  say.
+- There is no changelog. `git log` is the record; the frozen ledger's resolved
+  items carry the reasoning a changelog would lose, and `doctrine adr` carries it
+  from here. **That is a claim on the
   commit message, not just a prohibition** — the one time the messages degraded
   to bare item numbers, a 720-line changelog grew at the top of status.md to
   hold what they stopped carrying, and nobody had written it down as a decision

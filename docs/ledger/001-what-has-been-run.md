@@ -83,4 +83,7 @@ unit of work has been handed whole to another slot.
 second host; a **second target repo** ([item 16](./016-target-agnostic.md)),
 which is what three build-time-only refusals are waiting for; the VMM half of
 [item 11](./011-host-side-runs-as-you.md); and the sideband arc's refusals —
-[the arc has only ever run forwards](../status.md).
+the arc has only ever run forwards (`RSK-001`).
+
+*The ladder above is now `STD-001`, which is `required`. This item stays as its
+source and its evidence; the rule to follow is the standard.*
