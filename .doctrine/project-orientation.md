@@ -13,14 +13,14 @@ capsule assigned a unit of work, a policy, and a target profile.
 
 ## Guiding Principles
 
-- **The perimeter is host-side.** Egress filtering, the forward-chain drop, the
-  namespace. Never move a control into the guest — guest-side settings are
-  convenience, not security. The full invariant list is
-  [CLAUDE.md](../CLAUDE.md) → *Architecture invariants*; break one and the
-  confinement stops meaning anything.
-- **doctrine is the guinea pig, not the design.** Every target need must be met
-  by a *generic capability plus a value the target supplies*. The review
-  challenge: *would a different target need this code changed, or only a
+- **The perimeter is host-side** (`POL-001`). Egress filtering, the
+  forward-chain drop, the namespace. Never move a control into the guest —
+  guest-side settings are convenience, not security. `POL-001`…`POL-004` are the
+  invariants, they are `required`, and the boot snapshot carries them into every
+  session; break one and the confinement stops meaning anything.
+- **doctrine is the guinea pig, not the design** (`POL-002`). Every target need
+  must be met by a *generic capability plus a value the target supplies*. The
+  review challenge: *would a different target need this code changed, or only a
   different value?* If the code, it is in the wrong place.
 - **Declare, don't scrape.** No value comes from a human's `$HOME`, and nothing
   target-shaped is read out of the target repo — the agent can edit that.

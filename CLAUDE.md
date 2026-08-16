@@ -206,166 +206,26 @@ no size bound, one entry at a time, with no diff big enough to notice.
 
 ## Architecture invariants
 
-Break these and the confinement stops meaning anything:
+**These are `POL-001`…`POL-004`, `required`, and they are in your context
+already** — the boot snapshot at the top of this file carries every active policy
+and standard, so they are governed and queryable rather than prose here. Read one
+with `doctrine policy show POL-00N`. Break one and the confinement stops meaning
+anything.
 
-- **The perimeter is host-side.** Egress filtering (tinyproxy allowlist) runs on
-  the host, where the guest cannot reach it. Git is not a control at all any
-  more: the host initiates both directions and the guest has no remote, so what
-  used to be a ref restriction enforced by a hook is now the absence of a
-  channel (NOTES item 18). Guest-side settings — proxy env vars, the
-  unprivileged `agent` user, `receive.denyCurrentBranch` — are convenience and
-  clumsiness-guards, not security. Never move a control from the host into the
-  guest.
-- **`perimeter/` knows nothing about the jail.** It builds the proxy and
-  `capsule-host` from addresses, a port, and two injected shell fragments —
-  `preflight` (once, before anything binds) and `watch` (supervised child; exits
-  nonzero when the perimeter is gone, which tears the proxy down). No tap name,
-  no hypervisor, no Linux-only tool goes in there — that is what lets a seatbelt
-  or VM-based shape reuse it (docs/plan-b-other-jails.md). Anything
-  platform-shaped belongs at the call site in `flake.nix` (`perimeterChecks`).
-  `host/git-channel.nix` has the same seam for the same reason: it knows a git
-  URL and a `transport` fragment, both injected, and nothing about taps or
-  namespaces. That fragment is also what lets one store path serve N capsules —
-  it resolves `--capsule <name>` at run time and sets `ssh_cmd`, so a capsule's
-  socket is derived from its name instead of built into four programs (NOTES
-  item 20). Don't let a program probe for which transport to use: that bakes
-  both into it.
-- **Part of the perimeter is not in this repo.** The firewall port, the
-  forward-chain drop on the tap, and the sudoers rule that makes the drop
-  readable all live in the host's NixOS config (`~/flakes`) — README "Host
-  requirements". It is one port now, not two: dropping 9418 there is an
-  outstanding host-config edit (NOTES item 18). Anything proposed here that
-  assumes the host is unconfigured, or that tries to compensate for it
-  guest-side, is wrong twice. The drop is
-  *verified at run time*, not assumed: unverifiable-and-forwarding is a refusal
-  to start, and forwarding coming up mid-session kills egress. Don't soften
-  that to a warning — a warning is what it had while the drop was in fact
-  missing from the host config.
-  **All of that is the devshell path.** On the module path the tap is inside a
-  namespace `host/netns.nix` creates, so the control is that namespace's own
-  `ip_forward`, the sudoers rule and the `latent` state are gone, and the host
-  config's remaining job — forwarding, NAT, the resolver stub — the module
-  installs itself. Two shapes, one at a time: `capsule-host` refuses while a
-  `capsule-proxy-*` unit is active.
-- **No default route in the guest.** The only egress is the proxy. Adding NAT
-  or a gateway would silently void the allowlist — and so would leaving the
-  host forwarding for the tap, since guest root can add the route itself.
-  Guest kernel hardening (`lockKernelModules`) raises the cost of getting that
-  root; it is not what makes the claim true.
-- **Root is reachable only by ssh key from the host.** The agent has no sudo and
-  no su, by design.
-- **`net` in `flake.nix` is the single source of truth** for tap name, both
-  addresses, MAC and the proxy port. It is threaded to the guest via
-  `specialArgs`. Don't hardcode an address anywhere else.
-- **A slot has no default, and its name means nothing.** `capsules.nix` declares
-  which slots exist (`a`, `b`) and nothing anywhere names one implicitly: the
-  four host programs take `--capsule <name>` or `CAPSULE_NAME` and **refuse**
-  without one, the `capsule` front end resolves an unnamed verb to the slot that
-  is *up* (refusing when none or several are), and no `just` recipe spells a
-  name — the delegating ones pass none and the lifecycle ones require one
-  (NOTES item 28). `capsule` as a flake attribute is the guest **image**, not a
-  slot: probes build `.#capsule` and match `microvm@capsule`, so it has to stay
-  a real attribute even though it is not declared in `capsules.nix`.
-- **`policies.nix` is the same deal for the host's controls** — an allowlist
-  file, an ingestion bound and `mayCollect` per named policy, with each slot
-  declaring a default and the set an assigner may select within (`capsules.nix`).
-  A control chosen by whoever names the project is a control the naming authority
-  holds, so **no perimeter value lives in `target.nix`** and none comes back
-  (NOTES item 36, item 25). `capsule-host --policy <name>` and `capsule-collect
-  --policy <name>` refuse without one; `capsule <slot> policy <name>` writes the
-  record and re-points that slot's allowlist link under one `flock`, then
-  restarts its proxy.
-- **`target.nix` is the same deal for the repo under confinement** — name, path,
-  tools package, caches, sizes. Its build-time half is threaded the same way; its
-  **run-time half is a rendered document** (`host/profile.nix`) that every
-  host-side program loads at run time, taking `--profile <name>` where it takes
-  `--capsule <name>` and refusing without one (NOTES item 51). **The documents are
-  not in the store** (item 52): the module installs one per declared target into
-  `profileDir` at activation, overwriting the names it renders and leaving any
-  other name alone, so a second target is a file rather than a rebuild — and
-  **every rule about a document is the reader's**, one validator, run by the
-  render itself and shipped as `capsule-profile-check` for a document nix did not
-  write. Don't put a document predicate in nix; it would then hold for the
-  documents that never needed it. **And a slot is pinned to the bytes it was
-  provisioned under** (item 52 step 3): a provision copies its document into the
-  slot's own directory and records that copy's digest, and every later verb on
-  that slot is pointed at *that* directory — so a profile is pinned while a
-  policy is live, and `capsule all status` marks the slot whose host document has
-  moved on. The pin is a `profileDir` choice and never a second way to find
-  bytes, and pointing at one is the **front end's** act: a program that looked
-  for a pin would be choosing its own target. **A provision is the one verb that
-  reads this host's directory**, because the act that sets a pin cannot be
-  governed by it. Which name a verb
-  on a slot means is resolved by the **front end** — explicit flag, then the
-  slot's record, then the one profile this host declares, refusing when several —
-  because a program that reads host state to pick a target is item 20's mistake.
-  No program carries a target's values or its name — **nor its own existence**:
-  every `capsule-<verb>` is built on every host and refuses at run time for a
-  document declaring nothing, because "no program rather than one that cannot
-  work" is the right absent path only while a host has one target (item 51 step
-  6). Same rule for printed text, and it is the one to keep: **the front end's
-  shape is not a function of any target.** `capsule all status` is one table over
-  N slots and M targets, so every column is always printed and every verb always
-  offered; what a target does not declare is a `-` in a cell or a refusal naming
-  the profile. A *program* holds exactly one profile and **does** branch on it —
-  `capsule-collect`'s two `--unit` refusals — which is the boundary that makes
-  this a rule rather than a preference. It has
-  **no branch field** and gets none back: the guest's branch is `workBranch` in
-  `flake.nix`, a constant, because a name that identifies the work is not
-  project state (docs/contract-target.md). `capsule-provision <ref>` is a ref in
-  the target repo and is the other thing called a branch here.
-  `statePaths` is a **template** list, not a path list: each entry may hold one
-  `{unit}`, filled at collect by an opaque token the assignment carries, and a
-  hole with no unit refuses rather than collecting everything (NOTES item 32).
-  That is the shape for anything a policy must scope by run-time state — the
-  policy says *where* the hole is, the assignment says *what* fills it, and the
-  token is bounded (`host/quarantine.nix`'s `checkToken`) so it can name an
-  instance and never widen a perimeter.
-  `doctrine` may appear in exactly two places: `target.nix`, and
-  `inputs.target.url`, which cannot be computed. Nothing target-shaped goes in
-  `perimeter/`, `vm/capsule.nix` or the justfile; it comes from there as a
-  value. And nothing target-shaped is ever read *out of the target repo* — the
-  agent can edit that (NOTES item 16). `target.guestPath` is the one path both
-  sides share, which is why it is derived there rather than spelled in the guest
-  and again in the host's git channel.
-- **doctrine is the guinea pig, not the design.** The capsule is the product and
-  the confined repo is a client, so every target need must be met by a *generic
-  capability plus a value the target supplies* — never by the generic code
-  learning what the target is. doctrine's needs may inform a default; they may
-  never carry the mechanism. Three limbs:
-  1. **Generalise before implementing.** For each target-shaped want, name the
-     capability it is an instance of, and build that. doctrine wants its cargo
-     config tuned to the capacity it has been given; the capability is *render
-     static guest config from the instance's declared reservation*. Not "support
-     cargo", and emphatically not "copy the human's `~/.cargo/config.toml`" —
-     which is a third failure, a config describing a machine the capsule is not.
-     The smell is a toolchain's name (`cargo`, `bun`, `sccache`) appearing
-     anywhere but `target.nix`.
-  2. **Anything beyond the contract is declared and optional.** The contract is
-     *be a git repo on this host, and expose one flake package that is your
-     devshell's tool set* (NOTES item 16). Everything else is a `target.nix`
-     field with a working absent path — `toolsPackage = null` already degrades
-     rather than breaks, and a second target must be able to omit any field
-     doctrine happens to set.
-  3. **Fix transient local state out-of-band.** A one-off in `~/flakes`, this
-     host's disk, or one repo's history is fixed by hand and not by permanent
-     leniency in the flake. Strict-and-owned beats lenient-and-coupled: it fails
-     loudly here, and it is the only thing that ports.
+| | |
+| --- | --- |
+| **`POL-001` The perimeter is host-side** | egress filtering, the forward drop, no default route in the guest, root only by ssh key. Guest-side settings are convenience, not security. Part of the perimeter lives in `~/flakes` and the drop is verified at run time, not assumed |
+| **`POL-002` Nothing generic learns what the target is** | *would a different target need this code changed, or only a different value?* The smell is a toolchain's name outside `target.nix`. Everything beyond the contract is declared, optional, and has a working absent path |
+| **`POL-003` One declaration per axis, and no implicit default** | `net`, `capsules.nix`, `policies.nix`, `target.nix`, `probeFabric` — one home each, nothing named implicitly, and resolution is the front end's act and never a program's |
+| **`POL-004` Reusable code knows nothing about the jail** | `perimeter/` and `host/git-channel.nix` take injected fragments. A program that needs testing takes as an argument the one thing that ties it to this host — which is what makes the case suites possible at all |
 
-  The review challenge, which is the whole point: *would a different target need
-  this code changed, or only a different value?* If the code, it is in the wrong
-  place. This is doctrine's own POL-002 (platform independence from host-project
-  conventions and state) pointed the other way — the same discipline, with this
-  repo as the platform and doctrine as the host.
+**Adding one is `doctrine policy new`, not a row above.**
 
-  The surface this rule produces is written down field by field:
-  [docs/contract-target.md](./docs/contract-target.md) is what any repo must
-  supply and may rely on, and
-  [docs/contract-doctrine.md](./docs/contract-doctrine.md) is doctrine's two
-  roles — the client holding the requirements, and one instance of that
-  contract. Update them in the same commit as anything that moves the boundary.
-
-  never use `git checkout` or other destructive forms.
+The surface `POL-002` produces is written down field by field:
+[docs/contract-target.md](./docs/contract-target.md) is what any repo must supply
+and may rely on, and
+[docs/contract-doctrine.md](./docs/contract-doctrine.md) is doctrine's two roles.
+Update them in the same commit as anything that moves the boundary.
 
 ## Firecracker constraints and the gotchas that have already cost time
 
