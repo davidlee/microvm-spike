@@ -90,7 +90,7 @@ build:
     '.#hostModuleUnits' '.#hostModulePrograms' \
     '.#guardCases' '.#policyCases' '.#briefCases' '.#snapshotCases' \
     '.#refreshCases' '.#observeCases' '.#baselineCases' '.#profileCases' \
-    '.#gitChannelCases'
+    '.#gitChannelCases' '.#vmCases'
 
 # which units the host module generates, without rebuilding a host — the only
 # mechanical check the NixOS half has
@@ -115,6 +115,7 @@ cases:
   @cat "$(nix build --no-link --print-out-paths '.#baselineCases')"
   @cat "$(nix build --no-link --print-out-paths '.#profileCases')"
   @cat "$(nix build --no-link --print-out-paths '.#gitChannelCases')"
+  @cat "$(nix build --no-link --print-out-paths '.#vmCases')"
 
 # the guest closure and its runner — the slow one
 build-vm:

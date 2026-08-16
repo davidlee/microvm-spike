@@ -524,6 +524,13 @@
       inherit render;
     };
 
+    # The tenth, and the only one whose subjects are *devshell* programs: `vm`
+    # and `vm-stop` are what a human types, and until `ISS-002` neither read its
+    # argv as anything but a name (host/vm-name.nix).
+    vmCases = import ./host/vm-cases.nix {
+      inherit pkgs vm vm-stop;
+    };
+
     policyCases = import ./host/policy-cases.nix {
       inherit pkgs lib net capsules policies guestSsh;
       inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateRefPrefix;
@@ -794,25 +801,27 @@
     hostModuleUnits = hostModule.units;
     hostModulePrograms = hostModule.programs;
 
+    # The argv `vm` and `vm-stop` share, and the only thing either of them asks
+    # of a human. One text, spliced ahead of both (host/vm-name.nix, `ISS-002`).
+    vmName = import ./host/vm-name.nix;
+
     # Each VM's runner keeps mutable state (volume images, API socket) in $PWD,
     # so give every one its own directory under .vm/.
     vm = pkgs.writeShellApplication {
       name = "vm";
-      text = ''
-        # No default, since `capsules.default` went with slots being abstract:
-        # every argument is a VM name and an omitted one used to mean the capsule
-        # that was called `capsule`.
-        name="''${1:-}"
-        if [ -z "$name" ]; then
-          echo "usage: vm <name>   (capsule | hello | a slot)" >&2
-          exit 1
-        fi
-        root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
-        dir="$root/.vm/$name"
-        mkdir -p "$dir"
-        cd "$dir"
-        exec nix run "$root#$name"
-      '';
+      # No default, since `capsules.default` went with slots being abstract: an
+      # omitted name used to mean the capsule that was called `capsule`. What
+      # reads argv is `host/vm-name.nix`, shared with `vm-stop` — and every
+      # refusal in it lands ahead of the `mkdir` below, which is `ISS-002`.
+      text =
+        vmName {prog = "vm";}
+        + ''
+          root="''${CAPSULE_ROOT:-''${MICROVM_SPIKE_ROOT:-$PWD}}"
+          dir="$root/.vm/$name"
+          mkdir -p "$dir"
+          cd "$dir"
+          exec nix run "$root#$name"
+        '';
     };
 
     # Probes are in the tree rather than in a scratch file for two reasons: each
@@ -1190,102 +1199,98 @@
     vm-stop = pkgs.writeShellApplication {
       name = "vm-stop";
       runtimeInputs = [capsule-halt pkgs.procps pkgs.coreutils];
-      text = ''
-        name="''${1:-}"
-        if [ -z "$name" ]; then
-          echo "usage: vm-stop <name>   (capsule | hello | a slot)" >&2
-          exit 1
-        fi
+      text =
+        vmName {prog = "vm-stop";}
+        + ''
+            # `capsule-halt` is namespace-relative and takes no transport, by design:
+          # it is always run somewhere ${net.guest} is directly routable — the unit
+          # from inside the capsule's own namespace, this program from the root one
+          # where the devshell path's tap lives. So it is not that a transport was
+          # forgotten here; it is that *this* copy is only correct on a host whose
+          # taps are in the root namespace, and the module path's are not.
+          #
+          # Which makes this `direct`'s second refusal (host/guest-ssh.nix), owed by
+          # a program that never selects a capsule because its argv is the name
+          # already. Without it the ssh times out at ${net.guest}, `capsule-halt`
+          # reports "no guest answering" — naming the wrong cause, since the guest
+          # answers fine through its relay — and then `own_vms` correctly finds no
+          # VMM of *this* namespace and the fall-through prints `is down` over a
+          # capsule still running. Two true-in-scope sentences that compose into a
+          # false one, which is the `pkill -f` trap one level up: the scoping is
+          # right and the claim it licenses is not.
+          sock=${socketOf ''"$name"''}
+          if [ -S "$sock" ]; then
+            echo "capsule '$name' is on the module path here ($sock exists), and this" >&2
+            echo "  is the devshell's stop: it would ask a guest that is not routable" >&2
+            echo "  from this namespace, then report a VMM it cannot see as down." >&2
+            echo "    /run/current-system/sw/bin/capsule $name stop" >&2
+            exit 1
+          fi
 
-        # `capsule-halt` is namespace-relative and takes no transport, by design:
-        # it is always run somewhere ${net.guest} is directly routable — the unit
-        # from inside the capsule's own namespace, this program from the root one
-        # where the devshell path's tap lives. So it is not that a transport was
-        # forgotten here; it is that *this* copy is only correct on a host whose
-        # taps are in the root namespace, and the module path's are not.
-        #
-        # Which makes this `direct`'s second refusal (host/guest-ssh.nix), owed by
-        # a program that never selects a capsule because its argv is the name
-        # already. Without it the ssh times out at ${net.guest}, `capsule-halt`
-        # reports "no guest answering" — naming the wrong cause, since the guest
-        # answers fine through its relay — and then `own_vms` correctly finds no
-        # VMM of *this* namespace and the fall-through prints `is down` over a
-        # capsule still running. Two true-in-scope sentences that compose into a
-        # false one, which is the `pkill -f` trap one level up: the scoping is
-        # right and the claim it licenses is not.
-        sock=${socketOf ''"$name"''}
-        if [ -S "$sock" ]; then
-          echo "capsule '$name' is on the module path here ($sock exists), and this" >&2
-          echo "  is the devshell's stop: it would ask a guest that is not routable" >&2
-          echo "  from this namespace, then report a VMM it cannot see as down." >&2
-          echo "    /run/current-system/sw/bin/capsule $name stop" >&2
-          exit 1
-        fi
-
-        # One link, one guest: the devshell path runs a single capsule at
-        # ${net.guest}, and every name below is that same guest — the image under
-        # its own name, and each declared slot, which are one value in this flake.
-        # Anything else (`hello`) is a VM this cannot talk to and is reaped rather
-        # than asked. The list follows the slots because the alternative is a
-        # literal that silently stops asking the moment a slot is renamed, and a
-        # stop that does not ask is a power cut on a mounted volume.
-        guests=(capsule ${lib.concatStringsSep " " (builtins.attrNames capsules.instances)})
-        halted=0
-        for g in "''${guests[@]}"; do
-          [ "$name" = "$g" ] || continue
-          if capsule-halt; then halted=1; fi
-          break
-        done
-
-        # Only VMMs this shell can prove are its own. Every capsule is
-        # `microvm@capsule` in the process table, so a bare `pkill -f` is a power
-        # cut for any namespaced sibling the module path is running — and it
-        # reads as a clean teardown while doing it. A VMM in a namespace is
-        # root's and lives in another netns, so both tests exclude it: the
-        # readlink fails, or it does not match this shell's.
-        own_vms() {
-          local self pid
-          self=$(readlink /proc/self/ns/net)
-          for pid in $(pgrep -f "microvm@$name" || true); do
-            [ "$(readlink "/proc/$pid/ns/net" 2>/dev/null)" = "$self" ] \
-              && echo "$pid"
+          # One link, one guest: the devshell path runs a single capsule at
+          # ${net.guest}, and every name below is that same guest — the image under
+          # its own name, and each declared slot, which are one value in this flake.
+          # Anything else (`hello`) is a VM this cannot talk to and is reaped rather
+          # than asked. The list follows the slots because the alternative is a
+          # literal that silently stops asking the moment a slot is renamed, and a
+          # stop that does not ask is a power cut on a mounted volume.
+          guests=(capsule ${lib.concatStringsSep " " (builtins.attrNames capsules.instances)})
+          halted=0
+          for g in "''${guests[@]}"; do
+            [ "$name" = "$g" ] || continue
+            if capsule-halt; then halted=1; fi
+            break
           done
-        }
 
-        # A guest that took the reboot exits its own VMM — that is what
-        # `reboot=k` buys, measured (docs/probes.md) — so the one correct move
-        # here is to wait for it. Killing while it unmounts is precisely the
-        # power cut this program exists to avoid, and a volume carrying a cold
-        # build is where that costs something. Bounded, because a guest that
-        # took the request and then hung still has to be reaped.
-        if [ "$halted" = 1 ]; then
-          for _ in $(seq 300); do
-            mapfile -t pids < <(own_vms)
-            [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
-            sleep 0.2
-          done
-          echo "vm-stop: the guest took a reboot but its VMM outlived it" >&2
-        fi
+          # Only VMMs this shell can prove are its own. Every capsule is
+          # `microvm@capsule` in the process table, so a bare `pkill -f` is a power
+          # cut for any namespaced sibling the module path is running — and it
+          # reads as a clean teardown while doing it. A VMM in a namespace is
+          # root's and lives in another netns, so both tests exclude it: the
+          # readlink fails, or it does not match this shell's.
+          own_vms() {
+            local self pid
+            self=$(readlink /proc/self/ns/net)
+            for pid in $(pgrep -f "microvm@$name" || true); do
+              [ "$(readlink "/proc/$pid/ns/net" 2>/dev/null)" = "$self" ] \
+                && echo "$pid"
+            done
+          }
 
-        mapfile -t pids < <(own_vms)
-        [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
+          # A guest that took the reboot exits its own VMM — that is what
+          # `reboot=k` buys, measured (docs/probes.md) — so the one correct move
+          # here is to wait for it. Killing while it unmounts is precisely the
+          # power cut this program exists to avoid, and a volume carrying a cold
+          # build is where that costs something. Bounded, because a guest that
+          # took the request and then hung still has to be reaped.
+          if [ "$halted" = 1 ]; then
+            for _ in $(seq 300); do
+              mapfile -t pids < <(own_vms)
+              [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
+              sleep 0.2
+            done
+            echo "vm-stop: the guest took a reboot but its VMM outlived it" >&2
+          fi
 
-        echo "vm-stop: terminating the VMM"
-        kill "''${pids[@]}" 2>/dev/null || true
-        for _ in $(seq 50); do
           mapfile -t pids < <(own_vms)
           [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
-          sleep 0.1
-        done
-        kill -9 "''${pids[@]}" 2>/dev/null || true
-        sleep 0.5
-        mapfile -t pids < <(own_vms)
-        [ "''${#pids[@]}" -gt 0 ] && {
-          echo "vm-stop: $name will not die" >&2
-          exit 1
-        }
-        echo "vm-stop: $name is down"
-      '';
+
+          echo "vm-stop: terminating the VMM"
+          kill "''${pids[@]}" 2>/dev/null || true
+          for _ in $(seq 50); do
+            mapfile -t pids < <(own_vms)
+            [ "''${#pids[@]}" -gt 0 ] || { echo "vm-stop: $name is down"; exit 0; }
+            sleep 0.1
+          done
+          kill -9 "''${pids[@]}" 2>/dev/null || true
+          sleep 0.5
+          mapfile -t pids < <(own_vms)
+          [ "''${#pids[@]}" -gt 0 ] && {
+            echo "vm-stop: $name will not die" >&2
+            exit 1
+          }
+          echo "vm-stop: $name is down"
+        '';
     };
   in {
     nixosConfigurations = vms;
@@ -1309,7 +1314,7 @@
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
         inherit hostModuleUnits hostModulePrograms guardCases policyCases observeCases;
-        inherit profileCases gitChannelCases;
+        inherit profileCases gitChannelCases vmCases;
         # The rendered run-time half of `target.nix`, so a human can read what a
         # program will resolve (host/profile.nix). `nix build .#capsule-profiles`.
         capsule-profiles = hostProfile.dir;
