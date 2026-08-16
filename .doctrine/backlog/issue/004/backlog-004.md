@@ -100,3 +100,61 @@ and `CHR-003`, whose step 2 found this.
 
 Evidence rung (`STD-001`): **taken**. The wrong document governed a real verb on a
 real slot, and the override is readable in the installed wrapper.
+
+## Where this stands — fixed in `4728425`, unverified on a live host
+
+**The code is done and green; the evidence rung is back to `reasoned` until this
+host is switched, which is why this needs `CHR-001`.**
+
+`wrap` moved to `host/wrap.nix` and all five variables became
+`''${VAR:-<default>}`. The per-variable split argued for above was considered
+and rejected: it needs a defensible reason each and a maintained exception, and
+both hazards it was for dissolve. `CAPSULE_STATE` already moves the quarantine
+and not the record on the devshell path, so one rule makes that one behaviour
+rather than a path-dependent one; an overridden `CAPSULE_ALLOWLIST_DIR` fails
+**closed**, since the proxy unit takes its allowlist from `cfg.allowlistDir` at
+build and no environment reaches it. **The module supplies defaults and imposes
+nothing** — one sentence instead of a table.
+
+`capsule-baseline` and `capsule-refresh` are wrapped now too. Being bare is what
+made the defect visible, but run straight off `$PATH` they read the *store's*
+baked documents rather than the ones this host renders, which is what item 52
+moved out of the store. `capsule-inject` stays bare: it is not a `profileVerb`
+and reads none of the five.
+
+`host/git-channel.nix`'s claim that "the environment still wins over both" was
+the false one named above, and is now true on both paths.
+
+### The missing check is written, and it is a fourth kind
+
+`wrapCases` (`host/wrap-cases.nix`, in `just cases` and `just build`) runs the
+shipped wrapper — built against a fixture, the way the guard is built against a
+stubbed kernel — around a stub that prints its environment. Its subject is the
+**composition**, which is the thing neither of the other kinds can see, and
+`CLAUDE.md` now says so where it used to say there were three.
+
+Twenty cases: each variable's default, each variable's override, each variable
+empty falling back, the exact set the wrapper supplies, argv crossing unsplit,
+and a declared path with a space. Red first against `wrap` as it shipped — the
+five override cases and the space one, and nothing else.
+
+Then mutated four ways, which reshaped two cases and produced
+`mem.fact.oubliette.assignment-context-does-not-word-split`: a fixture with a
+space does not discriminate the escaping at all (assignment context is not
+word-split, and `escapeShellArg` is a no-op on an ordinary path), so what pins
+the count-of-one rule is escaping *twice*; and the honest `"$@"` mutation is one
+**shellcheck rejects**, so it fails the build without running a case and reads
+exactly like nothing going red.
+
+### What is left
+
+1. `just system-switch` (`CHR-001`, the human's).
+2. Re-run the live proof, which is still set up: slot `c`'s host document is
+   drifted to `stateMaxBytes: 65536` against a pin at `67108864` and a 732373-byte
+   exhibit. **Before the switch** `capsule c collect` refuses the state half at
+   the host's ceiling; **after** it must take it, because the pin admits it.
+   Activation is the renderer, so the switch *removes the drift* — re-drift by
+   hand first (`chmod u+w`, `jq '.stateMaxBytes = 65536'`, `cp` back, `chmod u-w`).
+3. `capsule c baseline` and `capsule c collect` must now agree about which
+   document `c` runs. That disagreement was the symptom and nothing yet observes
+   its absence on a live slot.
