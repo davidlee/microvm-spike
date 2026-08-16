@@ -594,11 +594,16 @@ in
 
     # An explicit one wins and is not doubled, the same rule as `--policy` and
     # `--profile` two verbs over: a one-off under another unit's scope is a
-    # human's call.
+    # human's call. Since verb 1 it is also **recorded** and arrives in the
+    # record's position rather than the argv's — the token is taken out, written,
+    # and filled back in by the same interception every other origin uses, so
+    # there is one spelling of where a scope comes from.
     run both setup somecommit --state-from-host --unit u9
     ck "an explicit --unit wins on a setup too" 0 "$rc"
     ckt "  and is not doubled" \
-      saw "provision argv: --capsule both --profile holed somecommit --state-from-host --unit u9"
+      saw "provision argv: --capsule both --profile holed --unit u9 somecommit --state-from-host"
+    ckt "  with the record saying what the slot was assigned" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = u9
 
     # And the *document* decides whether there is anywhere to put one — the
     # stale-token round above, on the verb that did not have it. `built`
@@ -608,6 +613,75 @@ in
     ck "a setup on a target with no hole is not scoped either" 0 "$rc"
     ckt "  so the stale token stays on the record, unread" \
       saw "provision argv: --capsule both --profile built somecommit --state-from-host"
+
+    # ------------------- what a setup records, and NOTES item 53's verb 1
+    #
+    # Assigning a slot is one act, and a token and a sentence that need two more
+    # commands after the setup are a habit rather than a verb — the class of
+    # thing that item is about. The token had a second cost besides: passed
+    # through, a `--unit` without `--state-from-host` is an argument error
+    # `capsule-provision` makes, correctly, so there was no way to record what a
+    # slot was assigned at the moment of assigning it unless the assignment also
+    # carried state.
+    assign both holed
+    run both setup somecommit --unit s1 --purpose 'review the parser'
+    ck "a setup takes both assigner-owned fields" 0 "$rc"
+    ckt "  writing the token" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = s1
+    ckt "  and the sentence, whitespace and all" \
+      test "$(jq -r .purpose "$CASE_STATE/slot/both/assignment.json")" = "review the parser"
+    ckt "  saying so" saw "unit s1, generation"
+    # Neither is a flag the program has, and the token is not passed on although
+    # it is one: with no carrier there is nothing for it to scope. `grep -x`,
+    # because a substring match here would pass with the whole of a `--purpose`
+    # still on the end of the line.
+    ckt "  and neither reaches the program" \
+      grep -qxF "provision argv: --capsule both --profile holed somecommit" out
+    ckt "  the rest of the sequence still running" saw "inject argv:"
+
+    # The same token with a state half: recorded once and filled back in from the
+    # record, so a scope has one origin whatever the argv it arrived on.
+    run both setup somecommit --unit s2 --state-from-host
+    ck "a recorded token scopes the provision that wrote it" 0 "$rc"
+    ckt "  from the record rather than from the argv" \
+      saw "provision argv: --capsule both --profile holed --unit s2 somecommit --state-from-host"
+
+    # A refusal has to sit in **front** of the push: the whole of a composite is
+    # that a human runs one command, so a token refused after the code has landed
+    # leaves a capsule standing up on work nobody meant to assign it.
+    assign both built
+    run both setup somecommit --unit s3
+    ck "a token the target has nowhere to put refuses the setup" 1 "$rc"
+    ckt "  naming the document rather than the slot" saw "profile built"
+    ckt "  with nothing pushed" test ! -s out.argv
+    ckt "  and the record unmoved" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = s2
+
+    # Bounded here exactly as on `unit`, and for item 32's reason: the token goes
+    # into a ref and into the middle of a path.
+    assign both holed
+    run both setup somecommit --unit ../elsewhere
+    ck "a token that is not opaque refuses the setup" 1 "$rc"
+    ckt "  naming what a token may be" saw "on its way into a ref"
+    ckt "  with nothing pushed" test ! -s out.argv
+
+    # The document a setup **names** is the one asked about the hole, and not the
+    # one the record still says — which is what says the argv reaches the question
+    # and not only the program behind it.
+    assign both built
+    run both setup somecommit --profile holed --unit s4
+    ck "a setup naming a profile asks that document about the hole" 0 "$rc"
+    ckt "  so the token is taken" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = s4
+
+    # Both flags need their value, and this is where that is said: neither ever
+    # reaches a program that could say it instead.
+    run both setup somecommit --unit
+    ck "--unit with no token refuses" 1 "$rc"
+    ckt "  with nothing pushed" test ! -s out.argv
+    run both setup somecommit --purpose
+    ck "--purpose with no sentence refuses" 1 "$rc"
+    ckt "  with nothing pushed" test ! -s out.argv
 
     # ================================== the pin, and NOTES item 52 step 3
     #
@@ -942,8 +1016,14 @@ in
     ckt "  provisioning once, at the source's tip, carrying its state" \
       saw "provision argv: --capsule one --profile holed $second --force --state both"
     ckt "  and never briefing separately afterwards" unsaw "brief argv"
+    # Against the source's record rather than a literal: the claim is *whose*
+    # token it is, and the destination came in holding a different one, so this
+    # still goes red if the copy is dropped. A literal here reads as a fact about
+    # the handoff and is a fact about whatever last wrote the source's record —
+    # which is what it turned into when `setup` acquired the write.
     ckt "  the token is the source's" \
-      test "$(jq -r .unit "$CASE_STATE/slot/one/assignment.json")" = u1
+      test "$(jq -r .unit "$CASE_STATE/slot/one/assignment.json")" \
+        = "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")"
     ckt "  the sentence is the human's" \
       test "$(jq -r .purpose "$CASE_STATE/slot/one/assignment.json")" = "a second pair of eyes"
     ckt "  and the base is what was handed over" \

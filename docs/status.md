@@ -6,7 +6,36 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **a slot is pinned to the document it was
+Last updated 2026-08-16, after **`setup` writes the two fields that say what a
+slot was assigned**, which is the last unbuilt piece of
+[item 53](./ledger/053-three-coarse-verbs.md)'s verb 1 — so nothing of that item
+is unbuilt and what is left of it is a live exercise. `capsule <slot> setup <ref>
+--unit <token> --purpose <text>` records both itself, **in front of the push**,
+because a token draws two refusals — a document with no hole, a name that is not
+opaque — and a refusal that arrives after the code has landed leaves a capsule
+standing up on work nobody meant to assign it.
+
+**The token is taken *out* of the argv, and that is the decision worth reading.**
+The sentence has no program to reach; the token has one and is removed anyway,
+because the record is where a scope comes from everywhere else — `unitScope`
+fills it back in for the provision when the invocation carries state, so there is
+one spelling of that question instead of two that agree today. It also buys the
+case that could not work at all before: `setup <ref> --unit <token>` with **no**
+state half now records the assignment, where passing the token through made it an
+argument error `capsule-provision` is right to raise. The checks are one function
+(`recordUnit`) at four call sites and not a fourth careful copy, which is the
+same move the interception was; `handoff`'s token copy deliberately stays a bare
+write, since that token was checked where it was authored and both checks would
+fire there *after* the provision. `just cases` is **536** (was 514), seven
+mutations each red on its own rounds and an eighth **rejected by shellcheck
+before the suite ran** (`SC2194`), which is the third time in that item's life.
+One existing round was changed rather than added to and it is the finding of the
+session: `the token is the source's` asserted a literal `u1`, which was a fact
+about whatever last wrote the source's record rather than about the handoff — it
+compares the two records now. **Nothing live was touched**; `just`, `just check`
+and `just units` are green.
+
+Before that, the same day, after **a slot is pinned to the document it was
 provisioned under**, which closes
 [item 52](./ledger/052-the-document-leaves-the-store.md) with its step 3. A
 provision copies the target's document into the slot's own directory, records
@@ -723,10 +752,13 @@ it too**, from a second concurrent pair that replicated the durations — so ste
   the interception `setup` did not have, both above. `handoff` and `land` are
   branches of `host/cli.nix`; the archive rename that makes the force safe is
   automatic, and it *frees* the live names as well as keeping the old ones, so
-  the next assignment's first fetch is not the refusal item 50 measured. What is
-  left of the item is `setup --unit`/`--purpose` as record writes, and a first
-  live exercise: the verify, the archive, the drop and the force have run in a
-  sandbox and nowhere else.
+  the next assignment's first fetch is not the refusal item 50 measured. Verb 1
+  is finished too — `setup <ref> --unit <token> --purpose <text>` writes both
+  fields itself, in front of the push, with the token taken out of the argv and
+  filled back in from the record so a scope has one origin. **What is left of the
+  item is a first live exercise**: the verify, the archive, the drop and the
+  force have run in a sandbox and nowhere else, and the cheap half of that is one
+  `setup` against a free slot.
 
 - **A capsule was handed to another slot, and the sequence written down for it
   was the wrong one.** The c→d migration, and the first run of

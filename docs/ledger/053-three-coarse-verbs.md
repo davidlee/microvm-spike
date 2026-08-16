@@ -1,7 +1,14 @@
 # NOTES item 53 — three coarse verbs, and the words that must not enter them
 
-*State: **built and green — `handoff` and `land` are verbs of the front end, and
-the archive before the force is automatic.**
+*State: **built and green — all three verbs, and the archive before the force is
+automatic.** Verb 1 is finished: `setup <ref> --unit <token> --purpose <text>`
+writes both assigner-owned fields itself, in front of the push, and the token is
+taken *out* of the argv rather than passed on, so there is one spelling of where
+a scope comes from and a setup that carries no state can still say what a slot is
+driving. Nothing of the item is unbuilt now; what is left is a first live
+exercise.*
+
+*Before that: **`handoff` and `land` are verbs of the front end**.
 Both compositions are branches of `host/cli.nix` and neither is a program, which
 is what "Where they live" below decided. The order is the whole of them and every
 step of it is a round: collect the source and **verify the exhibit against its
@@ -17,8 +24,7 @@ sites, with `provisionSlot` as the four steps a provision is. 80 rounds in
 `policyCases` over the two verbs, nine mutations each red on its own rounds and a
 tenth rejected by shellcheck before the suite ran. **The live fleet was not
 touched**: the smoke test is the argv refusals, and the verify, the archive and
-the drop have never run on a host. Still unbuilt and verb 1's: `setup --unit` and
-`--purpose` as record writes of its own. Proposed the day the hand-run sequence failed
+the drop have never run on a host. Proposed the day the hand-run sequence failed
 in production. doctrine drove `SL-251` in slot `d`, and the work was landed from
 a collect four hours stale: three commits short of `d`'s head, so the review body
 it had already committed never crossed, the reconcile re-derived the review
@@ -81,8 +87,8 @@ smell the contract names.
 | accept the result | `capsule <slot> land` | collect and verify, fetch into the target repo, report divergence |
 
 Only the middle one was machinery that did not exist. The first is `setup` plus
-two record writes it should have taken as arguments — still the unbuilt piece;
-the third is `collect && fetch` plus the comparison whose absence is this item.
+two record writes it should have taken as arguments; the third is
+`collect && fetch` plus the comparison whose absence is this item.
 
 `handoff` is the name to argue about, not the shape. What it means is *stand this
 slot up on that slot's finished exhibit*, and the two candidates it beats are
@@ -171,8 +177,60 @@ an explicit flag not honoured. A fifth, dropping the array from the `work` call,
 was **rejected by shellcheck before the suite ran**, which is the failure that
 reads exactly like nothing went red (item 50 hit the same one).
 
-Not built, and still verb 1's: `setup` does not yet take `--unit <token>` or
-`--purpose <text>` as record writes of its own.
+## What verb 1 was still missing — **built**
+
+`unitScope` made a setup's *scope* work; the two fields it is a scope of were
+still two more commands after it. A token and a sentence that a human has to
+remember to type next are exactly the habit this item is written from, so `setup
+<ref> --unit <token> --purpose <text>` writes both itself.
+
+**Both are taken out of the argv, and only one of them had to be.** The sentence
+has no program to reach — `capsule-provision` has no such flag. The token does,
+and is *still* removed, for the reason the gap above is about: the record is
+where a scope comes from everywhere else, so `provisionSlot`'s own `unitScope`
+fills it back in when the invocation carries state, and there is one spelling of
+that question rather than two that agree today. It also buys the case that could
+not work before — `capsule <slot> setup <ref> --unit <token>` with no state half
+now *records the assignment*, where passing the token through made it an argument
+error `capsule-provision` is right to raise (`--unit` scopes state taken from
+this host, so it needs `--state-from-host`).
+
+**The writes are in front of the push**, and two things point the same way. A
+token draws two refusals — a document with no hole, a name that is not opaque —
+and a refusal that arrives after the code has landed is a capsule standing up on
+work nobody meant to assign it, which is the whole reason a composite is worth
+more than three commands. And the provision's own scope is read off the record
+this writes, so the order is not a preference. The cost is stated rather than
+hidden: a provision that then fails leaves a slot recorded as assigned to work it
+is not holding — which is already true of `capsule <slot> unit` and is what
+`base` and `generation` are for.
+
+**The checks are one function, not a second careful copy.** `recordUnit` is the
+no-hole refusal, `checkToken` and the write; `recordPurpose` is the one rule that
+free text reaches jq as an `--arg` and never as filter text. `unit)`, `purpose)`,
+`setup)` and `handoff`'s sentence all call them. `handoff`'s *token* copy
+deliberately does not: that token was checked where it was authored, and both
+checks would fire there after the provision, which is the one place a refusal
+cannot be acted on.
+
+**And the front end's printed shape moved one line**, which is item 51 decision
+3's direction rather than an exception to it: `setup` is listed with `handoff`
+and `land` instead of beside `provision` and `collect`, because the three are one
+arc and reading verb 1 among the programs says it is an alternative to them.
+
+Twenty-two rounds in `policyCases` (514 → **536**), seven mutations each red on
+its own rounds: the token passed through as well as recorded, the sentence passed
+through, neither recorded, both recorded *after* the push, the no-hole refusal
+dropped, the token unbounded, and the hole question asked without the argv it was
+handed. An eighth — neutering `checkToken` by handing it a constant — was
+**rejected by shellcheck before the suite ran** (`SC2194: this word is
+constant`), which is the third time in this item's life that the failure reading
+exactly like "nothing went red" has turned up.
+
+One existing round changed rather than being added to, and the reason is worth
+keeping: `the token is the source's` asserted a *literal* `u1`, which was a fact
+about whatever last wrote the source's record and not about the handoff. It
+compares the two records now.
 
 ## What the two verbs turned out to be — **built**
 
@@ -368,12 +426,12 @@ verbs.
   untouched by naming them or by writing them automatically.
 - Whether `capsule <slot> stop` should record the guest's head, which is what
   would let a stopped slot be handed off without starting it.
-- `setup --unit <token> --purpose <text>` as record writes of its own, which is
-  the last unbuilt piece of verb 1. `unitScope` made the *scope* work; the two
-  fields are still two more commands.
 - What any of this does on a live host. The verify, the archive, the drop and the
   force have run in a sandbox and nowhere else — the smoke test spent was the
   argv refusals, because the fleet was driving `SL-251` in two slots and the
   cheapest live exercise of `handoff` is a reassignment. The first real one is a
   free slot handed a finished exhibit, and it should be watched rather than
-  assumed.
+  assumed. Verb 1's two writes are the cheap half of that and can be spent on
+  their own: `capsule <free slot> setup <ref> --unit <token> --purpose <text>`
+  against a slot nobody is using is one command, and `capsule all status` prints
+  both fields back.

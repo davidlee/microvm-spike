@@ -234,8 +234,12 @@ in
           echo "  ask:       status | branches | fetch     (these take 'all')"
           echo "  assigned:  record | purpose [text…] | policy [<name>] | unit [<token>]"
           echo "  in:        ssh [cmd…] | admin [cmd…]"
-          echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
-          echo "  hand on:   handoff <source> --purpose <text> | land [--branch <name>]"
+          echo "  work:      ${lib.concatStringsSep " | " programVerbs}"
+          # The three coarse verbs on their own two lines, in the order they run:
+          # they are one arc (NOTES item 53) and reading them beside `provision`
+          # and `collect` says they are alternatives to them, which they are not.
+          echo "  hand on:   setup <ref> [--unit <token>] [--purpose <text>]"
+          echo "             handoff <source> --purpose <text> | land [--branch <name>]"
           echo
           echo "  status marks a slot's profile '*' where this host's document has"
           echo "  moved on from the one that slot was provisioned under, and '!'"
@@ -773,6 +777,43 @@ in
           slotNeedsUnit "$n" ''${1+"$@"} || return 0
           token=$(recordField "$n" unit)
           [ "$token" = - ] || printf '%s\n' --unit "$token"
+        }
+
+        # The two assigner-owned fields, as writes rather than as jq spelled at
+        # each call site. `unit` earns a function on its own: it is the one field
+        # that is not free text — it fills a hole in the target's state paths, so
+        # it is refused where the document has none and bounded where it has one
+        # (NOTES item 32, host/quarantine.nix's `checkToken`) — and item 53's verb
+        # 1 makes `setup` a second place both checks have to hold. Two copies of a
+        # check is a check that goes on holding in one of them.
+        #
+        # Any argv after the token is the profile resolution's, so a `--profile`
+        # on the command doing the assigning is the document asked about the hole.
+        #
+        # Prints the generation as `recordWrite` does, and **returns** non-zero on
+        # the refusal rather than printing anything: a caller interpolating this
+        # into a message would otherwise print `generation` and exit 0.
+        recordUnit() {
+          local n="$1" token="$2" needs=0
+          shift 2
+          slotNeedsUnit "$n" ''${1+"$@"} || needs=$?
+          if [ "$needs" = 1 ]; then
+            echo "capsule: '$n' is on profile $profileName, which declares no" >&2
+            echo "  state paths with a place for one — so this token would scope" >&2
+            echo "  nothing and no collect would ever read it. Nothing written." >&2
+            return 1
+          fi
+          ${quarantine.checkToken ''"$token"'' "'unit $token'"}
+          # shellcheck disable=SC2016  # `$u` is jq's, bound by --arg below
+          recordWrite "$n" '.unit = $u' --arg u "$token"
+        }
+
+        # Free text, displayed and never parsed (docs/contract-assignment.md), so
+        # there is nothing to check — only the one rule that it reaches jq as an
+        # `--arg` value and never as filter text.
+        recordPurpose() {
+          # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
+          recordWrite "$1" '.purpose = $p' --arg p "$2"
         }
 
         # Whether a verb's program takes one at all (host/programs.nix).
@@ -1489,12 +1530,83 @@ in
           # started by hand, or that has rebooted since, has had no start of ours.
           # Write-if-absent makes the repeat a no-op rather than a second answer.
           setup)
+            # `--unit <token>` and `--purpose <text>` are **this verb's own record
+            # writes**, and the last unbuilt piece of NOTES item 53's verb 1:
+            # assigning a slot is one act, and a token and a sentence that need two
+            # more commands after it are a habit rather than a verb — which is the
+            # class of thing that item exists about.
+            #
+            # Both are taken *out* of the argv rather than passed through. The
+            # sentence has to be, since `capsule-provision` has no such flag; the
+            # token could have been passed on and is not, because the record is
+            # where a scope comes from everywhere else. `unitScope` fills it back
+            # in below when the invocation carries state, so there is one spelling
+            # of that question and `capsule <slot> setup <ref> --unit <token>`
+            # with no state half **records the assignment** instead of being
+            # refused by a program that has nothing to scope with it
+            # (host/git-channel.nix: a `--unit` without `--state-from-host` is an
+            # argument error, correctly).
+            #
+            # Written **before** the push, for two reasons that point the same
+            # way: the refusals a token draws — a document with no hole, a name
+            # that is not opaque — belong in front of code landing in a capsule,
+            # and the provision's own scope is read off the record this writes. A
+            # provision that then fails leaves a slot recorded as assigned to work
+            # it is not holding, which is what `base` and `generation` are for and
+            # is already true of `capsule <slot> unit`.
+            setupArgs=()
+            unitToken=""
+            unitGiven=no
+            purpose=""
+            purposeGiven=no
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --unit)
+                  shift
+                  [ "$#" -gt 0 ] || {
+                    echo "capsule: --unit takes a token." >&2
+                    exit 1
+                  }
+                  unitToken="$1"
+                  unitGiven=yes
+                  ;;
+                --unit=*)
+                  unitToken="''${1#--unit=}"
+                  unitGiven=yes
+                  ;;
+                --purpose)
+                  shift
+                  [ "$#" -gt 0 ] || {
+                    echo "capsule: --purpose takes a sentence." >&2
+                    exit 1
+                  }
+                  purpose="$1"
+                  purposeGiven=yes
+                  ;;
+                --purpose=*)
+                  purpose="''${1#--purpose=}"
+                  purposeGiven=yes
+                  ;;
+                *) setupArgs+=("$1") ;;
+              esac
+              shift
+            done
+            if [ "$unitGiven" = yes ]; then
+              gen=$(recordUnit "$name" "$unitToken" \
+                ''${setupArgs[@]+"''${setupArgs[@]}"}) || exit 1
+              echo "capsule $name: unit $unitToken, generation $gen"
+            fi
+            if [ "$purposeGiven" = yes ]; then
+              echo "capsule $name: purpose recorded, generation" \
+                "$(recordPurpose "$name" "$purpose")"
+            fi
+
             # The provision, its scope and its record are `provisionSlot`'s, and
             # this branch is the two steps after them. It used to be four lines
             # of its own that had drifted from `provision)`'s by exactly the
             # interception (item 53), and the document it leaves loaded is what
             # the baseline question below reads (item 51 step 6).
-            provisionSlot "$name" ''${1+"$@"}
+            provisionSlot "$name" ''${setupArgs[@]+"''${setupArgs[@]}"}
             work "$name" inject
             # Skipped rather than refused when the target declares none: a setup
             # with no baseline is finished, not failed. `capsule-baseline` would
@@ -1684,15 +1796,17 @@ in
 
             # Mechanical, and only when there is one: the token scopes the same
             # unit of work in the same target, so a second capsule on it collects
-            # under the same scope.
+            # under the same scope. The bare write and not `recordUnit`: this
+            # token was checked where it was authored, and its two checks would
+            # fire here *after* the provision, which is the one place a refusal
+            # cannot be acted on.
             token=$(recordField "$src" unit)
             if [ "$token" != - ]; then
               # shellcheck disable=SC2016  # `$u` is jq's, bound by --arg below
               recordWrite "$name" '.unit = $u' --arg u "$token" > /dev/null
             fi
-            # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
             echo "capsule $name: on ''${exhibitTip:0:9} from $src, unit $token," \
-              "generation $(recordWrite "$name" '.purpose = $p' --arg p "$purpose")"
+              "generation $(recordPurpose "$name" "$purpose")"
             ;;
 
           # Accept the result — NOTES item 53's third verb, and it **stops at
@@ -1794,9 +1908,7 @@ in
             if [ "$#" -eq 0 ]; then
               recordField "$name" purpose
             else
-              # shellcheck disable=SC2016  # `$p` is jq's, bound by --arg below
-              echo "capsule $name: generation $(recordWrite "$name" \
-                '.purpose = $p' --arg p "$*")"
+              echo "capsule $name: generation $(recordPurpose "$name" "$*")"
             fi
             ;;
 
@@ -1955,18 +2067,11 @@ in
                 echo "  is the field that takes a sentence." >&2
                 exit 1
               }
-              needs=0
-              slotNeedsUnit "$name" || needs=$?
-              if [ "$needs" = 1 ]; then
-                echo "capsule: '$name' is on profile $profileName, which declares no" >&2
-                echo "  state paths with a place for one — so this token would scope" >&2
-                echo "  nothing and no collect would ever read it. Nothing written." >&2
-                exit 1
-              fi
-              ${quarantine.checkToken ''"$1"'' "'unit $1'"}
-              # shellcheck disable=SC2016  # `$u` is jq's, bound by --arg below
-              echo "capsule $name: generation $(recordWrite "$name" \
-                '.unit = $u' --arg u "$1")"
+              # Both checks and the write are `recordUnit`'s, because `setup` is
+              # the second place they have to hold (item 53's verb 1). Captured
+              # rather than interpolated, so a refusal stops the message.
+              gen=$(recordUnit "$name" "$1") || exit 1
+              echo "capsule $name: generation $gen"
             fi
             ;;
 
