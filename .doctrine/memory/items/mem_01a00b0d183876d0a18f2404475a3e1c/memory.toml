@@ -1,0 +1,46 @@
+memory_uid = "mem_01a00b0d183876d0a18f2404475a3e1c"
+memory_key = "mem.fact.oubliette.wrap-hard-exports-defeat-the-caller"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "A wrapper that hard-exports defeats its caller, including the front end the module installs"
+summary = "host/services.nix's wrap exports its five variables unconditionally, so the front end's own resolution is overwritten"
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/services.nix", "host/cli.nix"]
+globs = []
+commands = ["capsule", "capsule-collect"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "commit"
+commit = "88facfe3f2cda04dbd1e352c24c5209d2736c266"
+tree = "09de165a4d6be635a173da8f7e10b86353a318bb"
+ref_name = "refs/heads/main"
+checkout_state_id = ""
+base_commit = "88facfe3f2cda04dbd1e352c24c5209d2736c266"
+verified_sha = ""
+normalizer = ""
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+
+[[source]]
+kind = "issue"
+ref = "ISS-004"
+

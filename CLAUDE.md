@@ -254,6 +254,7 @@ The index, so you know a thing exists before you trip over it:
 | `BindReadOnlyPaths` is mounted as root and opened as the unit's user, so a bind is not an access | `fact.oubliette.a-bind-is-not-an-access` |
 | The devshell's programs shadow the module's and carry different transports | `fact.oubliette.devshell-programs-shadow-the-modules` |
 | The module's programs on `PATH` are wrappers, so reading one answers about the wrapper | `fact.oubliette.module-programs-on-path-are-wrappers` |
+| A wrapper that hard-exports defeats its caller — including the front end the module installs | `fact.oubliette.wrap-hard-exports-defeat-the-caller` |
 | `capsule-host` children orphan easily, and `wait -n` must name its pids | `fact.oubliette.capsule-host-children-orphan` |
 | The two paths cannot see each other by probing | `fact.oubliette.two-paths-cannot-probe-each-other` |
 | A fresh capsule has fresh ssh host keys at the same address | `fact.oubliette.fresh-capsule-fresh-host-keys` |
