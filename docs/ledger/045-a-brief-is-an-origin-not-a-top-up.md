@@ -153,7 +153,7 @@ not cover **deliver**.
 ## Considered and rejected
 
 - **Re-provision `c` at `f49314de8` and brief it**, which is what
-  [HANDOVER](../../HANDOVER.md) said to do and was written when `c` was idle. A
+  the handover note in force said to do, written when `c` was idle. A
   provision is a push into the live checkout: `updateInstead` refuses while the
   guest's worktree is dirty, and on a clean one it moves HEAD under the agent.
   The first is a wasted attempt and the second is the failure a capsule exists to

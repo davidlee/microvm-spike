@@ -1,12 +1,15 @@
-# NOTES item 15 — two things that only grow: the volume, and the proxy log
+# NOTES item 15 — things that only grow: the volume, the proxy log, and a document
 
-*State: measured, accepted.*
+*State: two measured and accepted, one fixed
+([item 54](./054-status-grew-a-changelog.md)).*
 One item of the [ledger](./index.md) — the number is the citation, and it
 never moves.
 
-**Two things that only grow.** Neither can exhaust the host — worth saying,
-since "unbounded" is the wrong word for both — but neither ever gives space
-back.
+**Things that only grow.** None of them can exhaust the host — worth saying,
+since "unbounded" is the wrong word — but none ever gives space back. The first
+two are disk and are accepted; the third is a document, and it is the one that
+turned out to be fixable, because a document's eviction rule is a sentence
+rather than a filesystem feature.
 - `capsule-work.img` is sparse and capped at its declared 32 GiB, and
   **firecracker's virtio-block has no discard**, so there is no `fstrim`
   and no `discard` mount option that would return freed blocks. Deleting
@@ -47,3 +50,35 @@ back.
   but it is the record of every egress attempt, so truncating it on start
   would be the wrong fix. Rotated (weekly, `copytruncate`) on the unit path
   only — see [item 11](./011-host-side-runs-as-you.md).
+- **[status.md](../status.md) reached 2463 lines**, 29% of it a
+  reverse-chronological changelog of fourteen sessions in the one file whose
+  contract is the present tense — and in a repo whose
+  [index](../index.md) says there is no changelog. Fixed rather than accepted:
+  five recent entries, evicting, with the rule written into the file
+  ([item 54](./054-status-grew-a-changelog.md)).
+
+- **[ledger/index.md](./index.md) reached 57 KB in 79 lines**, with one table
+  cell at **10,618 characters** — longer than several of the items it indexes,
+  in a file whose own header promises that reading one item costs one item. Cut
+  back the same day, with the bound written into that header.
+
+**Three kinds, and only the first two are about storage.** The distinction is
+what makes this item worth citing:
+
+1. **Nothing can return the space.** The volume and the proxy log. Measure the
+   rate, accept it, and revisit only if the rate changes — neither can be argued
+   out of growing.
+2. **Nothing says what leaves.** status.md. An eviction rule costs one sentence,
+   and its absence is what let fourteen sessions accumulate one entry at a time
+   with no diff big enough to notice.
+3. **Nothing bounds an entry, and the last one is visible.** The ledger index.
+   Nothing here accumulates — each row is written once and never touched again.
+   It grew because every new row was calibrated against the row above it, so the
+   average climbed from 145 characters over items 1–35 to 2,662 over 36–54 with
+   no single edit that looked wrong. **This is the one with no diff to catch it
+   and no total to watch**, because the file's line count never moved: 79 lines
+   before and after. It is also the one that generalises to the next table
+   somebody adds.
+
+Before accepting the next thing that only grows, work out which kind it is.
+Only the first is a fact about the world.

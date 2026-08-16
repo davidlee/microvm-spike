@@ -476,6 +476,46 @@ nobody runs. Then `just verify`, `just fetch`, `just branches`,
 `just --list` for the rest. Addresses come from `net.nix` and target paths from
 `target.nix`, never a literal.
 
+## Moving one capsule's work to another slot
+
+Run once, c→d, 2026-08-16 — every step is a built verb, none of it is
+hand-rolled. Source slot `S`, destination `D`, unit `U`:
+
+1. **Read `git status` in `S`.** Anything uncommitted **under `statePaths`**
+   travels (`git add -f` stages worktree content into the state half); anything
+   uncommitted **outside** them does not, and untracked-and-not-ignored is the
+   case that bites. Commit those in `S` first so they ride the code half.
+2. `capsule S collect` — both halves, one atomic fetch, scoped to `S`'s recorded
+   unit. **Needs `S` up.** Nothing committed after this point travels.
+3. `capsule S fetch` — quarantine → `~/dev/<target>`, landing
+   `refs/capsule/S/heads/work` and `refs/capsule/S/state/<stage>`. Namespaced, so
+   no branch of yours moves. Works whether `S` is up or stopped.
+4. `capsule D provision refs/capsule/S/heads/work --state S` — **one command, and
+   the `--state` is the whole point.** Not `setup` then `brief`: a brief taken
+   after a provision refuses on any target whose refresh writes tracked files
+   (NOTES item 47), and there is no way to sequence around it.
+   `capsule-provision` resolves the ref with `rev-parse --verify "$ref^{commit}"`,
+   so a full refname is fine.
+5. `capsule D unit U`, `capsule D purpose …`, `capsule D inject`,
+   `capsule D baseline`. The record is front-end written, so the unit has to be
+   set for `D`'s own future collect; `--state S` is scoped by `S`'s exhibit and
+   does not read it.
+6. `capsule S stop` when you are ready, **and not before you have taken anything
+   you want out of its `$HOME`**.
+
+**`$HOME` does not travel.** `/work/home` is on each slot's own volume and
+firecracker cannot share a filesystem, so `~/.claude` (session history),
+`.claude.json`, `.pi` and any hand-done setup are `S`'s alone. Whatever
+`setup.nix` declares comes back via `capsule D inject`; anything typed by hand is
+retyped. That is what decides when the cut is cheap, and nothing else.
+
+**A provision does not have to go through `~/dev/<target>`** — `src` is
+`"${CAPSULE_REPO:-target.path}"` (`host/git-channel.nix`) and a quarantine is a
+real bare repo. What stops it on the module path is `host/services.nix`'s wrapper
+`export`ing `CAPSULE_REPO` unconditionally, which is a control rather than an
+oversight: a program whose source repo is the caller's choice can be pointed at
+any repo on the host. Step 3 is one cheap command, not a requirement.
+
 ## Process lifecycle
 
 `vm` is **not** a daemon: it's firecracker in the foreground with the guest's

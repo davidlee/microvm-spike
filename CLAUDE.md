@@ -170,6 +170,28 @@ has `net.nix` in it, so the real capsule *is* the subject.
 
 Formatting is alejandra, 2-space indent, matching doctrine's flake.
 
+**Commit often, and make the message carry the session.** There is no changelog
+here — `git log` is the record and the ledger holds the reasoning — so a commit
+message is load-bearing rather than a courtesy. The house style is a
+`feat:`/`fix:`/`doc:` subject naming *the finding*, not the file touched:
+
+```
+fix: a teardown that only unnames, and the programs nothing built
+doc: item 36 is closed at the wire, and item 38 is why the fabric moved
+feat: two capsules on two policies at once, on a fabric that is nobody's
+```
+
+Cite the item (`NOTES item N`), say what was **not** exercised, and commit at
+each piece rather than at the end of a session — a green suite sitting
+uncommitted is a piece of work whose only record is prose someone has to
+maintain by hand. This is not a preference: the one time the messages became
+`053.2` and `51.6`, a 720-line reverse-chronological log grew at the top of
+[docs/status.md](./docs/status.md) to hold what they had stopped carrying, in
+the one file whose contract is the present tense
+([NOTES item 54](./docs/ledger/054-status-grew-a-changelog.md)). **Content lands
+somewhere.** If the commit will not take it, it accretes in the nearest file with
+no size bound, one entry at a time, with no diff big enough to notice.
+
 ## Architecture invariants
 
 Break these and the confinement stops meaning anything:
@@ -605,6 +627,30 @@ which shape nearly every decision here:
 - **`git+file:` inputs read committed HEAD.** Changes to the target's flake need
   a commit there before `nix flake update target` sees them. Uncommitted work
   in that repo is invisible to the capsule.
+- **`~/flakes` builds this repo two ways and only one of them is the lock.** The
+  `oubliette` input is `github:davidlee/oubliette`, so `nix flake update
+  oubliette` needs the commit **pushed** — but `just system-switch` passes
+  `--override-input oubliette git+file:///home/david/dev/microvm-spike`, a symlink
+  to this checkout, and that is what actually lands. A lock update alone changes
+  nothing. The override reads *committed HEAD* there, and it will happily build
+  from a **dirty** tree — after which the next build from HEAD silently loses
+  whatever was dirty. Related: **a generation bump is not evidence a code change
+  landed**; four consecutive rebuilds here had nothing between them.
+- **`microvm -u` takes no `-f`, correctly** — it re-reads the flake ref recorded
+  in `/var/lib/microvms/<name>/flake`, which for every slot here is the bare path
+  `/home/david/dev/oubliette`. A bare path reads the **working tree**, so a
+  refresh picks up an uncommitted `flake.lock`. The `-f` gotcha above only bites
+  `-c`. After a guest change use `just refresh-build <name>`, which reads
+  `ActiveState` rather than `is-active` — `auto-restart` is the worst moment to
+  update under.
+- **`capsule-adopt` has no transport, so it reads whichever quarantine the
+  environment points at.** Every other host-side program resolves a capsule and
+  goes through the relay; this one just reads a directory, so inside the repo it
+  silently reads the *devshell* quarantine. `CAPSULE_STATE=/var/lib/capsule` is
+  what points it at the module path's.
+- **Set `CAPSULE_KEEP=1` before a probe run you might need to read.** The guest
+  console log lives inside the state directory the probe deletes, and a log is
+  only ever wanted after a red run.
 - **`environment.variables` is login-shell scope.** Proxy vars do not reach
   systemd units in the guest; anything daemon-side needs its own
   `serviceConfig.Environment`.

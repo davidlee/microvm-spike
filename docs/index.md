@@ -34,8 +34,14 @@ architecture invariants and the gotchas that have already cost time, is
 - **[probes.md](./probes.md) owns the figures.** Link to it instead of copying a
   number — the last time a measurement lived in three files, two of them were
   the harness's own patience rather than the capsule's.
-- **[status.md](./status.md) owns the present tense.** Plans record what a thing
-  would cost, not whether it has happened yet.
+- **[status.md](./status.md) owns the present tense, and holds no other.** Plans
+  record what a thing would cost, not whether it has happened yet — and status
+  records what is true, not how it got true. Its four sections each state what
+  leaves them and where it goes, because the version with no eviction rule
+  reached 2463 lines ([item 54](./ledger/054-status-grew-a-changelog.md)). The
+  past-tense exception is bounded on purpose: **five recent entries, evicting**,
+  since recency ordering is the one thing neither `git log` nor a ledger item's
+  own header gives a reader arriving cold.
 - **`contract-*.md` are the governing artifacts**, and they split by *authority*
   rather than by where a value happens to live: what a repo owes
   (`-target`), what the guest can do (`-flavour`), what a slot is assigned and
@@ -43,5 +49,10 @@ architecture invariants and the gotchas that have already cost time, is
   them describe a shape that is only partly built and say so at the top; a design
   artifact carries no state, so what exists is still status.md's to say.
 - There is no changelog. `git log` is the record, and the ledger's resolved
-  items carry the reasoning a changelog would lose.
+  items carry the reasoning a changelog would lose. **That is a claim on the
+  commit message, not just a prohibition** — the one time the messages degraded
+  to bare item numbers, a 720-line changelog grew at the top of status.md to
+  hold what they stopped carrying, and nobody had written it down as a decision
+  ([item 54](./ledger/054-status-grew-a-changelog.md)). The style the rule
+  depends on is in [CLAUDE.md](../CLAUDE.md).
 - `*.local.md` is gitignored — personal reference material, not project docs.

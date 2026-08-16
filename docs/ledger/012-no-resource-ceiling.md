@@ -27,7 +27,7 @@ the quota to take.
 claim.** "A ceiling, not a charge" was established by a boot — two booted
 capsules costing ~1.5 GiB against a declared 16 GiB. It left open the obvious
 inference that a *smaller* ceiling therefore buys a smaller bill, and
-[plan-d](./plan-d-fleet.md) §0 spent that inference: it cut `sizes.mem` to 6144
+[plan-d](../plan-d-fleet.md) §0 spent that inference: it cut `sizes.mem` to 6144
 and scaled the four-hot recommendation by the new number. The first build at
 6144 refutes it. A built slot's `anon` is ~6.1 GiB at **both** ceilings — 6141
 of 8192, 6095 of 6144 — because what the VMM holds is every distinct page the

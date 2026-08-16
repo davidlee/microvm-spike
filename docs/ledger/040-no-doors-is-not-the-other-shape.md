@@ -74,8 +74,9 @@ That sentence is what `door` returning 1 prints. It could only print when some
 *other* capsule was up — precisely the case where the question rarely gets asked
 — so the common case, nothing running, silently took the branch that says the
 module path does not own this host, and spent ten seconds proving otherwise.
-[HANDOVER](../../HANDOVER.md) had guessed the next finding would be *a refusal
-nothing has ever triggered*. This is one.
+The session's handover note had guessed the next finding would be *a refusal
+nothing has ever triggered*. This is one, and the ladder it belongs on is
+[item 1](./001-what-has-been-run.md).
 
 ## The fix
 

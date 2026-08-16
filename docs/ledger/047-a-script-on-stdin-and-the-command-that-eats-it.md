@@ -16,7 +16,7 @@ never moves.
 
 ## How it was found
 
-[HANDOVER](../../HANDOVER.md)'s sequence, on slot `e`, at step 4. `capsule e
+The handover note's provisioning sequence, on slot `e`, at step 4. `capsule e
 provision de32c856b` landed, `capsule e brief --from-host` took the host-side
 `code-oid` precheck for the first time ever — correctly, naming both commits and
 writing nothing — and then the fast-forward to the host's HEAD was **refused by
