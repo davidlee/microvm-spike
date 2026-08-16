@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62c8f7df3bc615748ac1250d8"
+memory_key = "mem.fact.oubliette.proc-read-needs-cap-sys-ptrace"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "A hardened unit that may not read /proc gets a short answer, not an error"
+summary = "ip netns pids silently omits processes it cannot read, so the guard named a cause that was not the cause."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/guard.nix", "host/services.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "a6e6864081b5e5643f592200602a9b0b68b23381dae4c9b0842ff3e92f8e31bf"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

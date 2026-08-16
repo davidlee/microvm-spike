@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62c40744182d9e319d4e7052f"
+memory_key = "mem.fact.oubliette.missing-microvm-create-fails-as-a-dependency"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "On the module path a missing microvm -c fails as a dependency, not as itself"
+summary = "The tap unit is skipped and logged as finished successfully; the only message names neither problem. Read the create dir first."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = []
+globs = []
+commands = ["microvm", "systemctl"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "6e3723bad7caf7f5458a097e0779f0ca7b2125e8c9897644dec99b000ac697c8"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

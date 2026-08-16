@@ -1,8 +1,9 @@
 # docs — the map
 
 Usage is [README.md](../README.md). How to work in this repo, plus the
-architecture invariants and the gotchas that have already cost time, is
-[CLAUDE.md](../CLAUDE.md). **Governance is
+architecture invariants and an index of the gotchas that have already cost time,
+is [CLAUDE.md](../CLAUDE.md) — the gotcha bodies are in the memory corpus
+(`doctrine memory search --tag gotcha`). **Governance is
 [.doctrine/project-orientation.md](../.doctrine/project-orientation.md)** —
 onboarding, routing, and the two id spaces. This file maps question to file for
 the `docs/` tree, and that tree is now the *design* half: contracts, plans,

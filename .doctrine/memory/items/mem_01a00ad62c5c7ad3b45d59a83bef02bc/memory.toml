@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62c5c7ad3b45d59a83bef02bc"
+memory_key = "mem.fact.oubliette.newline-in-a-unit-directive"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "A newline in a unit directive silently deletes the rest of the drop-in"
+summary = "systemd reads it as unbalanced quoting and does not reliably resume; everything else looks fine and the one witness is journalctl."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/services.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "d46d71a7992e82e6c7edfd1aade8679e43f54bfab7c6b81468ac3864e90def06"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

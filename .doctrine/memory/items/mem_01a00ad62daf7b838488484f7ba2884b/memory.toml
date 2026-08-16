@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62daf7b838488484f7ba2884b"
+memory_key = "mem.pattern.oubliette.extracting-a-guest-authored-tree"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "pattern"
+status = "active"
+title = "Extracting a guest-authored git tree: .. is not the escape test and tar -x is not the extractor"
+summary = "Path components are refused twice already; a symlink target and a gitlink sail through both. Use lexical resolution and git's own writer."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/quarantine.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "e71e728664cebff4dfcf92cd52b1a05a1988dccdfe4006c75d20f018fb97642f"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

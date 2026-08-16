@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62e257d90aa78162bf61e1d40"
+memory_key = "mem.fact.oubliette.devshell-binaries-are-store-paths"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "nix run and devshell binaries are store paths, so an edited program is stale until rebuilt"
+summary = "A probe that ignores your fix is the old build on PATH."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = []
+globs = []
+commands = ["nix", "just"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "bb78243b04a2ecb933d27a2c45366f94ceadf452665d94a6c11f396ade921bfa"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

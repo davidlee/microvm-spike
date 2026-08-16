@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62cc67e90a48c75ca32f13456"
+memory_key = "mem.fact.oubliette.devshell-programs-shadow-the-modules"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "Inside the repo the devshell's programs shadow the module's, and they carry different transports"
+summary = "Same name, same source, different transport. The devshell copies refuse rather than time out."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["flake.nix", "justfile"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "e04f1a13808fd302447b17c88eb9f4435b6dd555e7470c151912a9501cc154ae"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

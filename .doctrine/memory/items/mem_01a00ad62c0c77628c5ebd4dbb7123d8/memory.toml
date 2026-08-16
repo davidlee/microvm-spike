@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62c0c77628c5ebd4dbb7123d8"
+memory_key = "mem.fact.oubliette.set-u-script-must-not-be-a-login-shell"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "A set -u script must never be a login shell, and the symptom is a wrong exit status"
+summary = "NixOS's /etc/bash_logout reads an unset guard, so `bash -l script` under set -u reports 1 whatever the script returned."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/guest-exec.nix", "host/baseline.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "340c4d1e06f99a9f43b7ccb55b16cd5f50effa3757f3ab7146dca0718e63f3b7"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

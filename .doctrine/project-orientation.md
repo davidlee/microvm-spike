@@ -27,10 +27,11 @@ capsule assigned a unit of work, a policy, and a target profile.
 - **Forcing proves a derivation evaluates; only building proves its text is a
   program.** Three kinds of check exist here and they are not interchangeable
   (`just check` parses, `hostModuleUnits` evaluates, the `*Cases` suites *run*).
-- **Evidence has rungs.** build / run / start / trigger / take. A branch can be
-  built, evaluated, shellchecked and shipped while the condition selecting it has
-  never once been true — and nothing distinguishes that from a branch that works.
-  Say which rung a claim rests on.
+- **Evidence has rungs** — `STD-001`, and it is `required`. build / run / start /
+  trigger / take / exercise / compare / reach / read back. A branch can be built,
+  evaluated, shellchecked and shipped while the condition selecting it has never
+  once been true, and nothing distinguishes that from a branch that works. **Name
+  the rung** in the commit and in the completion note; "done" is not a rung.
 
 ## Architecture
 
@@ -64,7 +65,8 @@ Major components:
 - `docs/probes.md` — measured figures (migrating to observations).
 - `.doctrine/` — governance. ADRs, policies, standards, backlog, knowledge,
   memory, slices.
-- `CLAUDE.md` — invariants and the gotchas that have already cost time.
+- `CLAUDE.md` — architecture invariants, and an index of the gotchas (bodies are
+  in the memory corpus: `doctrine memory search --tag gotcha`).
 
 ## Conventions
 

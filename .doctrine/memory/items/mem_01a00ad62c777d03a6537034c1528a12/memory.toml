@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62c777d03a6537034c1528a12"
+memory_key = "mem.pattern.oubliette.forcing-is-not-building"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "pattern"
+status = "active"
+title = "Forcing proves a derivation evaluates; only building proves its text is a program"
+summary = "Anything the module produces that is neither a unit's ExecStart nor a flake output needs a line in hostModulePrograms or nothing builds it."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["flake.nix", "host/cli.nix", "host/programs.nix", "host/services.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "7fdd2cc2c6fb8734aa8387c94e51172b57227aa5d67dbbc4fccbe51cafb08d01"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

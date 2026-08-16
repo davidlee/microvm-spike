@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62c267470a56fda422c21bb25"
+memory_key = "mem.fact.oubliette.guest-clock-is-utc"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "The guest's clock is UTC and this host is AEST"
+summary = "A guest ls shows a file written five minutes ago as ten hours old; ask the guest for date -u before reading any mtime."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = []
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "4271b3f67363925d8d5e6b1fdb67350f99018ca5336ae3ff4cc72977217a3870"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

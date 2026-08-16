@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62bb670c09f217dd6a21dd1c2"
+memory_key = "mem.fact.oubliette.tap-swap-under-running-vm"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "A tap cannot be swapped under a running VM"
+summary = "Deleting a tap leaves firecracker holding a dead fd; the guest goes silent with No route to host."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = []
+globs = ["host/*.nix"]
+commands = ["capsule-net"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "commit"
+commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = ""
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = ""
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

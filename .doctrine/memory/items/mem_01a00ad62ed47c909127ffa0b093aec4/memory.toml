@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62ed47c909127ffa0b093aec4"
+memory_key = "mem.fact.oubliette.capsule-keep-before-a-probe-run"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "Set CAPSULE_KEEP=1 before a probe run you might need to read"
+summary = "The guest console log lives inside the state directory the probe deletes, and a log is only ever wanted after a red run."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["probe/"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "fb6e53acb748ee7c272ea4eb462cd40a07c79b460e8bb6f2515f973c46ca8683"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "low"
+weight = 0
+

@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62be07873b515dc16f0f5427f"
+memory_key = "mem.fact.oubliette.serial-console-tui-input"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "The serial console's TUI input quirk is fixed and nobody knows why"
+summary = "boot.kernelModules i8042/atkbd fixes Enter being ignored in the console TUI, though neither driver binds anything."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["vm/capsule.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "caf45858cb58df0a1c90ac08bcc99ade84c92d44d90f70f20fb6abccbd7c7178"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

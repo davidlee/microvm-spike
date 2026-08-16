@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62dfd7bc19d13e6da329bfe8e"
+memory_key = "mem.fact.oubliette.capsule-state-moves-the-quarantine-not-the-record"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "CAPSULE_STATE moves the quarantine and not the record"
+summary = "A devshell capsule unit|purpose|provision writes the live record whatever CAPSULE_STATE says; there is no throwaway root."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/cli.nix"]
+globs = []
+commands = ["capsule"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "b1e5bd3b9db1f3bfd167d96d60543de3b7f7664af2ca4fbd67bb03db2aa72051"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

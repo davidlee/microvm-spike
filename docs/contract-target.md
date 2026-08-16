@@ -293,7 +293,7 @@ the claims changing.
 Invariants — these hold whatever runs underneath:
 
 - **No host directory can ever be mounted in.** No shares, no passthrough
-  (CLAUDE.md, "Firecracker constraints"). Anything that must get in arrives over
+  (`doctrine memory show mem.fact.oubliette.firecracker-constraints`). Anything that must get in arrives over
   the link or is in the closure. Firecracker enforces it; the confinement would
   assert it anyway, since a shared directory is a channel the perimeter does not
   mediate.

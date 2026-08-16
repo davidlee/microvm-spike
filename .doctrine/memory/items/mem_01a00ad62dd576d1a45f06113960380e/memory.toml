@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62dd576d1a45f06113960380e"
+memory_key = "mem.fact.oubliette.just-interpolation-is-text-not-argv"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "A just recipe's trailing command is evaluated on this host, not carried as argv"
+summary = "`just ssh b 'echo $(hostname)'` answered the host's name — a diagnostic that reads as the capsule's, silent because both ends have a hostname."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["justfile"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "d6c1c58868436fcdb33bc12971fd874797fdb332a2823a1944cbc0e642d840fb"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

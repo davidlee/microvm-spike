@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62d237293af2cc6a2f62cd0cf"
+memory_key = "mem.fact.oubliette.capsule-host-children-orphan"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "capsule-host children orphan easily, and wait -n must name its pids"
+summary = "Bare wait -n forgets a child that exited before the call, so capsule-host sat healthy with its services dead at bind time."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["perimeter/"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "52ff0d8bccad490c14cc2949a3d17dd6293ffd59577f18a6cd3c9a3d456c25c4"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

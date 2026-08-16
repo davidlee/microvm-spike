@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62ea57e808644011ef04663f8"
+memory_key = "mem.fact.oubliette.flakes-builds-this-repo-two-ways"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "~/flakes builds this repo two ways and only one of them is the lock"
+summary = "The override reads committed HEAD of this checkout and will build from a dirty tree, after which the next build from HEAD silently loses it."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = []
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "d33d86be10e90c7c9ba7a11cb229f56c5507d0fa1b5a7b64a9d59e06fdbe456b"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

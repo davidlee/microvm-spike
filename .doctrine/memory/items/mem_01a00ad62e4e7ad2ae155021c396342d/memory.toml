@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62e4e7ad2ae155021c396342d"
+memory_key = "mem.fact.oubliette.deny-current-branch-only-governs-head"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "denyCurrentBranch only governs the branch HEAD names"
+summary = "Push any other branch and the ref lands while the worktree is untouched, silently. The seed and the symref check are what cover it."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/git-channel.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "807d5f4bc671e2d6a03ae9432cb9aacd870290de435263b648444084ad34d9ca"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

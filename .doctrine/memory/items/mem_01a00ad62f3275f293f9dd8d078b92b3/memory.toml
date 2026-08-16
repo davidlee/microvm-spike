@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62f3275f293f9dd8d078b92b3"
+memory_key = "mem.fact.oubliette.firecracker-constraints"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "Firecracker's floor: no shares, no passthrough, no balloon, no jailer"
+summary = "lib/runners/firecracker.nix throws on 9p/virtiofs shares, passthrough, balloon, hotplug memory and user != null; microvm.nix has no jailer support."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["vm/", "flake.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "3ec93bf252e49a5401ed61044678829251d441bb579a1295d063906abaf5f5e7"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

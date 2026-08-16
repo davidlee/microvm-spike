@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62caa7f10bb18a5df14c615cc"
+memory_key = "mem.fact.oubliette.a-bind-is-not-an-access"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "BindReadOnlyPaths is mounted as root and opened as the unit's user"
+summary = "Naming a path under a directory the user cannot traverse gives a unit that starts cleanly and dies at open(). Fix placement, not permission."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["host/services.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "fe3740ba0afc975f907ec7f5a6918fba9435ed057b46d5b82e05ecf8ef98ad00"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+

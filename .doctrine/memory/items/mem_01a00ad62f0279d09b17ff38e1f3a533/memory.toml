@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62f0279d09b17ff38e1f3a533"
+memory_key = "mem.fact.oubliette.environment-variables-is-login-shell-scope"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "environment.variables is login-shell scope, so units in the guest do not inherit proxy vars"
+summary = "Anything daemon-side needs its own serviceConfig.Environment."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["vm/"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "44fcb1c93274bfbefe447a26b9c2c04b9701d08e24f3c986a036b5562f503cd9"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

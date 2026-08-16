@@ -1,0 +1,43 @@
+memory_uid = "mem_01a00ad62d447332b5eefff0fd06909f"
+memory_key = "mem.fact.oubliette.two-paths-cannot-probe-each-other"
+schema_version = 1
+lifespan = "semantic"
+memory_type = "fact"
+status = "active"
+title = "The devshell and module paths cannot see each other by probing"
+summary = "capsule-proxy denies RFC1918, so a connect probe is dropped and the port reads as free. Hence an explicit systemctl is-active refusal."
+created = "2026-08-16"
+updated = "2026-08-16"
+
+[scope]
+paths = ["perimeter/", "flake.nix"]
+globs = []
+commands = []
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "a42c1ff9aec874d2c532a72bcd07b9fa70d206d6"
+ref_name = "refs/heads/main"
+checkout_state_id = "926f10695e30b3933e8718b8d1a756730b15d520a07706fe2652799f053bcc5a"
+base_commit = "2b6eca1919605c2a933ab06edaecaf65620072d8"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "medium"
+weight = 0
+

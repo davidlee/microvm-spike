@@ -367,307 +367,49 @@ Break these and the confinement stops meaning anything:
 
   never use `git checkout` or other destructive forms.
 
-## Firecracker constraints (verified in microvm.nix source)
+## Firecracker constraints and the gotchas that have already cost time
 
-`lib/runners/firecracker.nix` throws on: 9p/virtiofs **shares**, device
-passthrough, balloon, hotplug memory, and `user != null`. It has no user-mode
-networking (tap only) and microvm.nix has **no jailer support**. Consequences,
-which shape nearly every decision here:
+**These moved into the memory corpus and are not restated here** — one copy, so
+nothing drifts, which is `NOTES item 54`'s lesson applied to this file. Each is
+scoped by path, glob or command, so the ones that bear on what you are touching
+surface when you touch it. Read one with `doctrine memory show <key>`; sweep the
+set with `doctrine memory search --tag gotcha`.
 
-- No host directory can ever be mounted into the guest. Anything that must get
-  in comes over the tap or is baked into the closure.
-- The guest store is a generated read-only image; `nix` in the guest would need
-  `writableStoreOverlay` plus its own volume (see NOTES).
-- Guest roots are tmpfs, i.e. guest RAM — hence `/work` on a volume for the
-  checkout, `target/`, `TMPDIR` and caches.
+The index, so you know a thing exists before you trip over it:
 
-## Gotchas that have already cost time
+| gotcha | key (`mem.…`) |
+| --- | --- |
+| Firecracker's floor: no shares, no passthrough, no balloon, no jailer — **no host directory can ever be mounted into the guest** | `fact.oubliette.firecracker-constraints` |
+| A tap cannot be swapped under a running VM | `fact.oubliette.tap-swap-under-running-vm` |
+| A guest poweroff does not exit the VMM; a guest reboot does — and the success path reads like a crash | `fact.oubliette.poweroff-does-not-exit-the-vmm` |
+| A dead guest does not mean a dead VM, and **a VMM is identified by its namespace, never by its name** | `fact.oubliette.dead-guest-is-not-a-dead-vm` |
+| A `set -u` script must never *be* a login shell; the symptom is a wrong exit status | `fact.oubliette.set-u-script-must-not-be-a-login-shell` |
+| The serial console's TUI input quirk is fixed and nobody knows why | `fact.oubliette.serial-console-tui-input` |
+| The guest's clock is UTC and this host is AEST | `fact.oubliette.guest-clock-is-utc` |
+| On the module path a missing `microvm -c` fails as a dependency, not as itself | `fact.oubliette.missing-microvm-create-fails-as-a-dependency` |
+| `microvm -c` takes no flake fragment, and omitting `-f` is worse than forgetting it | `fact.oubliette.microvm-create-takes-no-fragment` |
+| A newline in a unit directive silently deletes the rest of the drop-in | `fact.oubliette.newline-in-a-unit-directive` |
+| **Forcing proves a derivation evaluates; only building proves its text is a program** | `pattern.oubliette.forcing-is-not-building` |
+| A hardened unit that may not read `/proc` gets a short answer, not an error | `fact.oubliette.proc-read-needs-cap-sys-ptrace` |
+| `BindReadOnlyPaths` is mounted as root and opened as the unit's user, so a bind is not an access | `fact.oubliette.a-bind-is-not-an-access` |
+| The devshell's programs shadow the module's and carry different transports | `fact.oubliette.devshell-programs-shadow-the-modules` |
+| The module's programs on `PATH` are wrappers, so reading one answers about the wrapper | `fact.oubliette.module-programs-on-path-are-wrappers` |
+| `capsule-host` children orphan easily, and `wait -n` must name its pids | `fact.oubliette.capsule-host-children-orphan` |
+| The two paths cannot see each other by probing | `fact.oubliette.two-paths-cannot-probe-each-other` |
+| A fresh capsule has fresh ssh host keys at the same address | `fact.oubliette.fresh-capsule-fresh-host-keys` |
+| `sudo` strips `SSH_AUTH_SOCK`, and the guest's key is `~/.ssh/id` | `fact.oubliette.sudo-strips-ssh-auth-sock` |
+| Extracting a guest-authored tree: `..` is not the escape test and `tar -x` is not the extractor | `pattern.oubliette.extracting-a-guest-authored-tree` |
+| A `just` recipe's trailing command is evaluated on **this host**, not carried as argv | `fact.oubliette.just-interpolation-is-text-not-argv` |
+| `CAPSULE_STATE` moves the quarantine and not the record — and `capsule-adopt` has no transport | `fact.oubliette.capsule-state-moves-the-quarantine-not-the-record` |
+| `nix run`/devshell binaries are store paths, so an edited program is stale until rebuilt | `fact.oubliette.devshell-binaries-are-store-paths` |
+| `denyCurrentBranch` only governs the branch HEAD names | `fact.oubliette.deny-current-branch-only-governs-head` |
+| `git+file:` inputs read committed HEAD | `fact.oubliette.git-file-inputs-read-committed-head` |
+| `~/flakes` builds this repo two ways and only one of them is the lock | `fact.oubliette.flakes-builds-this-repo-two-ways` |
+| Set `CAPSULE_KEEP=1` before a probe run you might need to read | `fact.oubliette.capsule-keep-before-a-probe-run` |
+| `environment.variables` is login-shell scope | `fact.oubliette.environment-variables-is-login-shell-scope` |
 
-- **A tap cannot be swapped under a running VM.** Deleting it leaves firecracker
-  holding a dead fd; recreating attaches to nothing and the guest goes silent
-  with `No route to host`. `capsule-net down` now refuses while a VM runs.
-- **A guest poweroff does not exit the VMM; a guest reboot does.** `poweroff`
-  halts the vCPU — the guest even says so, `Power off not available: System
-  halted instead` — and the VMM keeps running and keeps the tap open, so the
-  next `vm capsule` dies with `Device or resource busy` (EBUSY on TUNSETIFF — a
-  single-queue tap can only be attached once). A `reboot` unmounts and then
-  resets, and `reboot=k` makes that reset a VMM exit, because CPU reset is the
-  one thing firecracker's i8042 stub implements. It logs that as `Unexpected
-  exit reason on vcpu run: Shutdown`, then `Killing vCPU threads`, then
-  `Firecracker exiting successfully. exit_code=0` — the first two read like a
-  crash and are the success path. So **ask for a
-  reboot, not a poweroff** — that is `capsule-halt`, used by `vm-stop` and by
-  the unit's `ExecStop`, and it is why a stop needs a key into the guest at all.
-  microvm.nix's own `microvm-shutdown` is `SendCtrlAltDel`, which is inert here:
-  the guest's i8042 driver refuses firecracker's stub outright (`probe with
-  driver i8042 failed with error -22`), so there is no keyboard to press it on.
-  It is still worth running *after* the request — its `socat` on the API socket
-  blocks until firecracker exits, which is exactly the wait a stop needs. The
-  `socat ... W address is opened in read-write mode` warning it prints is
-  cosmetic.
-- **The serial console's TUI input quirk is fixed, and nobody knows why.**
-  Claude Code used to render fine there but ignore Enter (the same binary over
-  ssh worked); `boot.kernelModules = ["i8042" "atkbd"]` in the guest fixes it,
-  A/B'd both ways with nothing else changed. Neither driver binds anything —
-  i8042 fails to probe, so atkbd has no port, and no input device appears — so
-  that is an observation, not an explanation. Don't build on the mechanism, and
-  don't drop those modules casually. ssh is still the documented way to run
-  agents.
-- **A dead guest does not mean a dead VM.** Check `pgrep -af 'microvm@'`, not
-  whether the console returned or the guest answers ping.
-- **A `set -u` script must never *be* a login shell, and the symptom is a wrong
-  exit status.** NixOS's `/etc/bash_logout` opens by reading an unset guard
-  variable, so `bash -l script` where the script sets `-u` dies on the way out
-  and **the shell reports 1 whatever the script returned** — a program whose job
-  is to relay a build's exit status then reports a red build that was green. Run
-  it as a child instead: `bash -l -c "bash script args"` keeps the login shell's
-  environment, which is the load-bearing part (NOTES item 6), and lets `set -u`
-  die with the child. `NOSYSBASHLOGOUT=1` does not help: under `-u` the guard
-  read errors before the `||` beside it. Cost a session, and hid two green
-  baselines (NOTES item 24).
-- **The guest's clock is UTC; this host is AEST.** So a guest `ls` shows a file
-  written five minutes ago as ten hours old, and `find -newermt` compares
-  against a guest-local time that may be in the guest's future. Ask the guest
-  for `date -u` before reading any mtime in it against a host clock — this is
-  what made a run taken minutes earlier look like the previous evening's.
-- **On the module path, a missing `microvm -c` fails as a dependency, not as
-  itself.** microvm.nix's templates are gated on
-  `ConditionPathExists=/var/lib/microvms/%i/current/bin/tap-up`, so with no
-  create the tap unit is *skipped* — logged as `finished successfully` — and the
-  proxy's `BindsTo` on a unit that never went active fails. The only message is
-  `A dependency job for microvm@capsule.service failed`, naming neither. Read
-  `ls /var/lib/microvms/<name>/current/bin` before anything else. Same trap when
-  the state dir is stale rather than absent: the VM tracks that directory, not
-  the flake, so a guest change needs `sudo microvm -u <name>`.
-- **A newline in a unit directive silently deletes the rest of the drop-in.**
-  systemd reads it as unbalanced quoting, ignores that directive, and does not
-  reliably resume — so a multi-line `ExecStartPre=${pkgs.bash}/bin/bash -c '…'`
-  took `NetworkNamespacePath`, `ExecStop` and `Restart=no` with it, and every
-  capsule started as microvm.nix's bare template: root namespace, no tap, EPERM,
-  restarting every 5 s. Nix will happily generate it and only a load says
-  otherwise. **Everything else looked fine** — both proxies and relays active,
-  both sockets present, `capsule-perimeter-guard: 2 capsule namespace(s)
-  verified` — because none of them can see inside a VMM's unit; the one witness
-  is `journalctl -u microvm@<name>`, and `systemctl show microvm@<name> -P
-  NetworkNamespacePath -P Restart` is the confirmation. Repeated `changed on
-  disk … run daemon-reload` warnings and a stuck `NeedDaemonReload=yes` are what
-  a drop-in that never parses looks like from outside; reloading is not the fix.
-  Put the script in the store and name it (`host/services.nix`'s
-  `stopKeyCheck`), and `just build` now refuses a newline in any of the module's
-  `serviceConfig` values.
-- **A module's *programs* are not in its unit graph, so `just build` could pass
-  with the module unbuildable.** `hostModuleUnits` evaluates the whole module,
-  which is what makes it worth seconds instead of a rebuild — but it only ever
-  *forced* assertions, unit names and `serviceConfig` strings. Everything the
-  module puts on a human's PATH lives in `environment.systemPackages`, which
-  nothing read, and nix is lazy: `host/cli.nix` is imported at two call sites
-  (`flake.nix`'s and the module's), so an argument added to one of them made a
-  host rebuild die on `function 'anonymous lambda' called without required
-  argument 'observe'` after both `just build` and `just units` were green. Now
-  forced, with names in the output and paths never — `builtins.seq` on an outPath
-  evaluates the derivation, while embedding the string *of* one would make every
-  program a build input of a text file and turn the eval into a build. The general
-  shape: **anything built at two call sites needs one construction, not two
-  careful ones.** `observe` moved into `host/programs.nix` beside the paths it
-  reads for that reason, which is the same reason `baselineRecord` is exported
-  there.
-  **Forcing is not building, and shellcheck is a build.** So the same hole
-  survived one layer down: a program that is only ever an `ExecStart` —
-  `capsule-netns`, `capsule-egress-ns`, `capsule-perimeter-guard` — is named by
-  no flake output and is not in `systemPackages`, and *nothing had ever built
-  one*. A rollback written into `capsule-netns` passed `just check`, `just
-  build` and `just units` unread by shellcheck (NOTES item 37).
-  `hostModulePrograms` is the deliberate inversion of the paragraph above — a
-  second derivation off the same evaluation whose text *is* every
-  `serviceConfig` literal, which makes each one a build input on purpose. Two
-  derivations, one eval: `just units` stays seconds, `just build` gains the
-  build. Adding a program to a unit needs no edit there; adding one that no unit
-  references still needs a flake output.
-  **The same hole had two more rooms, found by item 52.** An `ExecStart` is not
-  the only place a program hides: the module's **activation scripts** are in
-  neither the unit graph nor `systemPackages`, and the **`wrap`pers** in
-  `systemPackages` were only ever *forced* — five programs whose entire text is
-  the environment this host's copies run with, never shellchecked. Both are in
-  `hostModulePrograms` now, selected by `capsule` name prefix rather than
-  hand-listed. The general form, and the one to carry forward: **forcing proves a
-  derivation evaluates; only building proves its text is a program.** Anything
-  the module produces that is neither a unit's `ExecStart` nor a flake output
-  needs a line there or nothing builds it.
-- **A hardened unit that may not read `/proc` gets a short answer, not an
-  error.** `ip netns pids <ns>` works by reading `/proc/<pid>/ns/net` for every
-  process, which `ptrace_may_access` gates on **`CAP_SYS_PTRACE`** for anything
-  owned by another user — `CAP_DAC_READ_SEARCH` does not cover that check. With
-  the caps trimmed it returns the readable processes and silently omits the rest,
-  so the guard concluded a correctly-bound VMM was `not in cap-a` and refused the
-  fleet's egress, naming a cause that was not the cause. The A/B that proves it,
-  and the shape for the next one:
-  `sudo systemd-run --pipe -q -p CapabilityBoundingSet="…" <cmd>` beside plain
-  `sudo <cmd>` — the same command under the unit's own capability set. **The
-  stubbed cases cannot catch this class**: `guardCases` proves logic, and
-  privilege is only provable on a host, so `hostModuleUnits` now asserts the
-  pairing instead (a program that reads `/proc` and a unit that may).
-- **`BindReadOnlyPaths` is mounted as root and opened as the unit's user, so a
-  bind is not an access.** Naming a path under a directory that user cannot
-  *traverse* gives a unit that starts cleanly and then dies at `open()` —
-  `Permission denied` about a path that is plainly there, with `systemctl show`
-  reporting the bind exactly as intended. Every `capsule-proxy-<slot>` was in
-  that state from the day item 36 was switched: its allowlist link sat under
-  `stateDir` (`0750 owner:users`) and the proxy runs as `capsule-proxy`. **The
-  cases cannot catch this class either** — a sandbox has one uid — so
-  `hostModuleUnits` asserts the second pairing of the same kind: the module's own
-  `d` tmpfiles rules against each unit's `User`, throwing when a bound path is
-  unreachable. The fix was **placement, not permission** (NOTES item 39): the
-  link moved to its own `allowlistDir`, because opening `stateDir` far enough to
-  traverse also opens `collect/`, which holds every exhibit any capsule has sent
-  back. And the general one: **a control can be switched and proven and still
-  never have been started.** Two probes proved a selected policy reaches the wire
-  using their *own* proxy as the human; the unit that does it on this host had
-  never come up. When a slot is running, read `capsule all status`'s unit column
-  — it distinguishes `running` from `auto-restart`, which is a crash loop.
-- **Inside the repo, the devshell's programs shadow the module's, and they carry
-  different transports.** `capsule-provision` on `PATH` in the devshell ssh's
-  straight to `net.guest`, which is unroutable from the root namespace once the
-  tap is in a namespace; the module's copy of the same program goes through the
-  relay socket. Same name, same source, different `transport`. **The devshell's
-  copies refuse rather than time out**: a relay socket for the named capsule
-  means the module path owns this host, so they name the copy to run instead of
-  ssh'ing at an address that is no longer routable from here. It used to be a
-  timeout against `10.99.0.2`, which reads as a dead guest. Refusing, not
-  choosing — a program that can try both transports has both baked in (NOTES
-  item 20). `just provision | inject | baseline | collect | setup <name>` picks
-  the reachable copy, which is a recipe's latitude and not a program's.
-- **The module's programs on `PATH` are wrappers, so reading one answers about
-  the wrapper.** `host/services.nix`'s `wrap` builds a package under the *same
-  name* whose whole text is `CAPSULE_STATE`/`CAPSULE_REPO` and `exec <inner>` —
-  the five that keep host state (`capsule`, `capsule-collect`,
-  `capsule-provision`, `capsule-adopt`, `capsule-brief`) are three lines each in
-  `/run/current-system/sw/bin`. So grepping one for a flag reports a program that
-  does not have it, and every generation shares the wrapper's store path whenever
-  nothing it embeds moved — which reads as *this host never rebuilt*. Both
-  readings are wrong in the same direction and they corroborate each other: an
-  interactive `PATH` here can also hold a third, staler `capsule` that really is
-  behind, so a verb list taken from `which capsule` agrees with the bad grep and
-  nothing contradicts either. **Ask the program, don't read it** —
-  `/run/current-system/sw/bin/capsule all status`, or follow the `exec` line to
-  the inner store path. Cost a session, concluding the host was a version behind
-  when it was current.
-- **`microvm -c … -f <flake>` takes no fragment, and omitting `-f` is worse than
-  forgetting it.** The CLI appends
-  `#nixosConfigurations.<name>.config.microvm.declaredRunner` itself, so
-  `-f …#capsule` asks for that attribute *of* `packages.capsule` and the error
-  reads as a missing output. With no `-f` at all it defaults to the flake at
-  `/etc/nixos` — not a git repo on this host — and fails as
-  `fatal: '/etc/nixos' does not appear to be a git repository`, naming neither
-  the missing flag nor the fact that it substituted a path you never typed. Use
-  `just up <name>`, which passes `{{justfile_directory()}}`. It also needs root,
-  for `/var/lib/microvms` and the gcroots.
-- **`capsule-host` children orphan easily.** A Ctrl-C could leave tinyproxy
-  holding the port. It preflights the port, reaps a stray matching its own
-  config path, and uses `wait -n` with an INT/TERM trap; if a bind fails anyway,
-  look for strays with `ss -lntp`.
-- **`wait -n` must name its pids.** Bare `wait -n` waits for the next job to
-  change state, and a child that exited *before* the call has already been
-  reaped and forgotten — so `capsule-host` sat blocked on its watch loop, with
-  its services dead at bind time, looking healthy and serving nothing.
-  `wait -n "${children[@]}"`: with explicit pids bash keeps each status until
-  waited on.
-- **The two paths cannot see each other by probing.** `capsule-host`'s port
-  check is a connect from the host, and `capsule-proxy` denies RFC1918, so
-  systemd drops the probe and the port reads as free. Hence the explicit
-  `systemctl is-active` refusal in the injected `preflight` — systemd-shaped, so
-  it lives at the call site in `flake.nix`, not in `perimeter/`.
-- **A fresh capsule has fresh ssh host keys at the same address**, because they
-  live on its volume — so `known_hosts` refuses, and since the git channel rides
-  ssh that blocks provisioning rather than merely annoying `just ssh`.
-  `accept-new` does not fix it: the host is *changed*, not unknown. `guestSsh`
-  in `flake.nix` disables the check and keeps no record, injected via
-  `sshCommand`. Sound only because the link is a host-created /30 with one peer
-  — change it in the same commit as any change to the transport, and don't "fix"
-  it with a capsule-scoped `known_hosts`, which just accumulates one stale key
-  per capsule.
-- **`sudo` strips `SSH_AUTH_SOCK`, and the guest's key is `~/.ssh/id`** — not a
-  filename ssh tries by default, so a root-side program gets the *wrong* key
-  offered and a clean `Permission denied`, while ping keeps passing. Cost one
-  `probe-netns-boot` run. Anything host-side that ssh's to the guest runs as the
-  human for this reason; `probe/netns-boot.sh` finds the agent socket itself and
-  refuses before it boots anything if there is none.
-- **Extracting a guest-authored git tree: `..` is not the escape test, and
-  `tar -x` is not the extractor.** A tree that comes out of a capsule is
-  attacker-shaped input. Three classes, and where each is already handled is not
-  where you would guess (NOTES item 34): a `..` or `.git` **path component** is
-  refused twice already — `transfer.fsckObjects=true` at `capsule-collect` errors
-  `hasDotdot`/`hasDotgit`, and `git read-tree` refuses `invalid path` — while a
-  **symlink target** and a **gitlink** sail through both. `git archive | tar -x`
-  then plants `-> /etc/passwd` in your worktree and turns the gitlink into an
-  empty directory, exit 0, silent; nothing escapes until the next thing that
-  greps or copies the exhibit. And refusing every `..` target refuses doctrine's
-  own tree, whose `.doctrine/slice/N/phases -> ../../state/slice/N/phases` is
-  inside the root and load-bearing. The rule is **lexical resolution within the
-  extraction root**, against the tree and never with `realpath` — plus git's own
-  writer (`read-tree` into a temporary index, `checkout-index` out of it) rather
-  than a second one made of shell.
-- **A `just` recipe's trailing command is *evaluated on this host*, not carried
-  as argv.** just interpolates a recipe's arguments as text, so the recipe's own
-  shell parses them before anything is sent: `just ssh b 'echo $(hostname)'`
-  answered `Sleipnir`. It is not word-splitting — that was the documented and
-  survivable half — it is a diagnostic that reads as the capsule's and is the
-  host's, which is the one failure a door exists to prevent, and it is silent
-  because both ends have a `hostname`. `capsule <name> ssh` never had it, because
-  a program takes argv. `just ssh`/`just admin` now `quote(cmd)` and pass one
-  word, with the empty case kept distinguishable since no command means an
-  interactive shell. **Any new recipe that forwards `*args` into a program has
-  this until it quotes**, and the general rule is that `{{...}}` is text
-  substitution and never an argument.
-- **`CAPSULE_STATE` moves the quarantine and not the record.** The assignment
-  record's root is the literal `/var/lib/capsule`, deliberately — a slot is a
-  module-path thing, so a record for a devshell capsule would describe a slot
-  that does not exist (`host/cli.nix`, `recordRoot`) — while `quarantineOf`
-  *searches* both homes because either shape can collect. So a devshell
-  `capsule <name> unit|purpose|provision` writes the **live** record whatever
-  `CAPSULE_STATE` says, and there is no throwaway root to try one against: the
-  generation only goes up, so an experiment is a hand-edit to undo.
-- **`nix run`/devshell binaries are store paths, so an edited program is stale
-  until it is rebuilt.** A probe that "ignores your fix" is the old build on
-  `PATH` — `just build`, re-enter the devshell, or
-  `sudo "$(nix build --no-link --print-out-paths .#probe-netns-boot)/bin/…"`.
-- **`denyCurrentBranch` only governs the branch HEAD names.** Push any other
-  branch and the ref lands while the worktree is untouched, silently. The seed
-  sets `--initial-branch` and `capsule-provision` verifies the advertised symref
-  for exactly this reason; don't remove either. An empty repo advertises no
-  symref at all, so the check cannot cover the first provision — the seed is
-  what does.
-- **`git+file:` inputs read committed HEAD.** Changes to the target's flake need
-  a commit there before `nix flake update target` sees them. Uncommitted work
-  in that repo is invisible to the capsule.
-- **`~/flakes` builds this repo two ways and only one of them is the lock.** The
-  `oubliette` input is `github:davidlee/oubliette`, so `nix flake update
-  oubliette` needs the commit **pushed** — but `just system-switch` passes
-  `--override-input oubliette git+file:///home/david/dev/microvm-spike`, a symlink
-  to this checkout, and that is what actually lands. A lock update alone changes
-  nothing. The override reads *committed HEAD* there, and it will happily build
-  from a **dirty** tree — after which the next build from HEAD silently loses
-  whatever was dirty. Related: **a generation bump is not evidence a code change
-  landed**; four consecutive rebuilds here had nothing between them.
-- **`microvm -u` takes no `-f`, correctly** — it re-reads the flake ref recorded
-  in `/var/lib/microvms/<name>/flake`, which for every slot here is the bare path
-  `/home/david/dev/oubliette`. A bare path reads the **working tree**, so a
-  refresh picks up an uncommitted `flake.lock`. The `-f` gotcha above only bites
-  `-c`. After a guest change use `just refresh-build <name>`, which reads
-  `ActiveState` rather than `is-active` — `auto-restart` is the worst moment to
-  update under.
-- **`capsule-adopt` has no transport, so it reads whichever quarantine the
-  environment points at.** Every other host-side program resolves a capsule and
-  goes through the relay; this one just reads a directory, so inside the repo it
-  silently reads the *devshell* quarantine. `CAPSULE_STATE=/var/lib/capsule` is
-  what points it at the module path's.
-- **Set `CAPSULE_KEEP=1` before a probe run you might need to read.** The guest
-  console log lives inside the state directory the probe deletes, and a log is
-  only ever wanted after a red run.
-- **`environment.variables` is login-shell scope.** Proxy vars do not reach
-  systemd units in the guest; anything daemon-side needs its own
-  `serviceConfig.Environment`.
-- `initialHashedPassword = ""` does not give a passwordless root: it applies
-  only at account creation, and PAM rejects empty passwords for `su`.
+**Adding one is `doctrine memory record`, not a row above.** A row with no memory
+behind it is the ratchet starting again in a new file.
 
 ## Conventions
 
