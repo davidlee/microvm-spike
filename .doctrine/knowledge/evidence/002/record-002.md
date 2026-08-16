@@ -23,3 +23,16 @@ Source: `docs/probes.md`, *Figures* and *The cold build*.
 
 Supports `QUE-005`. An instance of `STD-001`'s *read back* rung: two correct
 figures, adjacent in one document, reading as one number.
+
+
+## Disputes doctrine's EVD-019
+
+doctrine's corpus holds `EVD-019` (*Fresh capsule cost: freshness is free at the
+boundary*), whose headline datum is **8.31 s to a usable fresh capsule**. That
+figure is correct for what its probe measures and is the one this record says
+must not be read as time-to-interactive. `EVD-019` is `captured` and carries no
+note of this.
+
+Stated here in prose because the edge is not authorable: `doctrine link` resolves
+a target only within one corpus (`ADR-003`, clause 3). doctrine's side owes the
+matching sentence.

@@ -29,3 +29,9 @@ label = "references"
 role = "concerns"
 descriptor = "the exercise CHR-004 asked for"
 target = "CHR-004"
+
+[[relation]]
+label = "references"
+role = "concerns"
+descriptor = "written with the Not established line ADR-003 clause 4 requires"
+target = "ADR-003"

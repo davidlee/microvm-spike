@@ -20,6 +20,17 @@ citation, not a copy**: each says which section here it came from, and a re-take
 figure is edited here and the record superseded. Do not mint an `EVD` for a
 figure nothing points at — this file is where a number lives by default.
 
+**Which corpus mints one is `ADR-003`.** Evidence whose subject is *this repo's
+mechanism* is minted here and doctrine cites it across by id; evidence whose
+subject is *doctrine's choice* — an adoption cost, a comparison between
+confinement shapes — stays in doctrine's corpus. Three records in the table below
+predate that rule and are grandfathered: doctrine's `EVD-018`, `EVD-019` and
+`EVD-020` are cited by id and not re-minted. One of them is **disputed** —
+`EVD-019`'s *8.31 s to a usable fresh capsule* is `EVD-002`'s subject here, and
+the dispute is prose on both sides because a relation does not cross a corpus
+boundary. And from `ADR-003` on, a new record says **what it does not establish**,
+the way every probe header already does.
+
 **`CAPSULE_KEEP=1` is what a red run wants.** A probe that makes its own state
 directory removes it afterwards, and the guest console log lives *inside* it — so
 by the time anybody wants a console log, the ordinary run has deleted it. Every
