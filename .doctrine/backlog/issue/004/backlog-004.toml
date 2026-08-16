@@ -1,15 +1,15 @@
 schema = "doctrine.backlog"
 version = 1
 
-id = 3
-slug = "exercise-the-profile-pin-on-a-live-slot"
-title = "Exercise the profile pin on a live slot"
-kind = "chore"
-status = "resolved"
-resolution = "done"
+id = 4
+slug = "the-module-wrapper-overrides-the-pin-the-front-end-just-resolved"
+title = "The module wrapper overrides the pin the front end just resolved"
+kind = "issue"
+status = "open"
+resolution = ""                 # seeded empty so `backlog edit` sets it in place
 created = "2026-08-16"
 updated = "2026-08-16"
-tags = []
+tags = ["area:cli"]
 
 # outbound-only (ADR-004). Cross-kind structural edges (e.g. references with a role
 # — `originates_from` for backlog→slice provenance — governed_by, related, drift) are
@@ -17,6 +17,6 @@ tags = []
 # `doctrine link ITEM-NNN <label> <target>`; `doctrine inspect ITEM-NNN` renders
 # them. The dep/seq axes below stay typed (they carry per-edge payloads).
 [relationships]
-needs    = ["CHR-001"]                   # item→item hard prerequisite
-after    = []                   # item→item soft sequence: { to, rank? }
+needs    = []                   # item→item hard prerequisite
+after    = [{ to = "CHR-003", rank = 0 }]                   # item→item soft sequence: { to, rank? }
 triggers = []                   # watched source globs: { globs, note? }
