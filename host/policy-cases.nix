@@ -138,6 +138,10 @@ in
       cat > "stub/capsule-$v" <<EOF
     #!/bin/sh
     echo "$v argv: \$*"
+    # Which *directory* the front end pointed it at, which is the whole of the
+    # pin (item 52 step 3): a program takes a profile's name on argv and its
+    # bytes out of the environment, and only the program can say which it got.
+    echo "$v dir: \$CAPSULE_PROFILE_DIR"
     echo "\$*" > "\$PWD/out.argv"
     EOF
       chmod +x "stub/capsule-$v"
@@ -605,6 +609,136 @@ in
     ckt "  so the stale token stays on the record, unread" \
       saw "provision argv: --capsule both --profile built somecommit --state-from-host"
 
+    # ================================== the pin, and NOTES item 52 step 3
+    #
+    # **A profile is pinned and a policy is live** (docs/contract-assignment.md):
+    # an edit to a project's document must not change what a running capsule is
+    # doing until a verb re-pins it, while a tightened allowlist reaches it on a
+    # proxy restart. That distinction could not fail while the documents were in
+    # the store, because nothing could edit one; item 52 put them in a directory
+    # a human writes, and these rounds are what says the pin arrived with them.
+    #
+    # Reaching this on a host means provisioning a slot, editing `target.nix`,
+    # switching, and then asking the slot what it thinks — two rebuilds to
+    # observe one comparison.
+    mkdir -p "$CASE_STATE/head"
+    printf '%s' "$second" > "$CASE_STATE/head/one"
+    writeProfile pinned '["state/{unit}/notes"]'
+    assign one pinned
+    run one provision somecommit
+    ck "a provision pins the document it was taken under" 0 "$rc"
+    ckt "  as bytes in the slot's own directory" \
+      test -f "$CASE_STATE/slot/one/profile/pinned.json"
+    ckt "  which are the host's, byte for byte" \
+      cmp -s "$CASE_STATE/slot/one/profile/pinned.json" profiles/pinned.json
+    # The digest is over the copy beside it and not over the name it came from,
+    # which is what makes it verification rather than a second spelling.
+    ckt "  and the record names them by digest" \
+      test "$(jq -r .profile_snapshot "$CASE_STATE/slot/one/assignment.json")" \
+      = "sha256:$(sha256sum < profiles/pinned.json | cut -d' ' -f1)"
+    # Which directory the provision itself read is **not** asserted here and is
+    # two runs below, on the re-provision: a slot with no pin resolves to this
+    # host's directory either way, so a round here would pass whatever the
+    # program did.
+
+    # The host moves on, and this is the edit the pin exists for: the same
+    # document with nowhere to put a unit of work. Nothing has been re-pinned,
+    # so nothing about the slot may change.
+    writeProfile pinned '[]'
+    # A second field moves with it, because the record carries one: `class` is
+    # built from the sizes of the document a provision is taken under, so it
+    # says which of the two copies the *front end's own* read came out of —
+    # where the round above says which one the program was pointed at.
+    jq '.sizes.mem = 2048' profiles/pinned.json > moved.json
+    mv moved.json profiles/pinned.json
+    run one unit u5
+    ck "a verb on a pinned slot reads the pin and not the host's document" 0 "$rc"
+    ckt "  so the token the pinned document has a hole for is recorded" \
+      test "$(jq -r .unit "$CASE_STATE/slot/one/assignment.json")" = u5
+    run one collect
+    ck "and the program behind one is pointed at the pin" 0 "$rc"
+    ckt "  which is where the bytes it was assigned under are" \
+      saw "collect dir: $CASE_STATE/slot/one/profile"
+    ckt "  with the scope filled from the same document" \
+      saw "collect argv: --capsule one --profile pinned --unit u5 --policy build"
+
+    # The marker, and it is the reader that makes the digest worth writing: a
+    # human's one screen has to say that a document has been edited under a
+    # running slot, because nothing else on this host can.
+    run all status
+    ck "a status says which slot has been left behind" 0 "$rc"
+    ckt "  marking the target's name on that slot's row" grep -qE '^one .+ pinned\*' out
+    ckt "  and not on a slot that has no pin at all" unsaw "built*"
+    ckt "  with the column always in the header, whatever any slot resolves to" \
+      grep -qE 'gen +profile +policy' out
+
+    # And a re-provision is what carries the edit across, which is the other
+    # half of "pinned": the drift is a state a verb leaves, never one it cannot.
+    # Carrying state, because that is the invocation where **both** directories
+    # are consulted in one run: the scope is resolved off the slot's pin, which
+    # is the document that has the hole, and the provision itself is taken under
+    # the host's. A re-provision that read the pin for either half would stand
+    # the new assignment up on the old assignment's document, silently.
+    run one provision somecommit --state-from-host
+    ck "a re-provision re-pins onto the document this host has now" 0 "$rc"
+    ckt "  with the scope still read off the pin it is replacing" \
+      saw "provision argv: --capsule one --profile pinned --unit u5 somecommit --state-from-host"
+    ckt "  byte for byte again" \
+      cmp -s "$CASE_STATE/slot/one/profile/pinned.json" profiles/pinned.json
+    # The round above cannot say this and the first provision's could not
+    # either: a slot with no pin resolves to the host's directory anyway, so
+    # only a provision made *while a pin exists* can show which of the two it
+    # read. Standing a new assignment up on the document the last one was taken
+    # under is the failure, and it is silent.
+    ckt "  having read this host's document rather than the pin it replaces" \
+      saw "provision dir: $PWD/profiles"
+    ckt "  and recorded a class off the same copy" \
+      test "$(jq -r .class.mem "$CASE_STATE/slot/one/assignment.json")" = 2048
+    run one unit u6
+    ck "so the slot's own answers change with it" 1 "$rc"
+    ckt "  naming the document rather than the slot" saw "profile pinned"
+    ckt "  and the stale token stays where it was" \
+      test "$(jq -r .unit "$CASE_STATE/slot/one/assignment.json")" = u5
+    run all status
+    ck "and the marker is gone" 0 "$rc"
+    ckt "  because the two copies agree again" unsaw "pinned*"
+
+    # The digest's own reader, and a different fault from a host that moved on:
+    # bytes that are not the ones the record names are a pin somebody edited,
+    # and a slot reading those is reading a document nobody assigned.
+    # Tolerant of there being no pin to edit, so a program that pins nothing
+    # reddens the round below rather than ending the file here and taking every
+    # later round's verdict with it (item 37).
+    jq '.sizes.mem = 4096' "$CASE_STATE/slot/one/profile/pinned.json" 2> /dev/null \
+      > tampered.json || echo '{}' > tampered.json
+    mkdir -p "$CASE_STATE/slot/one/profile"
+    mv tampered.json "$CASE_STATE/slot/one/profile/pinned.json"
+    run all status
+    ck "a status still answers over a pin that has been edited" 0 "$rc"
+    ckt "  marking it apart from a document the host has moved on from" \
+      grep -qE '^one .+ pinned!' out
+
+    # One pin per slot: a re-provision onto another target leaves no second
+    # document behind, because a stale name here is read the moment a record
+    # names it again — retention is for the current assignment.
+    assign one holed
+    run one provision somecommit
+    ck "a re-provision onto another target replaces the pin" 0 "$rc"
+    ckt "  leaving nothing of the one before it" \
+      test ! -e "$CASE_STATE/slot/one/profile/pinned.json"
+    ckt "  and pinning the one it was taken under" \
+      test -f "$CASE_STATE/slot/one/profile/holed.json"
+    rm profiles/pinned.json
+
+    # Left drifted on purpose, for a round two sections down. A provision is the
+    # only verb that reads this host's directory, and inside `handoff` it is the
+    # *fourth* thing to resolve a profile — every step before it has pointed the
+    # reader at a pin. A single-verb run cannot tell the two apart, because
+    # nothing in one has moved the directory before the provision; a handoff can,
+    # and this is the value that makes it visible.
+    jq '.sizes.mem = 3072' profiles/holed.json > moved.json
+    mv moved.json profiles/holed.json
+
     # ========================= the two coarse verbs, and NOTES item 53
     #
     # `handoff` and `land` are compositions in this front end and not programs
@@ -814,6 +948,13 @@ in
       test "$(jq -r .purpose "$CASE_STATE/slot/one/assignment.json")" = "a second pair of eyes"
     ckt "  and the base is what was handed over" \
       test "$(jq -r .base.oid "$CASE_STATE/slot/one/assignment.json")" = "$second"
+    # The pin section above left this host's `holed` document drifted from the
+    # one slot `one` was pinned to, so this says which of the two the provision
+    # inside a handoff was taken under. It is the only place the difference is
+    # observable: every step before it here reads a pin, and the provision must
+    # not (item 52 step 3).
+    ckt "  under this host's document and not the pin the handoff replaces" \
+      test "$(jq -r .class.mem "$CASE_STATE/slot/one/assignment.json")" = 3072
 
     # ------------------------------------------------ land, and its report
     #

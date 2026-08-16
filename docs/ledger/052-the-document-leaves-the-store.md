@@ -1,12 +1,13 @@
 # NOTES item 52 — the document leaves the store, and a pin becomes necessary
 
-*State: **steps 1 and 2 built and green; step 3 owed.** Three decisions, all
+*State: **closed — all three steps built and green.** Three decisions, all
 taken — two of them were already taken elsewhere and this file says where rather
 than re-taking them. The documents are out of the store and in a directory this
-host owns, every predicate about a document is the reader's, and the render is
-now a build that *runs* the reader. What is left is `profile_snapshot`: the pin,
-which matters more after this commit than before it, because until now nothing
-could edit a document at all.
+host owns, every predicate about a document is the reader's, the render is a
+build that *runs* the reader, and **a slot is pinned to the bytes it was
+provisioned under**: a provision copies the document into the slot's own
+directory, records that copy's digest, and every later verb on the slot is
+pointed at that directory rather than at the host's.
 [Item 51](./051-the-target-in-four-store-paths.md) made every host-side program
 read the target's run-time half out of a document, and put that document in
 `/nix/store` (its decision 2, explicitly "a store path first"). That bought one
@@ -176,11 +177,10 @@ Consequences to accept, both of them from
    seam is the whole of the switch — nothing in the validator moved — and it is
    also what makes the build-time check possible at all: a validator carrying a
    default directory would depend on the directory that running it produces.
-3. **Owed. `profile_snapshot`.** The copy at provision, the digest, the pinned
-   read, and a marker in `capsule all status` when the host's document has moved
-   on from a slot's pin. `policyCases` is the suite — it already stubs
-   `capsule-provision` and asserts what the record step *did*, which is exactly
-   the seam this needs and is
+3. **Done. `profile_snapshot`.** The copy at provision, the digest, the pinned
+   read, and the marker in `capsule all status`. `policyCases` was the suite, as
+   predicted — it already stubbed `capsule-provision` and asserted what the
+   record step *did*, which is exactly the seam this needed and is
    [item 51 step 6](./051-the-target-in-four-store-paths.md)'s own leftover paying
    for itself.
 
@@ -250,6 +250,85 @@ round that would not discriminate:**
   graph nor `systemPackages`, and its text names the rendered directory, so
   including it makes the document a build input and `just build` renders it —
   which now means running the reader over it.
+
+## What step 3 turned out to be
+
+**Decision 3 held, and the pin cost the reader nothing.** `host/profile.nix` is
+untouched by this step: a pin is a directory, so the second place `profileLoad`
+looks is the same place named differently. What is new is four constructions in
+the front end — `pinProfile`, `slotProfileName`/`slotProfile`, `profileDirFor`
+and `profileCell` — plus one `--arg` on the record's write.
+
+**A provision is the one verb that reads this host's directory, and that
+asymmetry *is* the design.** Everything else on a slot reads the bytes that slot
+was assigned under; the act that sets the pin cannot be governed by it, or a
+re-provision would stand the new assignment up on the old assignment's document.
+So `provisionSlot` points at the host's directory once, for its own read and for
+the program it then runs, and `work`'s `provision` arm is the one branch that
+does **not** re-point.
+
+**Two careful copies of that one line were removed after the mutation run could
+not tell them apart.** `work`'s provision arm and `recordProvisioned` each called
+`useHostProfiles` as well, and deleting either reddened nothing, because
+`provisionSlot` had already set it. That is [item
+37](./037-a-teardown-that-only-unnames.md)'s rule from the other side: three
+careful spellings of one fact are two rounds that never discriminate, and the fix
+is one construction rather than three correct ones.
+
+**The finding worth carrying: a variable exported inside `$(…)` or `<(…)` is
+exported in a child.** The obvious round — provision a pinned slot and ask which
+directory the program was handed — cannot discriminate in a *single-verb* run,
+and not because the code is right: within one invocation nothing has pointed at a
+pin before the provision, since `unitScope`'s read of the document happens inside
+a process substitution and its export dies with it. The only invocation where
+both directories are consulted in one process is `handoff`, whose first three
+steps all resolve a profile before its provision. So the round that pins the
+provision's own read lives in the handoff sequence, and its setup — this host's
+`holed` document drifted from slot `one`'s pin — is two sections above it, said
+at both ends. **A "my caller pointed me here" invariant is only observable where
+a caller in the same process pointed somewhere else.**
+
+**The marker has three states, and the third is what gives the digest a reader.**
+`name` is a slot reading this host's document, `name*` a slot reading a pin the
+host has moved on from — the edit this whole item makes possible — and `name!` a
+pin whose bytes are not the ones the record names. Without the third, the digest
+would be a field nothing reads, which the contract's own `unit` row says becomes
+a field somebody one day believes.
+
+**One pin per slot, and the contract said the opposite.** It asked for superseded
+generations to keep their snapshot as provenance; there is no generation history
+to hang one on — the assignment document is one file rewritten in place — so a
+re-provision replaces the bytes and leaves nothing of the document before them.
+[contract-assignment.md](../contract-assignment.md) is corrected rather than
+worked around.
+
+## The evidence for step 3, and what it does not cover
+
+`just`, `just check` and `just units` green; **`just cases` 514** (was 485), all
+of the difference in `policyCases`, whose stubs gained one line — the
+`CAPSULE_PROFILE_DIR` they were handed, since a program takes a profile's *name*
+on argv and its *bytes* from the environment and only the program can say which
+it got.
+
+Nine mutations against file copies of the fixed program, each red on its own
+rounds and nothing else: the pin never written (13 rounds); `work` pointing every
+verb at the host's directory (1); the front end's own reads unpinned (5); `work`
+re-pointing a provision at the pin (1); the drift marker deleted (1); the tamper
+marker deleted (1); a re-pin that leaves the old document behind (1);
+`provisionSlot` reading the slot's own pin (1, and only via the handoff round
+above); and the record written off the pin being replaced (2).
+
+**One round was deleted for never discriminating**, which is the same lesson as
+the finding above and is cheaper to state here than to re-derive: asserting which
+directory the *first* provision read passes whatever the program does, because a
+slot with no pin resolves to this host's directory either way.
+
+**Not covered, and unchanged from steps 1 and 2**: nothing pins that the module's
+`wrap` exports the directory the module also creates. **And nothing is live** —
+this host has not been switched onto step 3's programs, so the copy, the digest,
+the pinned read and the marker have run in a sandbox and nowhere else. The first
+exercise is a free slot: provision it, edit `target.nix`, switch, and read
+`capsule all status` for the `*`.
 
 ## What must not drift while this is being built
 

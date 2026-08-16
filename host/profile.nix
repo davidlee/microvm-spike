@@ -48,10 +48,12 @@
 # document is edited after a slot booted. The grammar below is half an answer: it
 # pins the derivation (`guestPath` *is* `volumePath`/`name`) so no single document
 # can disagree with itself. Pinning a *slot* to the profile it was built with is
-# `profile_snapshot` in the assignment record (host/record.nix) and is still
-# **owed** — item 52 step 3. It matters more now than it did: while the documents
-# were in the store nothing could edit one, and a directory a human can write is
-# a directory where "later" and "what this slot was assigned" come apart.
+# `profile_snapshot` in the assignment record, and is **built** — item 52 step 3.
+# It costs this file nothing, which is decision 3's whole point: a provision
+# copies the document into the slot's own directory and every later verb on that
+# slot is pointed at *that directory* (host/cli.nix's `pinProfile` and
+# `slotProfileName`), so the second place `profileLoad` looks is the same place
+# named differently and there is still one reader and one lookup.
 {
   pkgs,
   lib,

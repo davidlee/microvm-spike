@@ -109,16 +109,19 @@
         # of the last two and have it survive, and none of them can be forgotten
         # by a caller who only meant to set one field.
         #
-        # The absent four are written as absent rather than omitted, so a record
+        # The absent ones are written as absent rather than omitted, so a record
         # says for itself which half of the contract is built. Each waits on a
-        # different mechanism: `policy` on a declared set to select from,
+        # different mechanism: `policy` on a declared set to select from, and
         # `extras` and `image` on a fragment vocabulary and a composition to
-        # resolve (docs/contract-flavour.md), and `profile_snapshot` on a profile
-        # that is a *document* rather than a build-time literal. That last one is
-        # not a gap in the pinning: today's profile is pinned by being in the
-        # closure, which is a stronger pin than a copied file — and an unusable
-        # one for a controller that never runs nix, which is why the contract
-        # asks for bytes and this field will eventually hold them.
+        # resolve (docs/contract-flavour.md).
+        #
+        # `profile_snapshot` is **filled** since [NOTES item 52](../docs/ledger/052-the-document-leaves-the-store.md)
+        # step 3 — a provision copies the document it was taken under into the
+        # slot's own directory and records the digest of that copy
+        # (host/cli.nix's `pinProfile`). It stays in this skeleton because a
+        # record written by any other verb has no provision behind it and must
+        # not claim a pin. Absent here means the slot reads whatever this host
+        # declares now, which is what every record said before that step.
         printf '%s' "$cur" \
           | jq --argjson g "$next" ''${1+"$@"} \
             "$filter"'

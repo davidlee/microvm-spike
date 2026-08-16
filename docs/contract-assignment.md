@@ -152,7 +152,7 @@ never read by the guest.
 | `generation` | monotonic integer, per slot, bumped by every mutation | what makes a late answer refusable. Without it a worker that returns after a re-assign operates on a slot that is no longer the one it was given |
 | `schema` | serialization discriminator, `1` to start | persistent state outlives the binary that wrote it. **Not a compatibility promise** — the design in this file is deliberately unversioned, and a number on the bytes is a different thing from a number on the contract |
 | `profile` | name of a project profile | the semantics half of what used to be "target" |
-| `profile_snapshot` | **the profile document itself**, retained here, addressed by its digest | see the retention rule below. A digest alone cannot answer "reapply what was pinned" once the named document has changed |
+| `profile_snapshot` | **the profile document itself**, retained here, addressed by its digest | see the retention rule below. A digest alone cannot answer "reapply what was pinned" once the named document has changed. **Built** ([item 52](./ledger/052-the-document-leaves-the-store.md) step 3): a provision copies the document it was taken under to `<slot>/profile/<name>.json` and records that copy's `sha256:…`; every later verb on the slot reads *those* bytes, because the front end points `CAPSULE_PROFILE_DIR` at that directory. Absent means the slot reads whatever the host declares now, which is what every record said before that step |
 | `policy` | name of a policy, from the slot's declared set | the control half. Separate field because separate owner (item 25). **Built** ([item 36](./ledger/036-a-policy-is-selected-not-named.md)): written by `capsule <slot> policy <name>`, refused outside that slot's set, and read by two things — the slot's allowlist link, re-pointed in the same locked write, and `capsule-collect`'s `--policy`, which the front end fills from here. Absent means the slot runs the operator's declared default, because absence is not a state a perimeter may be in |
 | `extras` | fragments composed on top of the profile's floor, from the slot's declared vocabulary | the assigner's half of what the guest can do. The profile declares a *floor* and never a flavour; the image is `compose(floor, extras)` ([contract-flavour.md](./contract-flavour.md)) |
 | `image` | **the store path** the composition resolved to, with a gcroot holding it | the resolved identity of `floor + extras`. Fragment names re-resolve when the vocabulary's inputs relock; a store path does not |
@@ -193,12 +193,23 @@ Both retentions are cheap and one of them is already built:
   state directory, read from source in [Plan D](./plan-d-fleet.md) §5. The
   assignment records the path; the gcroot keeps it.
 
-**Retention is for the current assignment, not for history.** Superseded
-generations keep their `profile_snapshot` as provenance — it is bytes and it is
-small — but nothing holds their images, because re-assignment already resets the
-volume and a restorable previous generation is a thing this design does not
-offer. Saying so keeps the gcroot count equal to the slot count instead of
-growing with every re-assign.
+**Retention is for the current assignment, not for history.** Nothing holds a
+superseded generation's image, because re-assignment already resets the volume
+and a restorable previous generation is a thing this design does not offer.
+Saying so keeps the gcroot count equal to the slot count instead of growing with
+every re-assign.
+
+**And nothing holds a superseded generation's snapshot either**, which this file
+first said the other way round. As built ([item
+52](./ledger/052-the-document-leaves-the-store.md) step 3) there is **one pin per
+slot**: a re-provision replaces the bytes and leaves nothing of the document
+before them. Keeping the old bytes would be provenance for a *record* nothing
+keeps — the assignment document is one file, rewritten in place with the
+generation bumped, and there has never been a copy of the generation it
+superseded. A snapshot beside a record that no longer exists is a file whose
+generation cannot be read off anything, which is the shape a stale name here
+already costs elsewhere. Whichever way history is kept, it is kept for the record
+first and the snapshot with it.
 
 ## The observed status
 

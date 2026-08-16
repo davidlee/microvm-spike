@@ -252,7 +252,16 @@ Break these and the confinement stops meaning anything:
   **every rule about a document is the reader's**, one validator, run by the
   render itself and shipped as `capsule-profile-check` for a document nix did not
   write. Don't put a document predicate in nix; it would then hold for the
-  documents that never needed it. Which name a verb
+  documents that never needed it. **And a slot is pinned to the bytes it was
+  provisioned under** (item 52 step 3): a provision copies its document into the
+  slot's own directory and records that copy's digest, and every later verb on
+  that slot is pointed at *that* directory — so a profile is pinned while a
+  policy is live, and `capsule all status` marks the slot whose host document has
+  moved on. The pin is a `profileDir` choice and never a second way to find
+  bytes, and pointing at one is the **front end's** act: a program that looked
+  for a pin would be choosing its own target. **A provision is the one verb that
+  reads this host's directory**, because the act that sets a pin cannot be
+  governed by it. Which name a verb
   on a slot means is resolved by the **front end** — explicit flag, then the
   slot's record, then the one profile this host declares, refusing when several —
   because a program that reads host state to pick a target is item 20's mistake.

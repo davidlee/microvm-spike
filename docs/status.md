@@ -6,7 +6,39 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 [ledger/index.md](./ledger/index.md); this file says what is true now and what
 happens next.
 
-Last updated 2026-08-16, after **`handoff` and `land` became verbs of the front
+Last updated 2026-08-16, after **a slot is pinned to the document it was
+provisioned under**, which closes
+[item 52](./ledger/052-the-document-leaves-the-store.md) with its step 3. A
+provision copies the target's document into the slot's own directory, records
+that copy's `sha256:`, and every later verb on that slot is pointed at **that**
+directory — so editing `target.nix` and switching no longer changes what a
+running capsule is doing, and `capsule all status` marks the slot that has been
+left behind. **A profile is pinned; a policy is live** was written down at the
+contract before either was built; this is the half that was missing, and it was
+unbuildable before step 1, because while the documents were in the store nothing
+could edit one.
+
+**A provision is the one verb that reads this host's directory**, which is the
+whole shape: the act that sets a pin cannot be governed by it, or a re-provision
+would stand the new assignment up on the old one's document. `host/profile.nix`
+is untouched — decision 3's point is that a pin is a *directory*, so there is
+still one reader and one lookup. The marker has three states and the third is
+what gives the digest a reader: `name*` is a host that has moved on, `name!` is a
+pin whose bytes are not the ones the record names. Two careful copies of "point
+at the host's directory" were **deleted** when the mutation run could not tell
+them apart, and the reason a third round had to be smuggled into the `handoff`
+sequence is the finding: a variable exported inside `$(…)` or `<(…)` is exported
+in a *child*, so a single-verb run cannot tell the two directories apart at all
+— `handoff` is the only invocation that resolves a profile three times before it
+provisions. `just cases` is **514** (was 485), nine mutations each red on its own
+rounds, and one round was deleted for never discriminating. The contract was
+wrong in one place and is corrected rather than worked around: there is **one pin
+per slot**, because there is no generation history for a superseded snapshot to
+be provenance for. **Nothing is live** — no capsule was touched and this host has
+not been switched, so the first exercise is a free slot, a `target.nix` edit and
+a `capsule all status`.
+
+Before that, the same day, after **`handoff` and `land` became verbs of the front
 end** — [item 53](./ledger/053-three-coarse-verbs.md)'s middle and third acts,
 built on the two prerequisites it names and green, with `setup --unit`/`--purpose`
 as record writes the one piece of it still unbuilt.
@@ -180,8 +212,9 @@ turned up item 37's class a third time — `installed` forces the wrappers'
 outPaths and builds nothing, so five programs whose entire text is an environment
 had never been shellchecked; `hostModulePrograms` now embeds them and the module's
 activation scripts, which also makes the rendered document a build input.
-**Step 3, `profile_snapshot`, is owed** and matters more after this commit than
-before it: while the documents were in the store nothing could edit one.
+**Step 3, `profile_snapshot`, was owed at that point** and is the paragraph at
+the top of this file: it mattered more after that commit than before it, because
+while the documents were in the store nothing could edit one.
 
 **The host has been switched** onto step 6's programs, and asked
 rather than read: the installed `capsule-collect` refuses without `--profile`, all
@@ -2052,9 +2085,10 @@ ceiling was sizing them wrong.
 remainder is scoped as
 [item 52](./ledger/052-the-document-leaves-the-store.md) — the documents out of
 the store, which is what §6.1's controller needs and what makes a second target a
-file rather than a rebuild. Nothing of 52 is built. It is not a prerequisite for
-D2 and D2 is not one for it; 52 is the cheaper of the two and the one whose
-decisions are already taken.
+file rather than a rebuild. **52 is closed** — all three steps — so a second
+target on this host is a file, and what is left of D7 is the guest **image**,
+which still knows the project's name (§6.2). It was never a prerequisite for D2
+and D2 was never one for it.
 
 Next: **D2, the pool. Its half of L12 is built, switched and run — L12 is closed**
 ([item 30](./ledger/030-a-pool-audits-what-exists.md)): the guard holds one

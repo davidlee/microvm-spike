@@ -120,8 +120,7 @@
       local -a args
       shift
       door "$n" probe || return 1
-      profileNameFor "$n" >/dev/null || return 1
-      profileLoad "$profileName" || return 1
+      slotProfile "$n" >/dev/null || return 1
       mapfile -t args < <(printf '%s\n' "$profile_guest_path" "$@" | profileQuote)
       "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- "''${args[@]}" <<'GUEST'
     set -eu
@@ -237,6 +236,10 @@ in
           echo "  in:        ssh [cmd…] | admin [cmd…]"
           echo "  work:      ${lib.concatStringsSep " | " programVerbs} | setup [ref]"
           echo "  hand on:   handoff <source> --purpose <text> | land [--branch <name>]"
+          echo
+          echo "  status marks a slot's profile '*' where this host's document has"
+          echo "  moved on from the one that slot was provisioned under, and '!'"
+          echo "  where its pinned bytes are not the ones its record names."
         }
 
         case "''${1-}" in
@@ -420,8 +423,24 @@ in
           # this is where the host state that answers it lives (NOTES item 51,
           # decision 4). An explicit one is passed through untouched rather than
           # doubled.
+          #
+          # And the *bytes* that name reaches, which is item 52 step 3: a
+          # provision is the act that pins a slot, so it reads what this host
+          # declares now; every other verb reads what that slot was assigned
+          # under. The program is handed a directory in the environment and
+          # never asks which — a program that looked for a pin would be
+          # choosing its own target (item 20).
           if profileVerb "$v"; then
-            profileNameFor "$n" ''${1+"$@"} || exit 1
+            case "$v" in
+              # A provision resolves a name and takes the directory it was
+              # called in — `provisionSlot` points at the host's, because it
+              # reads the same document itself for the record's `class` and for
+              # the baseline question a `setup` asks after. One call sets it,
+              # here and there both, and a second careful one is the thing that
+              # drifts.
+              provision) profileNameFor "$n" ''${1+"$@"} || exit 1 ;;
+              *) slotProfileName "$n" ''${1+"$@"} || exit 1 ;;
+            esac
             if [ "$profileGiven" = no ]; then
               set -- --profile "$profileName" ''${1+"$@"}
             fi
@@ -532,6 +551,96 @@ in
         ${record.fragment}
         ${observeFragment}
 
+        # ------------------------------------------ the pin, NOTES item 52 step 3
+        #
+        # A profile is **pinned** and a policy is **live**
+        # (docs/contract-assignment.md): a tightened allowlist must reach a
+        # running capsule, and an edit to a project's caches or its baseline must
+        # *not* change what one is doing until a verb re-pins it. That distinction
+        # could not fail while the documents were in the store, because nothing
+        # could edit one; item 52 put them in a directory a human writes.
+        #
+        # What this host declares, read **once** and before anything points a
+        # reader somewhere else — every slot-scoped read below moves
+        # `CAPSULE_PROFILE_DIR` between two directories, so a second reading of it
+        # afterwards would take a pin for the host's own. A human's override is
+        # what this captures, which is the right answer: the host's documents are
+        # wherever this program was told they are.
+        hostProfileDir=$(profileDir)
+        useHostProfiles() { export CAPSULE_PROFILE_DIR=$hostProfileDir; }
+
+        # Where a slot's pinned bytes live: beside its record, under the same
+        # root, because a pin is *desired state* — it is what this slot was
+        # assigned under, and a document edited since is a different document.
+        #
+        # **One pin per slot**, so a re-provision onto another target leaves no
+        # second document behind: retention is for the current assignment
+        # (docs/contract-assignment.md), and a stale name sitting here would be
+        # read the moment a record named it again.
+        pinDirOf() { printf '%s/profile' "$(slotDir "$1")"; }
+        pinFileOf() { printf '%s/%s.json' "$(pinDirOf "$1")" "$2"; }
+
+        # Which directory a read about this slot comes out of: its pin when it
+        # has one under that name, else what this host declares. A slot nothing
+        # has assigned has none, and then the host's document *is* what it would
+        # run — there is nothing to pin it against and nothing to say.
+        profileDirFor() {
+          if [ -f "$(pinFileOf "$1" "$2")" ]; then pinDirOf "$1"; else printf '%s' "$hostProfileDir"; fi
+        }
+
+        # `sha256:<hex>` over a file — the record's `profile_snapshot`, which is
+        # the digest *of the bytes beside it*. Self-describing, because a field
+        # outlives whatever wrote it.
+        digestOf() { printf 'sha256:%s' "$(sha256sum < "$1" | cut -d' ' -f1)"; }
+
+        # Copy the document a provision is taken under into the slot's own
+        # directory, and answer with its digest. **Decision 3, and the whole of
+        # why it costs no code**: the pin *is* a profile directory, so
+        # `profileLoad` learns no second way to find bytes (item 52's own "one
+        # reader, one lookup") — the second place it looks is the same place,
+        # named differently.
+        #
+        # Aside and moved, and read-only once there: a dropped write must not
+        # leave half a document that still parses (`capsule-inject`'s discipline),
+        # and a pin somebody can edit in place is a pin that says nothing.
+        pinProfile() {
+          local n="$1" name="$2" src dir dst tmp
+          src="$hostProfileDir/$name.json"
+          dir=$(pinDirOf "$n")
+          dst=$(pinFileOf "$n" "$name")
+          [ -f "$src" ] || return 1
+          mkdir -p "$dir"
+          tmp="$dst.$$"
+          install -m 0444 "$src" "$tmp" || return 1
+          rm -f "$dir"/*.json
+          mv -f "$tmp" "$dst" || return 1
+          digestOf "$dst"
+        }
+
+        # Resolve which document a slot is about, and point every later reader at
+        # the bytes it was assigned under — this program's own `profileLoad`, and
+        # the program `work` execs, which inherits the variable.
+        #
+        # **The front end's act and never a program's** (item 20, and item 52's
+        # own list of what must not drift): a program that went looking for a pin
+        # would be choosing its own target. It is handed a directory and reads the
+        # document in it that it was named. Sets `profileName`, `profileGiven` and
+        # `CAPSULE_PROFILE_DIR`.
+        slotProfileName() {
+          local n="$1" dir
+          shift
+          useHostProfiles
+          profileNameFor "$n" ''${1+"$@"} || return 1
+          dir=$(profileDirFor "$n" "$profileName")
+          export CAPSULE_PROFILE_DIR=$dir
+        }
+
+        # …and load it, which is what all but one caller wants.
+        slotProfile() {
+          slotProfileName "$@" || return 1
+          profileLoad "$profileName"
+        }
+
         # Which target a verb on this slot is about — the *only* place that
         # question is answered, and it is answered from host state, which is why
         # it is here (NOTES item 51, decision 4). Three sources, in the order
@@ -619,8 +728,7 @@ in
         slotNeedsUnit() {
           local n="$1"
           shift
-          profileNameFor "$n" ''${1+"$@"} >/dev/null 2>&1 || return 2
-          profileLoad "$profileName" >/dev/null 2>&1 || return 2
+          slotProfile "$n" ''${1+"$@"} >/dev/null 2>&1 || return 2
           profileNeedsUnit
         }
 
@@ -690,8 +798,11 @@ in
           # diagnostic per slot: `capsule all status` is one table, and a slot
           # nothing has assigned on a host with two targets has nothing to be
           # observed *about*. The `gen` column already says it is unassigned.
-          profileNameFor "$1" 2>/dev/null || return 1
-          profileLoad "$profileName" 2>/dev/null || return 1
+          #
+          # The slot's pinned bytes, like every other read about a running
+          # capsule: what is measured has to be measured against the document
+          # that capsule was stood up under (item 52 step 3).
+          slotProfile "$1" 2>/dev/null || return 1
           mapfile -t args < <(observeArgs | profileQuote)
           "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- "''${args[@]}" < ${observe} 2>/dev/null
         }
@@ -746,16 +857,54 @@ in
         # (item 51, decision 3): this is one table for N slots over M targets, so
         # a shape that were a function of any one of them would change between
         # two runs on one host, silently, with no rebuild to notice it.
-        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %-7s %-6s %s\n'
+        statusFmt='%-7s %-7s %-10s %-8s %-8s %-4s %-7s %-9s %-5s %-8s %-4s %-4s %-11s %-4s %-3s %-9s %-7s %-6s %s\n'
 
         statusHeader() {
           # shellcheck disable=SC2059
           printf "$statusFmt" \
             capsule created vm proxy relay door answers \
-            head dirty baseline age disk 'mem cur/peak' refs gen policy unit purpose
+            head dirty baseline age disk 'mem cur/peak' refs gen profile policy unit purpose
         }
 
         yesno() { if "$@"; then echo yes; else echo no; fi; }
+
+        # Which document this slot reads, and whether the host's copy has moved
+        # on from it — item 52 step 3's marker, and the reader that makes
+        # `profile_snapshot` worth writing. Bytes rather than a digest alone is
+        # the contract's own decision: a digest detects a drift it cannot undo,
+        # so the pin is what a slot runs and the digest is what says nobody has
+        # been at it (docs/contract-assignment.md).
+        #
+        #   name    the bytes this slot reads are this host's document
+        #   name*   pinned, and this host's document has changed since — an
+        #           edit to target.nix that no verb has carried to this slot
+        #   name!   pinned, and the bytes are not the ones the record names
+        #
+        # A column that is always printed, whatever any slot resolves to (item
+        # 51, decision 3): a marker that appeared only on a host with a drifted
+        # document would be the front end's shape changing with a file.
+        profileCell() {
+          local n="$1" pin host
+          useHostProfiles
+          profileNameFor "$n" 2>/dev/null || { echo -; return 0; }
+          pin=$(pinFileOf "$n" "$profileName")
+          if [ ! -f "$pin" ]; then
+            echo "$profileName"
+            return 0
+          fi
+          if [ "$(recordField "$n" profile_snapshot)" != - ] \
+            && [ "$(recordField "$n" profile_snapshot)" != "$(digestOf "$pin")" ]; then
+            echo "$profileName!"
+            return 0
+          fi
+          # A document this host no longer renders is a drift like any other,
+          # and the pin is why the slot keeps working through it.
+          host=-
+          if [ -f "$hostProfileDir/$profileName.json" ]; then
+            host=$(digestOf "$hostProfileDir/$profileName.json")
+          fi
+          if [ "$host" != "$(digestOf "$pin")" ]; then echo "$profileName*"; else echo "$profileName"; fi
+        }
 
         statusRow() {
           local n="$1" q refs=- line ans=no
@@ -787,6 +936,7 @@ in
             "$(memOf "$n")" \
             "$refs" \
             "$(recordField "$n" generation)" \
+            "$(profileCell "$n")" \
             "$(effectivePolicy "$n")" "$(recordField "$n" unit)" \
             "$(recordField "$n" purpose)"
         }
@@ -809,11 +959,25 @@ in
         # `capsule-provision --capsule a <ref>` directly provisions without
         # recording, the same way it bypasses every other thing a front end does.
         recordProvisioned() {
-          local n="$1" prof="$2" ref="''${3--}" oid
+          local n="$1" prof="$2" ref="''${3--}" oid snap
           # The profile this provision was *taken under*, not one resolved a
           # second time: the caller has it, and re-resolving after the record has
-          # been written would read the field this is about to set.
+          # been written would read the field this is about to set. Out of the
+          # directory `provisionSlot` pointed at — this host's, because a
+          # provision is the act that decides what the slot's own copy will be.
           profileLoad "$prof" || return 1
+          # The pin, and it is written **before** the record and independently of
+          # it: the bytes are what every later verb on this slot reads, and the
+          # code has already landed under them, so a guest that has since gone
+          # quiet must not leave the slot reading a document the host may edit
+          # tomorrow. The digest goes into the record's own write below, which is
+          # the half that follows the fact.
+          snap=$(pinProfile "$n" "$prof") || {
+            echo "capsule: provisioned, but '$prof' could not be pinned into" >&2
+            echo "  $(pinDirOf "$n") — so this slot reads whatever $hostProfileDir" >&2
+            echo "  holds at the time, which is the drift a pin exists to stop." >&2
+            return 1
+          }
           # `guestHead` and not a second `observed | cut`: the same question is
           # `verifyExhibit`'s, and it is the one thing here that needs a live
           # capsule, so it is asked in one place and substituted in one place.
@@ -833,15 +997,18 @@ in
             echo "  no base was recorded. 'capsule $n status', then provision again." >&2
             return 0
           fi
-          # SC2016: `$ref`, `$oid`, `$profile` and `$class` are *jq* variables,
-          # bound by the `--arg`/`--argjson` below. Not expanding in the shell is
-          # the entire point — a value interpolated into a filter would be jq code.
+          # SC2016: `$ref`, `$oid`, `$profile`, `$class` and `$snap` are *jq*
+          # variables, bound by the `--arg`/`--argjson` below. Not expanding in
+          # the shell is the entire point — a value interpolated into a filter
+          # would be jq code.
           # shellcheck disable=SC2016
           recordWrite "$n" \
-            '.base = {ref: $ref, oid: $oid} | .profile = $profile | .class = $class' \
+            '.base = {ref: $ref, oid: $oid} | .profile = $profile | .class = $class
+             | .profile_snapshot = $snap' \
             --arg ref "$ref" \
             --arg oid "$oid" \
             --arg profile "$prof" \
+            --arg snap "$snap" \
             --argjson class "$(printf '{"mem":%s,"vcpu":%s}' "$profile_mem" "$profile_vcpu")" \
             > /dev/null
         }
@@ -865,6 +1032,11 @@ in
           mapfile -t scope < <(unitScope "$n" --state-from-host ''${1+"$@"})
           # Resolved before the program runs and held in a local, because after
           # it the record this reads from is the record this provision writes.
+          # Out of the host's directory and not the slot's pin: a provision is
+          # what *sets* the pin, so reading the old one here would stand the new
+          # assignment up on the document the last one was taken under (item 52
+          # step 3).
+          useHostProfiles
           profileNameFor "$n" ''${1+"$@"} || return 1
           prof=$profileName
           profileLoad "$prof" || return 1
@@ -908,8 +1080,7 @@ in
         # git channel's own lookup does (host/git-channel.nix). Sets `repo` and
         # leaves the document loaded.
         repoFor() {
-          profileNameFor "$1" || return 1
-          profileLoad "$profileName" || return 1
+          slotProfile "$1" || return 1
           repo=''${CAPSULE_REPO:-$profile_path}
         }
 
@@ -1443,9 +1614,9 @@ in
             # Two slots on two targets would fetch into two checkouts and push
             # one project's code into another's capsule. Refused here rather than
             # discovered at the push, and naming both documents.
-            profileNameFor "$src" || exit 1
+            slotProfileName "$src" || exit 1
             srcProfile="$profileName"
-            profileNameFor "$name" || exit 1
+            slotProfileName "$name" || exit 1
             if [ "$srcProfile" != "$profileName" ]; then
               echo "capsule: '$src' is on profile $srcProfile and '$name' is on" >&2
               echo "  $profileName, so there is no work to hand between them." >&2
