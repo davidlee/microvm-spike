@@ -780,7 +780,10 @@ only place a repo name appears.
   values, of which L13 is the one with no override at all — and nothing above
   forecloses it. That task is
   [item 51](./ledger/051-the-target-in-four-store-paths.md) now: inventoried,
-  planned, unbuilt, its first two steps ready to start, and carrying the three
+  its steps 0 to 2 **built and green** — the five guest-pushed scripts take
+  every value they are about on their command line, the two that had no case
+  suite have one, and the seven suites are out of `flake.nix` into a file each
+  beside what they pin (behaviour-free, and it halved that file) — carrying the three
   decisions the rest of it needs — whether the profile document is per target or
   one for the host, whether it is a store path checked at build or a plain file
   with a validator, and what a fleet-wide status table does with a predicate that

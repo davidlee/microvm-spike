@@ -1,9 +1,11 @@
 # NOTES item 51 — the four programs still spell the target, and it is item 20 one level up
 
-*State: **steps 1 and 2 built and green; 3-6 gated on three decisions.** The five
-guest-pushed scripts take every value they are about on their command line, the
-two that had no case suite have one, and each of the seven suites was watched
-going red against a deliberately broken copy of what it pins. Nothing about
+*State: **steps 0, 1 and 2 built and green; 3-6 gated on three decisions.** The
+five guest-pushed scripts take every value they are about on their command line,
+the two that had no case suite have one, and each of the seven suites was watched
+going red against a deliberately broken copy of what it pins. The suites are then
+out of `flake.nix` and beside what they pin, one file each, which halved that
+file. Nothing about
 *where* the values come from has changed yet — they are still `target.nix`'s,
 spelled by the host program that makes the call — so no store path has stopped
 being a function of the target. That is step 3 onward.
@@ -196,9 +198,45 @@ reason.
 
 ## Order of work
 
-Red/green, and the first step is a test that fails. **Steps 1 and 2 are done**;
-what follows is what was written before they were, kept because 3-6 are still
-what it says:
+Red/green, and the first step is a test that fails. **Steps 0, 1 and 2 are
+done**; what follows for 3-6 is what was written before any of them, kept because
+it is still what those steps say:
+
+0. **Done. Split the case suites out of `flake.nix`, before step 3 and not during
+   it.** Not detargeting, and it changes no behaviour — it is the precondition for
+   doing the rest of this legibly. `flake.nix` was **2565 lines and 1341 of them
+   (52%) case suites**; steps 1 and 2 added about 530 of that, and steps 3-6 add
+   more, as does D7 after them. Three unrelated kinds of thing shared the file:
+   the composition (values → programs → outputs, the only part
+   that has to be there), the suites, and the probe fabric (~350 lines, which
+   *does* belong there — `borrowed` has to throw where probes are constructed,
+   [item 38](./038-a-probe-that-became-a-borrower.md)).
+
+   **One file per suite, beside what it pins** — `host/state-snapshot-cases.nix`,
+   `host/refresh-cases.nix`, and so on — each a function of `pkgs`, `lib` and the
+   store path it runs, with a short `import` left behind. Beside rather than
+   in a `checks/` directory, because a suite and the program it pins are read
+   together, which is the pairing `host/` already uses. `nix_paths` globs
+   directories, so `just check`'s parse and `alejandra` picked them up with no
+   justfile edit.
+
+   Two invariants the move had to preserve, both already true of the text: a suite
+   runs **the store path the program ships** and never a re-render — which is
+   precisely what step 2 made possible — and `guardStubs` travels with
+   `guardCases` (its only caller) while `quarantine` is shared and stays.
+
+   Doing it *after* step 3 would mean moving 1350 lines in the same commits that
+   change what programs read, and neither diff would be readable.
+
+   **What it came to:** `flake.nix` 2565 → **1263**, seven files of 1384 lines
+   under `host/`, and the seven attribute names, the `packages` set and `just
+   cases` unchanged. Two of the suites are handed a *fixture* rather than a
+   shipped path and say so in their own headers — the guard its stubbed kernel,
+   the front end a pool that is not this host's — and those two came off
+   **unchanged store paths**, which is the move asserting its own claim: nothing
+   about what they build moved. The other five rebuilt for one reason each, a
+   markdown link in a shell comment that had to become `../docs/ledger/…` a
+   directory down. Every case's log line is byte-identical before and after.
 
 1. **Done. Extend `snapshotCases`, `refreshCases` and `briefCases`** to pin the
    argument-taking form of every value each guest-side script currently
@@ -278,7 +316,8 @@ failure mode this repo has already had once, in `host/refresh.nix`
 
 ## Which verb the evidence covers
 
-**Read**, twice. The first pass took `host/programs.nix`,
+**Read**, twice, and then **Build** three times — steps 1, 2 and 0, in that
+order. The first pass took `host/programs.nix`,
 `host/git-channel.nix`, `host/cli.nix` and `target.nix` plus the record-writing
 site, and produced the inventory. The second was a readiness pass over the plan
 this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
@@ -288,9 +327,9 @@ this file had already written — `host/record.nix`, `host/state-snapshot.nix`,
 decisions 2 and 3, step 1's coverage gap and the `guestPath` edge. Every line
 reference above was checked against the file it names.
 
-Nothing is built and no step has been started. **Steps 1 and 2 are ready** —
-mechanical, scoped, needing no decision, once step 1's two-file gap is closed
-either way. **Steps 3 to 6 are not**, and what they wait on is the three
+Both passes were taken before anything was built. **Steps 0, 1 and 2 are now
+built and green** — each was mechanical, scoped and needed none of the decisions.
+**Steps 3 to 6 are not**, and what they wait on is the three
 decisions above rather than more reading — 1 and 2 before step 3, 3 before step
 6. The inventory is the reads' product and is the part
 worth trusting; the ordering is a judgement.

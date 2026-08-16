@@ -45,7 +45,13 @@ command that fails or eats its own stdin, the baseline's by having a build that
 can be asked to fail, the status's by catching an unprovisioned volume or a run
 in flight before it leaves that state, the front end's by editing the declared
 pool and writing the live record of a slot somebody is using. All three kinds are in `just build`, so a failing case is a failing
-build.
+build. **One suite per file, beside the program it pins** —
+`host/<name>-cases.nix`, a function of `pkgs`, `lib` and **the store path the
+program ships**, with a short `import` in `flake.nix` (NOTES item 51 step 0).
+Two of them are handed a fixture instead and say so in their headers: the guard's
+stubbed kernel, the front end's pool that is not this host's. A new suite goes in
+its own file and takes its subject as an argument — never a second render of the
+text it claims to pin.
 
 The seam that makes the third kind possible is worth reusing rather than
 reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a

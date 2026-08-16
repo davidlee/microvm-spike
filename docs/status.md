@@ -7,7 +7,21 @@ somewhere. Figures belong in [probes.md](./probes.md), reasoning in
 happens next.
 
 Last updated 2026-08-16, after **[item 51](./ledger/051-the-target-in-four-store-paths.md)'s
-first two steps were built**: the five guest-pushed scripts — `state-snapshot`,
+step 0 was built**: the seven case suites are out of `flake.nix` and beside what
+they pin, one file each — `host/guard-cases.nix`, `host/brief-cases.nix`,
+`host/state-snapshot-cases.nix`, `host/baseline-cases.nix`,
+`host/observe-cases.nix`, `host/refresh-cases.nix`, `host/policy-cases.nix` —
+each a function of `pkgs`, `lib` and **the store path the program ships**, with a
+short `import` left at the call site. `flake.nix` 2565 → **1263**; the seven
+attribute names, the `packages` set and `just cases` are unchanged, and every
+case's log line is byte-identical before and after. The two suites handed a
+*fixture* rather than a shipped path — the guard's stubbed kernel, the front
+end's pool that is not this host's — came off **unchanged store paths**, which is
+the move asserting its own claim; the other five rebuilt only because a markdown
+link inside a shell comment had to become `../docs/ledger/…` a directory down.
+`just` green, nothing switched, no capsule touched. Step 3 is next and is gated on
+the item's three decisions. Before that, the same day, after **that item's first
+two steps were built**: the five guest-pushed scripts — `state-snapshot`,
 `refresh`, `brief`'s runner, `observe` and `baseline`'s runner — take every value
 they are *about* on their command line instead of in their text, so
 `snapshotFor`, `refreshFor` and `runnerFor` are gone and each is one store path
@@ -22,7 +36,11 @@ by **two** shells so it is escaped twice — `capsule-baseline`'s nested
 now. `observeCases` and `baselineCases` are new — those two programs had **no
 suite at all** — so `just cases` runs seven, and each was watched going red
 against a deliberately broken copy of what it pins. `just` green; nothing
-switched, and no capsule was touched. Before that, the same day, after
+switched, and no capsule was touched. **And the work produced a step in front of
+its own remainder**: `flake.nix` is now 2565 lines of which **1341 (52%) are case
+suites**, ~530 of them from this session, so the item's step 0 is one file per
+suite beside what it pins (`host/<name>-cases.nix`) — behaviour-free, and to be
+done before step 3 rather than inside it. Before that, the same day, after
 **[item 50](./ledger/050-a-quarantine-outlives-its-assignment.md)'s
 read was taken and the reading under it was half wrong**. Two assignments to slot
 `e`, one quarantine: the code half behaves as the item predicted — forced,
