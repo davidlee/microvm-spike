@@ -126,7 +126,11 @@
       }
       # `CAPSULE_REPO` over the document, which is the shape this whole item
       # generalises (NOTES item 51): what the lookup replaced is the *baked
-      # default*, and the environment still wins over both.
+      # default*, and the environment still wins over both. **It did not win on
+      # the module path until `ISS-004`** — the wrapper set it — and this comment
+      # is where that was found to be a false claim in source rather than a
+      # typo. `host/wrap.nix` supplies it as a default now, so the sentence is
+      # true on both paths.
       src="''${CAPSULE_REPO:-$profile_path}"
       ref=""
       force=""

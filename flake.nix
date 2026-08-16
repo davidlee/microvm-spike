@@ -531,6 +531,14 @@
       inherit pkgs vm vm-stop;
     };
 
+    # The eleventh, and a *fourth* kind of check: its subject is the
+    # composition of the module path's wrapper with an inner program, which is
+    # the one thing neither `hostModuleUnits` nor a `*Cases` suite can see
+    # (`ISS-004`, and host/wrap-cases.nix's header). Handed a fixture on
+    # purpose — the paths it pins are nobody's, because the rule is the subject
+    # and not this host's directories.
+    wrapCases = import ./host/wrap-cases.nix {inherit pkgs lib;};
+
     policyCases = import ./host/policy-cases.nix {
       inherit pkgs lib net capsules policies guestSsh;
       inherit (hostPrograms) observe observeFragment programVerbs profileVerbs stateRefPrefix;
@@ -1314,7 +1322,7 @@
         # The checks that need no root and no host: what the module says, what the
         # guard decides, and which policy a slot resolves to.
         inherit hostModuleUnits hostModulePrograms guardCases policyCases observeCases;
-        inherit profileCases gitChannelCases vmCases;
+        inherit profileCases gitChannelCases vmCases wrapCases;
         # The rendered run-time half of `target.nix`, so a human can read what a
         # program will resolve (host/profile.nix). `nix build .#capsule-profiles`.
         capsule-profiles = hostProfile.dir;

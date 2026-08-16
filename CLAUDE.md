@@ -41,11 +41,11 @@ Be conservative beyond that.
 Verify with `just check` (`nix-instantiate --parse` over every file, plus `alejandra -c`; neither
 evaluates). `just` (default) runs the build, units, and fmt.
 
-**There are three kinds of check here, and they are not interchangeable.**
+**There are four kinds of check here, and they are not interchangeable.**
 `just check` parses and formats without evaluating. `hostModuleUnits` *evaluates*
 the NixOS module — what it says, including its programs, since a unit graph does
 not mention them. `guardCases`, `briefCases`, `snapshotCases`, `refreshCases`, `observeCases`,
-`baselineCases`, `policyCases`, `profileCases` and `gitChannelCases`
+`baselineCases`, `policyCases`, `profileCases`, `vmCases` and `gitChannelCases`
 *run* a host-side
 program's own text with a substitute for the one thing tying it to this host
 (`just cases`), and are the answer whenever the interesting branches are ones a
@@ -69,15 +69,25 @@ and read at the other, and a suite spelling that order itself would agree with
 itself while the two ends disagreed — silently, in the status's case. So those
 two suites build the tail from the *shipped fragment* and run the *shipped
 script* with it.
-All three kinds are in `just build`, so a failing case is a failing
+**The fourth kind is over a *composition*, and it exists because the other three
+cannot see one.** `wrapCases` runs the module path's wrapper (`host/wrap.nix`)
+around a stub that prints its environment, and asks whether a value the caller
+set survives the last line before the program starts. `hostModuleUnits` proves a
+wrapper *evaluates*; a `*Cases` suite runs a program's own text and never sees a
+wrapper at all — so **a wrapper defeating the program it wraps falls between
+them**, which is how `ISS-004` shipped with the gap named in the abstract and
+read as a test nobody had written. Reach for this kind whenever a program's
+behaviour depends on something wrapped around it rather than inside it.
+All four kinds are in `just build`, so a failing case is a failing
 build — **check that when you add one**: `observeCases` and `baselineCases` were
 written, wired into `just cases`, and left out of `just build` for a session
 (NOTES item 51 step 3). **One suite per file, beside the program it pins** —
 `host/<name>-cases.nix`, a function of `pkgs`, `lib` and **the store path the
 program ships**, with a short `import` in `flake.nix` (NOTES item 51 step 0).
-Three of them are handed a fixture instead and say so in their headers: the
+Four of them are handed a fixture instead and say so in their headers: the
 guard's stubbed kernel, the front end's pool that is not this host's, the
-profile's target that is nobody's. A new suite goes in
+profile's target that is nobody's, and the wrapper's five directories that are
+no host's. A new suite goes in
 its own file and takes its subject as an argument — never a second render of the
 text it claims to pin. **A suite whose subject is a *library* rather than a
 program** takes the fragment its callers get and splices it into the smallest
@@ -86,12 +96,16 @@ program** takes the fragment its callers get and splices it into the smallest
 `builtins.tryEval` and asserted in the shell, which is `hostModuleUnits`'
 arrangement one level down.
 
-The seam that makes the third kind possible is worth reusing rather than
-reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
+The seam that makes the third and fourth kinds possible is worth reusing rather
+than reinventing: `writeShellApplication` prepends `runtimeInputs` to `PATH`, so a
 test cannot stub `ip` by prepending its own. **A program that needs testing takes
 as an argument the one thing that ties it to this host** — `host/guard.nix`'s
 `tools` and `host/cli.nix`'s `moduleState`, an argument with a default so both
 shipped copies stay one store path — exactly as all of them take `transport`.
+**A wrapper is a program too, and that is why `wrap` left `host/services.nix`**
+(`ISS-004`): `host/wrap.nix` takes `paths`, so `wrapCases` builds the shipped
+text against a fixture rather than re-rendering five export lines that would
+then agree with themselves while disagreeing with the module.
 **For the five guest-pushed scripts that argument is now a *run-time* one**
 (NOTES item 51): `state-snapshot`, `refresh`, `brief`'s runner, `observe` and
 `baseline`'s runner take their checkout — and their ceiling, their command, their

@@ -168,24 +168,18 @@
 
   proxyState = "/var/lib/capsule-proxy";
 
-  # Wrapped, not bare: their defaults are relative to `CAPSULE_ROOT`, which is
-  # right for the foreground path and wrong for a program on `$PATH` — run from
-  # anywhere, `capsule-collect` would quarantine into `$PWD/.vm/host` instead of
-  # this host's state directory. The devshell's copies come first on PATH inside
-  # the repo, so that path is unaffected and each keeps its own state. (The same
-  # trap `capsule-sync` fell into; NOTES item 11.)
-  wrap = name: program:
-    pkgs.writeShellApplication {
-      inherit name;
-      text = ''
-        export CAPSULE_STATE=${cfg.stateDir}
-        export CAPSULE_REPO=${cfg.repo}
-        export CAPSULE_POLICY_DIR=${cfg.policyDir}
-        export CAPSULE_ALLOWLIST_DIR=${cfg.allowlistDir}
-        export CAPSULE_PROFILE_DIR=${cfg.profileDir}
-        exec ${lib.getExe program} "$@"
-      '';
-    };
+  # What the module path hands a host-side program before it starts. Its own
+  # file since `ISS-004`, so `wrapCases` can build the shipped text against a
+  # fixture — the reason `host/guard.nix`'s `tools` is an argument, one layer
+  # out. Every word of why is there; the short version is that these are
+  # **defaults**, so the front end's own resolution reaches the program it execs.
+  inherit
+    (import ./wrap.nix {
+      inherit pkgs lib;
+      paths = {inherit (cfg) stateDir repo policyDir allowlistDir profileDir;};
+    })
+    wrap
+    ;
 
   # The one program that can see inside a capsule's namespace, in its own file
   # because its tools are an argument: the same text is built against stubs by
@@ -799,9 +793,23 @@ in {
         (wrap "capsule" cli)
         (wrap "capsule-provision" hostPrograms.provision)
         (wrap "capsule-collect" hostPrograms.collect)
+        # Bare, and it is the honest line: `inject` is not a `profileVerb` and
+        # reads none of the five — a payload's destination is on the *volume*
+        # (host/programs.nix, setup.nix).
         hostPrograms.inject
-        hostPrograms.baseline
-        hostPrograms.refresh
+        # Wrapped since `ISS-004`, where being bare is what made the defect
+        # *visible*: these two are `profileVerbs`, so they read a document
+        # through `profileDir()`, and unwrapped they inherited the front end's
+        # `CAPSULE_PROFILE_DIR` while the three wrapped verbs had it overwritten
+        # — `capsule c baseline` read the slot's pin and `capsule c collect` read
+        # the host's, on one slot, with nothing saying so. Now that the wrapper
+        # supplies a default instead of imposing a value the front end still
+        # wins, and the asymmetry that is left is worth closing rather than
+        # keeping: run straight off `$PATH` these two read the *store's* baked
+        # documents, not the ones this host renders into `profileDir`, which is
+        # exactly what item 52 moved out of the store.
+        (wrap "capsule-baseline" hostPrograms.baseline)
+        (wrap "capsule-refresh" hostPrograms.refresh)
         # Wrapped like the other two that keep state: it reads the quarantine
         # `capsule-collect` wrote, so it needs the same `CAPSULE_STATE` and must
         # not derive one from `$PWD`.

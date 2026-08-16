@@ -334,7 +334,15 @@
     # (host/git-channel.nix), which item 51 names as the precedent this
     # generalises from an override to a lookup. The default is what this host
     # rendered, so the devshell path needs no environment at all and the module
-    # path points at a directory it owns (host/services.nix's `wrap`).
+    # path defaults it to a directory it owns (host/wrap.nix).
+    #
+    # **The override was written here and taken away one layer up until
+    # `ISS-004`**: the module's wrapper *assigned* this variable, so the front
+    # end's `slotProfileName` — which resolves a slot's pinned document and
+    # exports it for exactly this function to read — was overwritten on the last
+    # line before the program started, and the pin was inert for every verb that
+    # ran through a wrapper. A program written for an override is only as good as
+    # what wraps it.
     profileDir() { printf '%s' "''${CAPSULE_PROFILE_DIR:-${dir}}"; }
 
     profileLoad() {
