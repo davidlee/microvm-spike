@@ -117,7 +117,11 @@ what the operator wants in practice, a fresh VM per slice is the posture worth
 having, so the cheap correctness fix goes first and the posture follows it.
 
 1. **Give `setup` a pre-flight over the guest's state chain — drop only, never
-   eagerly.** Decided 2026-08-17, five answers, each with its reason:
+   eagerly.** **Built and green** (`783d96e`), six rounds in `policyCases`, two
+   mutations each red on their own rounds: a refusal that writes the record
+   before exiting reddens the generation round alone, and an ungated drop reddens
+   the whole block — which is the surprise the gate exists to prevent. Decided
+   2026-08-17, five answers, each with its reason:
 
    - **The drop, not the archive.** `handoff` archives because it forces over a
      destination; `setup` does not force by default, so an archive here would
@@ -200,6 +204,26 @@ the image is root-owned, so the delete needs the seam `capsule start` and
 a `.doctrine/` is — POL-002 makes the mechanism *recreate the volume*, never
 *delete these paths*, which is the same reason `reset-home` is coarse.
 
-Filed `after` `IMP-001` because step 2 needs D3. Step 1 needs nothing.
+Filed `after` `IMP-001` because step 2 needs D3. Step 1 needed nothing and is
+done.
 
-Evidence rung (`STD-001`): observed on this host, once, in production; unbuilt.
+## What step 1 left, for whoever takes step 2
+
+- **The shipped `guestStages` text has never run.** The suite substitutes
+  `guestControl`, so what is pinned is every branch downstream of the answer and
+  not the ssh argv that fetches it — the same boundary item 41 leaves around its
+  sudo rule, and the reason `gitChannelCases` exists one program over. The first
+  live repurpose after a `~/flakes` rebuild is the exercise.
+- **The two transports disagree until that rebuild.** The devshell copy has the
+  pre-flight now; the module's wrapped copy gets it when the host is rebuilt, and
+  they already refuse in different orders
+  (`mem.fact.oubliette.two-copies-refuse-in-different-orders`).
+- **The residue is untouched, by decision.** A repurpose still inherits the last
+  unit's untracked and ignored files. `CHR-002` is the item for exercising
+  `handoff`'s own copies of these steps on a live slot; this one has now been
+  exercised in a sandbox and by hand, and never by the shipped program.
+
+Evidence rung (`STD-001`): step 1 built, its branches pinned by a suite that runs
+the shipped program's text against a substituted guest, and its live path
+unexercised. Step 2 unbuilt. The original observation is one production run on
+this host.
