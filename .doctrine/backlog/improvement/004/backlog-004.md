@@ -92,13 +92,31 @@ slot driving `SL-251`.
 `capsule-baseline` and `capsule-refresh` *"go on PATH as they are"*, fifteen
 lines above the entry that wraps both and says *"Wrapped since ISS-004"*.
 
+**Then declared for real.** `panopticon.json` installed into
+`/var/lib/capsule-profiles` at `0444` after `capsule-profile-check` passed it.
+Activation never prunes that directory — nix owns only the names it renders —
+so it survives a switch, which is the property item 52 built. `capsule all
+status` from a clean environment now shows two-target resolution on this host:
+`a`-`e` on their records' `doctrine`, `f`-`j` at `-`.
+
+**No copy of those bytes is in this repo, deliberately.** A hand-written document
+is host state and this directory is the controller's to add to (item 52); a
+second copy here would be a second producer with nothing keeping the two in
+step. The consequence is that a fresh host does not have it — which is what
+`IMP-007`'s shape 1 or `IMP-006`'s targets axis would fix, and until then it is
+one file to re-author from `~/dev/panopticon` and revalidate.
+
+**The consequence, and it is `IMP-007`:** five unassigned slots now refuse every
+`profileVerb` until given `--profile`. Correct, designed for, and the operator
+has no way to say *slot f means panopticon* the way they already declare which
+policy a slot runs.
+
 **Not exercised.** No provision, no boot, no guest — panopticon has no image
-(`IMP-006`). No document was written to `/var/lib/capsule-profiles`, so this host
-still declares one target; the run was a rehearsal through the override that
-`ISS-004` made possible. And the two failure orders for one slot — the front end
-reached the profile check while `capsule-refresh` straight off `PATH` was refused
-by its transport first — is the two-copies-two-transports family, noted and not
-chased.
+(`IMP-006`), so nothing can be assigned to that document yet and the refusals
+above are as far as the target goes on this host. And the two failure orders for
+one slot — the front end reached the profile check while `capsule-refresh`
+straight off `PATH` was refused by its transport first — is the
+two-copies-two-transports family, noted and not chased.
 
 ## Open, and answered by doing it
 
