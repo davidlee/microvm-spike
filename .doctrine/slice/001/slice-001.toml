@@ -1,0 +1,64 @@
+id = 1
+slug = "a-slot-may-declare-which-target-it-is-for"
+title = "A slot may declare which target it is for"
+status = "design"
+created = "2026-08-17"
+updated = "2026-08-17"
+tags = ["area:cli", "area:target"]
+
+[relationships]
+needs = []                      # slice→work hard prerequisite
+after = []                      # slice→work soft sequence: { to, rank }
+
+[[selector]]
+selector = "capsules.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "host/cli.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "host/wrap.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "host/services.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "host/policy-cases.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "host/profile-cases.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "host/wrap-cases.nix"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "docs/contract-assignment.md"
+intent = "scope-relevant"
+
+[[selector]]
+selector = "docs/plan-d-fleet.md"
+intent = "scope-relevant"
+
+[[relation]]
+label = "governed_by"
+target = "POL-003"
+
+[[relation]]
+label = "governed_by"
+target = "POL-002"
+
+# STRUCTURAL relations are uniform `[[relation]]` rows, never a typed
+# `[relationships]` axis (SL-048 "the cut"). Slices carry no typed STRUCTURAL
+# relation axes — the `[relationships]` table above holds only the dep/seq payload
+# (`needs`/`after`, SL-060). Author a structural edge with the `doctrine link` verb
+# — it validates the (source, label) pair and resolves the target:
+#   doctrine link SL-NNN specs SPEC-018
+#   doctrine link SL-NNN governed_by ADR-010
+# `doctrine inspect SL-NNN` renders the inbound + outbound edges.
