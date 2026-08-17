@@ -207,23 +207,57 @@ a `.doctrine/` is — POL-002 makes the mechanism *recreate the volume*, never
 Filed `after` `IMP-001` because step 2 needs D3. Step 1 needed nothing and is
 done.
 
-## What step 1 left, for whoever takes step 2
+## Step 1's refusal has now run live — 2026-08-18, slot `e`
 
-- **The shipped `guestStages` text has never run.** The suite substitutes
-  `guestControl`, so what is pinned is every branch downstream of the answer and
-  not the ssh argv that fetches it — the same boundary item 41 leaves around its
-  sudo rule, and the reason `gitChannelCases` exists one program over. The first
-  live repurpose after a `~/flakes` rebuild is the exercise.
-- **The two transports disagree until that rebuild.** The devshell copy has the
-  pre-flight now; the module's wrapped copy gets it when the host is rebuilt, and
-  they already refuse in different orders
+The `~/flakes` rebuild landed (system generation 1044), so the module's copy
+carries the pre-flight and the exercise the section below was waiting for was
+taken on a slot chosen for being finished: `e`, inactive, unit `251`,
+generation 7, purpose `SL-251 audit of d`, its volume holding
+`refs/capsule/state/implementation` at `2d52146e7` and its work tree at
+`611511136`.
+
+Deliberately the **refusal** direction and nothing else, arranged so that an
+escape from the pre-flight would have been harmless: no `--unit` and no
+`--purpose`, so no record write was reachable, and the ref given was
+`6115111366f51f15ea2a12eac5f5e5af7b16407d` — the commit the guest already had —
+so a provision that did run would have pushed what was already there.
+
+`capsule e setup 6115111366… --state-from-host` exited 1 with the refusal,
+naming `refs/capsule/state/implementation`, generation 7 and unit 251. **The
+stage name came from the guest**, which is the part no suite can reach: the ssh
+argv, `profileQuote`'s single-`%q` array element and the heredoc all ran for
+real. Afterwards the record was identical field for field (generation 7, unit
+`251`, that purpose, base `refs/capsule/d/heads/work` at `6115111…`), the guest's
+`HEAD` was still `611511136`, its chain still held that one ref, and the
+quarantine still held its two. `Nothing was provisioned` was true.
+
+**Reading which copy has the pre-flight is itself a trap, and it cost two wrong
+readings here.** `/run/current-system/sw/bin/capsule` is a 14-line wrapper that
+`exec`s the program (`mem.fact.oubliette.module-programs-on-path-are-wrappers`),
+and a devshell entered before the commit still has the old store path
+(`mem.fact.oubliette.devshell-binaries-are-store-paths`) — grepping either says
+`0` while the shipped program says `2`. Also worth knowing that what landed was
+`just system-switch`'s `--override-input` on committed HEAD, not the lock:
+`~/flakes` still pins `github:davidlee/oubliette` at `c0313d5`, 17 commits behind
+(`mem.fact.oubliette.flakes-builds-this-repo-two-ways`).
+
+## What step 1 still leaves, for whoever takes step 2
+
+- **The drop half has still never run live.** `--force` is what reaches
+  `guestDropState`, and it also provisions — so exercising it costs a real
+  repurpose of whatever slot is used, which is why it was not taken alongside the
+  refusal. `CHR-002` is the item for `handoff`'s copies of the same two steps.
+  Same for the *guest that cannot be asked* branch: it is only reachable with the
+  VM down, and it deliberately falls through to a provision.
+- **The two transports now agree in content**, both carrying the pre-flight, and
+  they still refuse in different orders
   (`mem.fact.oubliette.two-copies-refuse-in-different-orders`).
 - **The residue is untouched, by decision.** A repurpose still inherits the last
-  unit's untracked and ignored files. `CHR-002` is the item for exercising
-  `handoff`'s own copies of these steps on a live slot; this one has now been
-  exercised in a sandbox and by hand, and never by the shipped program.
+  unit's untracked and ignored files.
 
 Evidence rung (`STD-001`): step 1 built, its branches pinned by a suite that runs
-the shipped program's text against a substituted guest, and its live path
-unexercised. Step 2 unbuilt. The original observation is one production run on
-this host.
+the shipped program's text against a substituted guest, and its **refusal** path
+now exercised once by the shipped program against a live guest — the drop path
+and the unreachable-guest path are not. Step 2 unbuilt, and `IMP-001` (D3's
+volume verbs) is still open, so it is blocked rather than next. The original
+observation is one production run on this host.
