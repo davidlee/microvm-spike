@@ -4,9 +4,9 @@ version = 1
 id = 3
 slug = "evidence-has-one-home-and-it-says-what-it-does-not-prove"
 title = "Evidence has one home, and it says what it does not prove"
-status = "proposed"
+status = "accepted"
 created = "2026-08-16"
-updated = "2026-08-16"
+updated = "2026-08-17"
 tags = []
 
 [relationships]

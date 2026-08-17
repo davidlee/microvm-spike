@@ -382,15 +382,23 @@ in
     second=$(g commit-tree "$tree" -p "$base" -m 'second assignment')
     st1=$(g commit-tree "$tree" -m 'state, first')
     st2=$(g commit-tree "$tree" -p "$st1" -m 'state, second')
+    # A second branch in the *code* half, and it fast-forwards. A half is a glob
+    # refspec — the guest chooses how many branches it pushes — so "the code
+    # half" is a set, and the two members can disagree exactly the way the two
+    # halves do (ISS-007).
+    sib1=$(g commit-tree "$tree" -p "$base" -m 'sibling, before')
+    sib2=$(g commit-tree "$tree" -p "$sib1" -m 'sibling, after')
 
     # `both` sorts before `one`, which is what makes the sweep below assert
     # anything: with the refusing slot last, a loop that stops at the first
     # failure passes the same round.
     git init -q --bare "$CASE_STATE/collect/both.git"
     g update-ref refs/capsule/both/heads/work "$first"
+    g update-ref refs/capsule/both/heads/spike "$sib1"
     g update-ref refs/capsule/both/state/implementation "$st1"
     g push -q "$CASE_STATE/collect/both.git" \
       "$second:refs/capsule/both/heads/work" \
+      "$sib2:refs/capsule/both/heads/spike" \
       "$st2:refs/capsule/both/state/implementation"
 
     run both fetch
@@ -403,6 +411,12 @@ in
       test "$(g rev-parse refs/capsule/both/state/implementation)" = "$st2"
     ckt "  while the code half stayed where it was" \
       test "$(g rev-parse refs/capsule/both/heads/work)" = "$first"
+    # ISS-007: the line above says *the half* refused, so every ref in it has to
+    # have refused. Without `--atomic` git updates each ref on its own and this
+    # one — a clean fast-forward — lands beside a refusal that claims it did not,
+    # which is item 50's complaint one level down, inside a half.
+    ckt "  and its fast-forwarding sibling did not move either" \
+      test "$(g rev-parse refs/capsule/both/heads/spike)" = "$sib1"
     # The remedy is item 50's key, named for the generation this slot is on, so
     # the message teaches the archive rather than the `--force` that loses it.
     ckt "  pointing at the archive that unblocks it" saw "refs/capsule/both/gen/"

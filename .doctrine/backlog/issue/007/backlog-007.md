@@ -50,19 +50,33 @@ state, by a verb that named neither) reproduced one level down, inside a half.
 Same shape for the state half across two stages, which is the likelier one: a
 handoff's source and its own stage chain need not agree.
 
-## The fix
+## The fix, and what it is not
 
-Add `--atomic` to the fetch in `fetchSlot`. Per-half, not per-pair — the pair
-stays split, for item 50's reason. Then a half is all-or-nothing and the
-`landed` / `refused` line is true of every ref in it.
+`--atomic` on the fetch in `fetchSlot` (`host/cli.nix:1165`). **Per-half, not
+per-pair** — the pair stays split for item 50's reason, that the two halves have
+opposite failure modes and a pair-atomic fetch would refuse a state half that
+was fine. Within a half all-or-nothing, so the `landed` / `refused` line is true
+of every ref in it. Same flag and the same invariant `capsule-collect` already
+takes (`host/git-channel.nix:603`).
 
-`policyCases` already has the fixture: `host/policy-cases.nix:359-427` builds
-two commits off one base and a state chain that fast-forwards over them, and
-runs `fetch` on agreeing and disagreeing halves. A round needs one more branch
-in the code half — one divergent, one fast-forwarding — asserting the
-fast-forwarding ref did *not* move when its sibling was refused. Mutate by
-dropping the flag and watch it go red.
+Nothing about which refs are eligible, where they land, or the remedy printed
+changes. `handoff` and `land` call `fetchSlot` and inherit it.
 
-Evidence rung (`STD-001`): the defect is **read** from source and from git's
-documented per-ref behaviour — **not run**. No host run has put two refs in one
-half in disagreement.
+## Verification
+
+One round added to the existing `policyCases` fixture
+(`host/policy-cases.nix`): the `both` slot's code half gains a second branch,
+`spike`, which **fast-forwards** while `work` diverges, and the round asserts
+`spike` did not move when the half was refused.
+
+Red before the flag, for the stated reason — the failing run showed
+`07af810..ea7c277 refs/capsule/both/heads/spike` landing on the same line-pair as
+`! [rejected] refs/capsule/both/heads/work (non-fast-forward)` under `capsule
+both: code: refused`. Green after. That red *is* the mutation check: the round
+was run against the unpatched program.
+
+Evidence rung (`STD-001`): the fix is **verified by test** (`VT`, `policyCases`
+in `just build`). **Not run on a host** — no live slot has been made to put two
+refs of one half in disagreement, and doing so costs two assignments plus a
+guest pushing a second branch. The defect itself was **read** from source and
+from git's per-ref update behaviour, never observed live.

@@ -1136,6 +1136,14 @@ in
         # beside another's state, under two names that say they belong together,
         # by a verb that exited 1 and named neither.
         #
+        # **A half is a set, so it moves atomically or not at all** (`ISS-007`).
+        # The split above is between the two halves and nothing smaller: each
+        # refspec is a glob and the guest chooses how many branches it pushes, so
+        # without `--atomic` git updates each ref on its own and one clean
+        # fast-forward lands beside a rejection under a line that says the half
+        # refused. That is the same complaint one level down, and it is what
+        # `capsule-collect` takes the flag for (host/git-channel.nix).
+        #
         # The remedy printed is the archive rather than a force: `+` here would
         # make the first assignment unreachable in the one place it is durable,
         # which is what the slot-keyed namespace already costs the quarantine
@@ -1154,7 +1162,7 @@ in
               code) ns=${quarantine.codeRefsOf ''"$n"''} ;;
               *) ns=${quarantine.stateRefsOf ''"$n"''} ;;
             esac
-            if git -C "$repo" fetch "$q" "$ns/*:$ns/*"; then
+            if git -C "$repo" fetch --atomic "$q" "$ns/*:$ns/*"; then
               echo "capsule $n: $half: landed"
             else
               echo "capsule $n: $half: refused" >&2
