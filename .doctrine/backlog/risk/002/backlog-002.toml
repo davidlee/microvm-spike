@@ -23,6 +23,6 @@ controls   = []
 # `doctrine link RSK-NNN <label> <target>`; `doctrine inspect RSK-NNN` renders
 # them. The dep/seq axes below stay typed (they carry per-edge payloads).
 [relationships]
-needs    = ["IMP-004"]                   # item→item hard prerequisite
+needs    = ["IMP-004", "IMP-006"]                   # item→item hard prerequisite
 after    = []                   # item→item soft sequence: { to, rank? }
 triggers = []                   # watched source globs: { globs, note? }

@@ -1,13 +1,13 @@
 schema = "doctrine.backlog"
 version = 1
 
-id = 4
-slug = "declare-a-second-target"
-title = "Declare a second target"
+id = 6
+slug = "a-second-target-at-once-which-is-a-second-guest-image"
+title = "A second target at once, which is a second guest image"
 kind = "improvement"
 status = "open"
 resolution = ""                 # seeded empty so `backlog edit` sets it in place
-created = "2026-08-16"
+created = "2026-08-17"
 updated = "2026-08-17"
 tags = ["area:target"]
 
@@ -17,10 +17,6 @@ tags = ["area:target"]
 # `doctrine link ITEM-NNN <label> <target>`; `doctrine inspect ITEM-NNN` renders
 # them. The dep/seq axes below stay typed (they carry per-edge payloads).
 [relationships]
-needs    = []                   # item→item hard prerequisite
+needs    = ["IMP-004"]                   # item→item hard prerequisite
 after    = []                   # item→item soft sequence: { to, rank? }
 triggers = []                   # watched source globs: { globs, note? }
-
-[[relation]]
-label = "related"
-target = "IMP-006"
