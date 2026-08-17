@@ -1,0 +1,46 @@
+memory_uid = "mem_01a0100a2ea67bc2bee4add08dbd8cf8"
+memory_key = "mem.fact.oubliette.a-provision-resets-tracked-files-only"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "A repurpose is not a reset"
+summary = "A provision resets tracked files only, so a repurposed slot still holds the last assignment's residue"
+created = "2026-08-17"
+updated = "2026-08-17"
+
+[scope]
+paths = ["host/cli.nix", "vm/capsule.nix"]
+globs = []
+commands = ["capsule"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "checkout_state"
+commit = ""
+tree = "d45dbeec9c0c44bf76fc6f08a99430845b0e9d36"
+ref_name = "refs/heads/main"
+checkout_state_id = "29d427706c5f8a65d480bcd1c9b855cc4b14bb9749824a2ce765817c284db27a"
+base_commit = "cabb6a0e6441985544dd9f96261838e4df7eb793"
+verified_sha = ""
+normalizer = "forget.checkout.v1"
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "high"
+weight = 0
+
+[[source]]
+kind = "observation"
+ref = "slot a, SL-254 to SL-256, 2026-08-17"
+

@@ -286,6 +286,7 @@ The index, so you know a thing exists before you trip over it:
 | An exhibit goes stale by branch tip, not by age — only a **detached** guest HEAD triggers it | `fact.oubliette.exhibit-staleness-is-a-branch-tip` |
 | The policy verb needs the owner's uid, not just the sudoers grant — and `sudo -n -l` says otherwise | `fact.oubliette.policy-verb-is-owner-only` |
 | One program, one copy per transport, and they refuse in **different orders** — a branch reachable through the front end is not reachable off `PATH` | `fact.oubliette.two-copies-refuse-in-different-orders` |
+| **A repurpose is not a reset** — a provision resets tracked files only, so the last assignment's residue crosses the boundary and only the volume is deterministic | `fact.oubliette.a-provision-resets-tracked-files-only` |
 
 **Adding one is `doctrine memory record`, not a row above.** A row with no memory
 behind it is the ratchet starting again in a new file.
