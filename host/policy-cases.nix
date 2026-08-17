@@ -93,6 +93,7 @@
     # — the same boundary item 41's seam leaves around its sudo rule.
     guestControl = ''
       guestHead() { cat "$CASE_STATE/head/$1" 2> /dev/null; }
+      guestStages() { cat "$CASE_STATE/stages/$1" 2> /dev/null; }
       guestDropState() {
         echo "$*" >> "$CASE_GUEST_LOG"
         [ -z "''${CASE_DROP_FAIL:-}" ] || return 1
@@ -696,6 +697,76 @@ in
     run both setup somecommit --purpose
     ck "--purpose with no sentence refuses" 1 "$rc"
     ckt "  with nothing pushed" test ! -s out.argv
+
+    # ========================= a repurpose's stale chain, and `ISS-009`
+    #
+    # A slot that has ever collected holds `${stateRefPrefix}/*` on its volume,
+    # a provision does not touch it, and the chain a `--state-from-host` carries
+    # is rooted on this host — so the guest refuses the state half **after the
+    # code has landed**, in `capsule-provision`'s `the code landed and the state
+    # did not`, naming a cause that is not the cause (item 50's fast-forward
+    # half). `handoff` has owned the drop since item 53 and `setup` did not, so
+    # the first repurpose of any collected slot hit it: observed on slot `a`,
+    # 2026-08-17, reassigning it from doctrine's SL-254 to SL-256, where it was
+    # dropped by hand.
+    #
+    # Reaching this on a host costs two assignments to one slot *and* a collect
+    # in between, which is the same arrangement as the rounds below plus a guest
+    # that has answered once — and the branch is a refusal, so the only honest
+    # way to see it is to be refused.
+    mkdir -p "$CASE_STATE/stages"
+    export CASE_GUEST_LOG=$PWD/guest.log
+    : > "$CASE_GUEST_LOG"
+    assign both holed
+    printf 'implementation\n' > "$CASE_STATE/stages/both"
+    wasUnit=$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")
+    wasGen=$(gen both)
+    run both setup somecommit --unit s5 --state-from-host
+    ck "a setup carrying state onto a stale chain refuses" 1 "$rc"
+    ckt "  naming the link the push would be refused for" \
+      saw "${stateRefPrefix}/implementation"
+    ckt "  and when the guest would have said so" saw "after the code had landed"
+    ckt "  spelling the other half of the flag it names" \
+      saw "discard commits the guest has made"
+    ckt "  and that the residue outlives the drop either way" saw "not a reset"
+    ckt "  with nothing provisioned" unsaw "provision argv"
+    ckt "  and nothing dropped" test ! -s "$CASE_GUEST_LOG"
+    # Ahead of the record writes, which is the window the live run hit: the slot
+    # was left recorded as SL-256's while still holding SL-254's tree, because
+    # `setup` writes both assigner-owned fields in front of the push.
+    ckt "  leaving the record where it was" \
+      test "$(jq -r .unit "$CASE_STATE/slot/both/assignment.json")" = "$wasUnit"
+    ckt "  down to its generation" test "$(gen both)" = "$wasGen"
+
+    # The deliberate limit of the step: a setup carrying no state half pushes
+    # nothing to those refs, so a chain on the volume is residue rather than an
+    # obstacle — and residue is what this leaves. Reuse goes on working.
+    run both setup somecommit
+    ck "a setup carrying no state is not refused for a chain" 0 "$rc"
+    ckt "  and provisions" saw "provision argv:"
+    ckt "  having dropped nothing" test ! -s "$CASE_GUEST_LOG"
+
+    # One flag, one meaning: discard what the guest holds that this host did not
+    # give it — its chain here, and its commits in the program downstream.
+    run both setup somecommit --unit s6 --state-from-host --force
+    ck "a forced setup drops the chain and provisions" 0 "$rc"
+    ckt "  asking the guest for the stage it actually holds" \
+      grep -qx "both implementation" "$CASE_GUEST_LOG"
+    ckt "  and saying which link went" saw "${stateRefPrefix}/implementation"
+    ckt "  with the flag still on the argv it was for" \
+      saw "somecommit --state-from-host --force"
+
+    # A drop that fails must stop *before* the push, or the code lands and the
+    # state does not — which is the failure this whole block replaces.
+    export CASE_DROP_FAIL=1
+    : > "$CASE_GUEST_LOG"
+    run both setup somecommit --state-from-host --force
+    ck "a chain that cannot be dropped stops the setup" 1 "$rc"
+    ckt "  naming what the push would otherwise be refused for" saw "non-fast-forward"
+    ckt "  and saying nothing was provisioned" saw "Nothing was provisioned"
+    ckt "  because nothing was" unsaw "provision argv"
+    unset CASE_DROP_FAIL
+    rm -f "$CASE_STATE/stages/both"
 
     # ================================== the pin, and NOTES item 52 step 3
     #

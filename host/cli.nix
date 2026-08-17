@@ -111,6 +111,25 @@
   guestControl ? ''
     guestHead() { observed "$1" | cut -f1; }
 
+    # Which stages the guest holds, one per line — the question `setup`'s
+    # pre-flight asks before it writes or pushes anything (`ISS-009`). Asked of
+    # the guest and not of the quarantine, for the same reason `guestDropState`
+    # is: the volume is where a state chain accumulates, and a collect is
+    # policy-governed, so routing this through one would let a slot's policy
+    # refuse a setup for a third unrelated reason.
+    guestStages() {
+      local n="$1" ssh_argv=()
+      local -a args
+      door "$n" probe || return 1
+      slotProfile "$n" >/dev/null || return 1
+      mapfile -t args < <(printf '%s\n' "$profile_guest_path" | profileQuote)
+      "''${ssh_argv[@]}" "agent@${net.guest}" 'bash -s' -- "''${args[@]}" <<'GUEST'
+    set -eu
+    git -C "$1" for-each-ref --format='%(refname:lstrip=-1)' \
+      ${stateRefPrefix}/
+    GUEST
+    }
+
     # Which links of the chain were dropped, one per line, so the caller reports
     # what happened rather than what it asked for. The guest decides what is
     # there: a stage in the quarantine that the guest no longer has is a forced
@@ -1599,6 +1618,66 @@ in
               esac
               shift
             done
+            # `ISS-009`, and item 50's fast-forward half from the other side. A
+            # slot that has ever collected holds ${stateRefPrefix}/* on its
+            # volume; a provision does not touch it, and the chain arriving with
+            # this setup is rooted elsewhere — so the guest refuses the state
+            # half **after the code has landed** (host/git-channel.nix's `the
+            # code landed and the state did not`), naming a cause that is not the
+            # cause. Asked here, which is ahead of the record writes as well as
+            # ahead of the push: a refused setup leaves the slot recorded as
+            # whatever it was still holding, rather than as the assignment it did
+            # not get. What that costs is one guest round trip in front of the
+            # token's own refusals, because `recordUnit` validates by writing and
+            # a validate-only read is item 46's shape, not this one.
+            #
+            # Only where the invocation carries a state half. A setup that
+            # carries none pushes nothing to those refs, so a chain sitting on
+            # the volume is residue rather than an obstacle — and residue is what
+            # this step deliberately leaves (`ISS-009` step 2).
+            setupCarriesState=no
+            setupForced=no
+            for a in ''${setupArgs[@]+"''${setupArgs[@]}"}; do
+              case "$a" in
+                --state-from-host | --state | --state=*) setupCarriesState=yes ;;
+                --force) setupForced=yes ;;
+              esac
+            done
+            if [ "$setupCarriesState" = yes ]; then
+              # A guest that cannot be asked is not a refusal here: the push is
+              # about to say so itself, in the program whose job that message is.
+              stales=()
+              mapfile -t stales < <(guestStages "$name" || true)
+              if [ "''${#stales[@]}" -gt 0 ] && [ "$setupForced" = no ]; then
+                echo "capsule: '$name' already holds state from an earlier assignment —" >&2
+                printf '  ${stateRefPrefix}/%s\n' "''${stales[@]}" >&2
+                echo "  generation $(recordField "$name" generation), unit $(recordField "$name" unit)." >&2
+                echo "  The chain this setup carries is rooted elsewhere, so the guest would" >&2
+                echo "  refuse it as a non-fast-forward after the code had landed, naming a" >&2
+                echo "  cause that is not the cause (NOTES item 50)." >&2
+                echo "  --force drops that chain and provisions. Nothing archives it: a" >&2
+                echo "  quarantine holds what the last collect took and no more, so collect" >&2
+                echo "  first if that chain is worth keeping. --force is one flag, and it is" >&2
+                echo "  also what lets the provision discard commits the guest has made." >&2
+                echo "  A repurpose is still not a reset: the volume also holds the last" >&2
+                echo "  unit's untracked and ignored files (ISS-009)." >&2
+                echo "  Nothing was provisioned." >&2
+                exit 1
+              fi
+              if [ "''${#stales[@]}" -gt 0 ]; then
+                echo "capsule $name: dropping the chain an earlier assignment left" \
+                  "(''${stales[*]}) — the incoming one is rooted elsewhere"
+                if ! dropped=$(guestDropState "$name" "''${stales[@]}"); then
+                  echo "capsule: could not drop ${stateRefPrefix}/* in '$name', so the" >&2
+                  echo "  state half of the provision would be refused as a" >&2
+                  echo "  non-fast-forward, naming a cause that is not the cause." >&2
+                  echo "  Nothing was provisioned." >&2
+                  exit 1
+                fi
+                [ -z "$dropped" ] || printf '  dropped %s\n' "$dropped"
+              fi
+            fi
+
             if [ "$unitGiven" = yes ]; then
               gen=$(recordUnit "$name" "$unitToken" \
                 ''${setupArgs[@]+"''${setupArgs[@]}"}) || exit 1
