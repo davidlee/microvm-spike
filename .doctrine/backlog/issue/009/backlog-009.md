@@ -116,12 +116,49 @@ the *order* is a human's call and was made deliberately (2026-08-17): reuse is
 what the operator wants in practice, a fresh VM per slice is the posture worth
 having, so the cheap correctness fix goes first and the posture follows it.
 
-1. **Carry `handoff`'s two steps into `setup`.** `archiveRefs` keyed on the
-   record's generation, and `guestDropState` over the stages the collect just
-   took, both skipped rather than refused where a slot has never been assigned.
-   Kills both refusals from the run above, is coverable in `policyCases`'
-   existing fixture, and **leaves the residue** — reuse keeps working, which is
-   the default the operator asked for. Say that out loud in the change.
+1. **Give `setup` a pre-flight over the guest's state chain — drop only, never
+   eagerly.** Decided 2026-08-17, five answers, each with its reason:
+
+   - **The drop, not the archive.** `handoff` archives because it forces over a
+     destination; `setup` does not force by default, so an archive here would
+     rename refs under `refs/capsule/<slot>/gen/<n>/` on every re-assignment and
+     nothing reaps them (item 50, and `CHR-008` is two such artefacts already).
+     The drop is what fixes the refusal; the archive is what pays for a force.
+   - **Pre-flight, because the current failure is not one.** The state half is
+     delivered by `briefHostState` *after* the code push lands
+     (`host/git-channel.nix:326`), and its message is `the code landed and the
+     state did not` — so a stale chain today yields a half-provisioned capsule
+     whose named cause is not the cause. Ask before pushing, refuse before
+     anything lands.
+   - **Ahead of the record writes.** Which also closes the window the run above
+     hit: a refused `setup` leaves the record where it was, instead of recording
+     `SL-256` on a slot holding `SL-254`'s tree. The cost is that an invalid
+     `--unit` token is now reported *after* a guest round trip rather than
+     before it, because `recordUnit` validates by writing and a validate-only
+     read is item 46's read-compare-write, not this item's.
+   - **`--force` gates both halves.** One flag, meaning *discard what the guest
+     holds that I did not give it* — its commits and its state chain. Without it
+     the refusal spells both consequences separately, naming only the ones that
+     apply, and says that nothing archives the chain because a quarantine keeps
+     what the last collect took and no more.
+   - **The stage list comes from the guest, not from a collect.** A collect is
+     policy-governed, so routing the question through one would let a slot's
+     policy refuse a setup for a third unrelated reason. `guestControl` gains a
+     lister beside `guestHead` and `guestDropState`, which keeps one round trip
+     and keeps "the guest decides what is there" — a stage in the quarantine the
+     guest no longer has is a forced refspec's leftover, not a ref to delete.
+
+   **Coverage is confirmed, not hoped for.** `policyCases` already substitutes
+   `guestControl` (`host/policy-cases.nix:93`): `guestDropState` logs its
+   arguments to `CASE_GUEST_LOG` and fails on `CASE_DROP_FAIL`, so both the
+   stages-passed assertion and the drop-refused branch land in the fixture that
+   exists — the arrangement item 53's 80 rounds already use. The lister is
+   stubbed the same way. `ssh` stays unstubbed, which is the boundary.
+
+   This step **leaves the residue**: reuse keeps working, which is the default
+   the operator asked for. Say so out loud in the change rather than letting a
+   fixed refusal read as a fixed repurpose.
+
 2. **Then the fresh half, on top of D3's `volume reset`.** The verb is D3's and
    the composition is `setup`'s, the way `setup` already composes provision,
    inject and baseline. Two names, deliberately, because they are two acts and
@@ -130,6 +167,29 @@ having, so the cheap correctness fix goes first and the posture follows it.
    `/work/home` half alone, which is where the previous agent's own state lives
    and which a checkout reset does not reach. A repurpose that names only one of
    them is under-specified.
+
+   **Opt-in, and possibly a declaration — undecided, deliberately.** `POL-003`
+   forbids an implicit default, so fresh-per-unit is either a flag an assigner
+   passes or something the host declares; which one is open. What is *settled* is
+   that it **needs nothing from Q3's clean/dirty model**: a `--fresh` that always
+   resets needs no predicate, and the refusal variant's trigger is `unit`
+   changed, which the record answers host-side with no round trip. Clean/dirty
+   would only buy not-nagging about a slot assigned and never worked in, and two
+   of its four signals (`$HOME` touched, a session opened) exist only inside the
+   guest — a predicate a stopped slot cannot be asked about. Q3 stays where it
+   belongs, on `clone-from`.
+
+   (Noticed while reading it: **`Q3` is cited once, at
+   `docs/plan-d-fleet.md:755`, and defined nowhere in the repo** — a question
+   list that did not survive a draft. The state model it names is spelled inline
+   at that line, so nothing is lost but the pointer. Worth deleting the citation
+   when that paragraph is next touched; not worth a chore of its own.)
+
+   **And the cold cost is bounded by what re-seeds `$HOME`.** The operator's
+   answer (2026-08-17): `doctrine install`, as the post-setup hook. So the
+   previous agent's `$HOME` state is reproducible rather than hand-made, and
+   fresh-per-unit costs the cold baseline and no manual step — which is what
+   makes the posture affordable enough to be worth having.
 
 Both steps are gated by things worth naming rather than discovering: a reset
 refuses while the VM runs, and *running* is a question about a namespace and
