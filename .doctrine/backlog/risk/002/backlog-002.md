@@ -27,5 +27,14 @@ host-side reaches exactly one of these three.
 Either way the condition holds: the second target must **genuinely omit** the
 fields. A second copy of doctrine proves nothing here.
 
-Evidence rung (`STD-001`): reasoned. Below **build** — no artifact even names
-these paths as tested.
+Evidence rung (`STD-001`), and it is no longer one rung for all three.
+`baseline = null` is **verified by test** — `host/policy-cases.nix:570` asserts
+the front end skips it and says so, off a fixture document rendering
+`baseline: null` (`:125`), and `host/baseline.nix:237` is the program's own
+refusal. That happened after this record was written and this line said
+otherwise: *"below build — no artifact even names these paths as tested"*, which
+was true of all three and is now true of two.
+
+`caches = {}` and `guestConfig = {}` stay **reasoned**. Both are build-time, so
+no document and no `*Cases` fixture can reach them — only a guest image built
+without them, which is `IMP-006`.

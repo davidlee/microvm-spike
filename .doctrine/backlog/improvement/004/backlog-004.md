@@ -1,57 +1,65 @@
 # IMP-004: Declare a second target
 
-**The host-side tier: a second target as a document beside this one, with no
-second image and no rebuild of any program.** The image tier — a second target
-running *alongside* doctrine — is `IMP-006`, and it is where the remaining half
-of this item's original claims went.
+**Two documents in one `profileDir`, on this host, for a repo that is not
+doctrine.** The image tier — a second target *running* alongside doctrine — is
+`IMP-006`.
 
 `docs/plan-c-multi-capsule.md` order of work, item 8. **Now a file rather than a
 rebuild** — `NOTES item 52` moved the documents out of the store, so the module
 writes one per declared target into `profileDir` at activation and
-`capsule-profile-check` validates a hand-written one. Nothing has ever used that.
+`capsule-profile-check` validates a document nix did not write. Nothing has ever
+put a second one there.
 
-**Sequential is done and is not this.** panopticon is a second target on branch
-`second-target` (`NOTES item 23`) — a switch, one target at a time. What has
-never been done is a second target *declared here*, resolvable on this host,
-without switching away from doctrine.
+## What this item is not, any more
 
-## What this tier can exercise
+It was written as *the only thing that can exercise three refusals that are
+build-time-only today*. That claim is **stale**: item 51's move of the target's
+run-time half into a document made all three reachable from a fixture, and three
+suites took them while this item sat open.
 
-- **`--unit` against a target with no `{unit}` hole** (`NOTES item 32`).
-  `statePaths` is in the document, so the refusal is document-side.
-- **`baseline = null`** — one of `RSK-002`'s three absent paths, and the only one
-  that is run-time. `capsule-baseline` refuses at run time for a document that
-  declares nothing, naming the profile (item 51 step 6), and nothing has made it.
-- **The front end with M targets on the module path.** `capsule all status` is
-  one table over N slots and M targets (item 51, decision 3); the unnamed-slot
-  refusal when two are declared; `--profile` winning over the record; the record
-  winning over the single-render fallback. All of it is written and only the
-  one-target path has ever run.
+| the claim | where it is pinned now |
+| --- | --- |
+| `--unit` against a template with no `{unit}` hole (`NOTES item 32`) | `host/git-channel-cases.nix:184` — *"and a --unit against a document with no hole refuses"* |
+| `baseline = null` (`RSK-002`) | `host/policy-cases.nix:570` — the front end skips and says *"declares no baseline"*; the fixture renders `baseline: null` at `:125`, and `host/baseline.nix:237` is the program's own refusal |
+| the front end with M targets | `host/policy-cases.nix:435` — *"an unassigned slot refuses once this host declares two"*, naming both |
 
-## What it cannot, and where that went
+`capsule-adopt`'s gitlink class and the corrected `capsule-baseline` sizing were
+this item's other two, and both are `IMP-006`'s: they need a second guest doing
+real work, not a second document.
 
-`caches = {}` and `guestConfig = {}` are the **build-time half** — inputs to the
-guest image, deliberately absent from the document (`docs/contract-target.md`).
-Same for `capsule-adopt`'s gitlink class and the corrected `capsule-baseline`
-sizing, both of which need a real second guest doing real work. Those four are
-`IMP-006`.
+## What is left, and it is an exercise
 
-So **`RSK-002` is not discharged by this item** — one of its three absent paths
-is, and the risk's `needs` now points at `IMP-006`.
+Every row above is **a program's own text against a fixture** — the third kind of
+check (`CLAUDE.md`). None of it has ever been a real document, on this host,
+beside doctrine's. That gap is the same shape as `CHR-002`, `CHR-003` and
+`CHR-011`: the logic is pinned and the *arrangement* is not.
 
-## The shape
+The deliverable:
 
-A genuinely different repo, and genuinely omitting fields: a second copy of
-doctrine proves nothing, which is `RSK-002`'s own mitigation clause. This is the
-review challenge made concrete (`CLAUDE.md`, *doctrine is the guinea pig*):
-**would a different target need this code changed, or only a different value?**
+1. **Author panopticon's document.** `~/dev/panopticon` is a real second target
+   and its `target.nix` is on branch `second-target` (`NOTES item 23`) — uv
+   rather than cargo, `UV_CACHE_DIR`, no `statePaths`, no `refresh`, 4096 MiB and
+   an 8 GiB volume. It predates three field removals (`allowlist`,
+   `defaultBranch`, `collectMaxPackBytes`), so bringing it to today's shape is
+   itself a check on what the contract dropped.
+2. **Validate it** with `capsule-profile-check`, which has never been run over a
+   document that was not this host's own render.
+3. **Drive the module-path front end with both documents** —
+   `CAPSULE_PROFILE_DIR` is a *default* since `ISS-004`, so a caller may point it
+   at a directory holding two without root and without writing to
+   `/var/lib/capsule-profiles`. Read-only verbs only; nothing near the slot
+   driving `SL-251`.
+4. **Record what breaks**, and correct whatever the run contradicts —
+   `docs/contract-target.md` and `RSK-002`'s rung included.
 
-Open question for the design: whether the second document is rendered by nix from
-a second `target.nix`-shaped file — which needs an axis for "the targets this
-host declares" and therefore a `POL-003` answer — or dropped in by hand as the
-file item 52 says a non-nix producer may write. The second is cheaper and tests
-the validator; the first is what a host with two real targets would want.
+## Open, and answered by doing it
 
-Evidence rung (`STD-001`): the capability is **built and unused**. This buys
-**trigger** on one refusal, **take** on one absent path, and a first run of the
-M-target front end.
+Whether a second document should be **rendered by nix from a second
+`target.nix`-shaped file** — which needs an axis for *the targets this host
+declares* and therefore a `POL-003` answer — or **hand-written**, which is the
+producer item 52 explicitly allowed for. Hand-written first: it tests the
+validator, and it does not drag in an axis question that belongs to `IMP-006`.
+
+Evidence rung (`STD-001`): the logic is **verified by test**; the arrangement is
+**unrun**. This item buys **taken** on two documents at once, and on
+`capsule-profile-check` over a document nix did not write.
