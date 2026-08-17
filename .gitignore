@@ -8,6 +8,10 @@ HANDOVER.md
 .doctrine/slice/*/phases
 .doctrine/**/handover.md
 .doctrine/slice/*/inquisition.md
+# Runtime tier: the pre-design research round's evidence, disposable and
+# regenerable (`doctrine slice research <id>`). Durable findings are harvested
+# into the slice, a memory or an ADR at close.
+.doctrine/slice/*/research/
 .doctrine/memory/index/*
 .doctrine/memory/embeddings/*
 .doctrine/memory/state/*
