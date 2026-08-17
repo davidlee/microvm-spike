@@ -52,6 +52,54 @@ The deliverable:
 4. **Record what breaks**, and correct whatever the run contradicts —
    `docs/contract-target.md` and `RSK-002`'s rung included.
 
+## The run, 2026-08-17
+
+Hand-written `panopticon.json` (uv and cargo caches, 4096 MiB, an 8 GiB volume,
+`baseline = "just check"`, `refresh = null` as the port declared), beside a copy
+of this host's `doctrine.json`, with `CAPSULE_PROFILE_DIR` pointed at the pair.
+Module-path binaries by absolute path, read-only verbs only, nothing near the
+slot driving `SL-251`.
+
+**What worked, first time and unmodified:**
+
+- `capsule-profile-check` accepted the hand-written document and printed all
+  twelve values plus `needsUnit yes` — the first document nix did not write.
+- `capsule all status` with two declared targets: the assigned slots kept their
+  record's `doctrine`, and the five unassigned ones went from `doctrine` to `-`.
+  No guess, exactly as item 51 decision 3 says, and the table needed no
+  per-target shape.
+- `capsule f collect` refused: *"'f' has no assignment and this host declares
+  more than one target: doctrine panopticon"*, naming both and naming the verb
+  that assigns.
+- `capsule f refresh --profile nosuch` refused naming the directory it looked in.
+
+**What broke — two, both fixed:**
+
+1. **`capsule-profile-check` was reachable by nobody.** Built only as an argument
+   to `profileCases`; no `packages` entry, no devshell, no `systemPackages`. The
+   contract names it as *what to run before dropping a document in* and item 52's
+   point is a producer that is not nix, so the one caller it exists for had
+   nothing to run. Now all three.
+2. **`capsule-refresh` announced a command that was not there.**
+   `capsule f refresh --profile panopticon` printed `capsule-refresh:  in f` and
+   *then* refused for `refresh = null` — the banner sat above `refreshInvoke`
+   and the absent-path check sits inside it. `ISS-006`'s class. The line moved
+   into `refreshInvoke` after the check, `capsule-provision`'s weaker
+   *"regenerating derived state"* went with it, and `refreshCases` took the
+   fragment as a second subject to pin the order.
+
+**A third, doc-level:** `host/services.nix`'s `systemPackages` header still said
+`capsule-baseline` and `capsule-refresh` *"go on PATH as they are"*, fifteen
+lines above the entry that wraps both and says *"Wrapped since ISS-004"*.
+
+**Not exercised.** No provision, no boot, no guest — panopticon has no image
+(`IMP-006`). No document was written to `/var/lib/capsule-profiles`, so this host
+still declares one target; the run was a rehearsal through the override that
+`ISS-004` made possible. And the two failure orders for one slot — the front end
+reached the profile check while `capsule-refresh` straight off `PATH` was refused
+by its transport first — is the two-copies-two-transports family, noted and not
+chased.
+
 ## Open, and answered by doing it
 
 Whether a second document should be **rendered by nix from a second

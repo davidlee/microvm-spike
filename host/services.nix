@@ -768,9 +768,12 @@ in {
           ${hostPrograms.profile.dir}/*.json ${cfg.profileDir}/
       '';
 
-      # Only the three that touch host state need wrapping; `capsule-inject`,
-      # `capsule-baseline` and `capsule-refresh` write nothing host-side, so they
-      # go on PATH as they are. All of them but `capsule-adopt` reach the guest
+      # Everything that reads one of the five directories is wrapped, and the
+      # list below says which and why per entry. This paragraph used to say only
+      # three needed it and name `capsule-baseline` and `capsule-refresh` as
+      # going on PATH as they are; `ISS-004` wrapped both — being bare is what
+      # made that defect visible — and the sentence stayed, contradicting the
+      # entry fifteen lines under it. All of them but `capsule-adopt` reach the guest
       # through a relay socket, which is the only way in on this path — `--capsule <name>` or
       # `CAPSULE_NAME` picks whose,
       # and there is no fallback: a slot's name says nothing about what is in it,
