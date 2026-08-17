@@ -1,0 +1,42 @@
+memory_uid = "mem_01a00d755e3774e3b06af211b83fa019"
+memory_key = "mem.fact.oubliette.two-copies-refuse-in-different-orders"
+schema_version = 1
+memory_type = "fact"
+status = "active"
+title = "Two copies of a program refuse in different orders"
+summary = "The front end's copy of a guest program and the one on PATH refuse in different orders, so a branch reachable through one is unreachable through the other"
+created = "2026-08-17"
+updated = "2026-08-17"
+
+[scope]
+paths = ["host/cli.nix", "host/programs.nix", "host/refresh.nix"]
+globs = []
+commands = ["capsule-refresh"]
+tags = ["gotcha"]
+workspace = "default"
+repo = "github.com/davidlee/oubliette"
+repo_id_kind = "remote"
+repo_id_confidence = "high"
+
+[git]
+anchor_kind = "commit"
+commit = "d1a9847243b4d4eb21bc0950babc73460ddd3d49"
+tree = "42ad777db3d56ba73581f499b45a09a6123daff0"
+ref_name = "refs/heads/main"
+checkout_state_id = ""
+base_commit = "d1a9847243b4d4eb21bc0950babc73460ddd3d49"
+verified_sha = ""
+normalizer = ""
+
+[review]
+verification_state = "unverified"
+reviewed = ""
+review_by = ""
+
+[trust]
+trust_level = "medium"
+
+[ranking]
+severity = "none"
+weight = 0
+
