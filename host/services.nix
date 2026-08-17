@@ -818,6 +818,14 @@ in {
         # only one that reads a quarantine belonging to a capsule other than the
         # one it acts on — which is the whole verb (NOTES item 35).
         (wrap "capsule-brief" hostPrograms.brief)
+        # Bare, like `inject` and for a stronger reason: it takes a file and
+        # reads no host state at all — no quarantine, no record, no directory to
+        # default. It is here because item 52's producer is allowed not to be
+        # nix, and the human dropping a document into `profileDir` is the caller
+        # this program exists for (host/profile.nix, docs/contract-target.md).
+        # Until `IMP-004` it was built only as an argument to `profileCases`, so
+        # the one person the contract tells to run it had nothing to run.
+        hostPrograms.profile.check
       ];
 
       # Rotated rather than truncated: it is the record of every egress attempt

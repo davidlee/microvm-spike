@@ -217,6 +217,15 @@
         echo "  is a target with nothing derived from its code, not a fault." >&2
         return 1
       fi
+      # **The banner is here and not in the program, because this is the function
+      # that knows there is a command** (`IMP-004`). It sat above the call, so a
+      # profile declaring no refresh printed `capsule-refresh:  in <slot>` — an
+      # announcement of an empty command line, in a capsule, as a statement of
+      # what was about to happen — and refused underneath it. `ISS-006`'s class.
+      # Moving it inside also puts it where a suite can see the order, which the
+      # program's own text is not: run `capsule-refresh` against a slot with no
+      # door and the transport refuses before either line is reached.
+      echo "capsule-refresh: $profile_refresh in $capsule"
       mapfile -t args < <(
         printf '%s\n' "$profile_guest_path" "$profile_refresh" | profileQuote
       )
@@ -253,7 +262,6 @@ in {
         echo "  item 33). This one is: ''${profile_refresh:-none}" >&2
         exit 1
       fi
-      echo "capsule-refresh: $profile_refresh in $capsule"
       refreshInvoke
     '';
   };

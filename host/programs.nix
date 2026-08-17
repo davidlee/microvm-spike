@@ -325,6 +325,13 @@ in {
   # one (NOTES item 51).
   refreshScript = refreshHook.refreshScript;
 
+  # The host half beside it, and the same rule: `refreshCases` pins what is said
+  # before anything runs, which is this fragment's and not the script's, and the
+  # program's own text cannot be driven to it (a slot with no door is refused by
+  # the transport first). Exported from here so the suite gets the text the two
+  # callers get — `fragments.refresh` above is the same value.
+  refreshInvoke = refreshHook.invoke;
+
   # The non-git half of provisioning: credentials, secrets and anything else a
   # fresh capsule needs that no repository carries. The list is ./setup.nix,
   # which is handed the volume's mount point — a payload's destination is in the

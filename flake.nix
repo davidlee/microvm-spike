@@ -497,6 +497,10 @@
     refreshCases = import ./host/refresh-cases.nix {
       inherit pkgs lib;
       script = hostPrograms.refreshScript;
+      # The host half, from where its callers get it (`host/programs.nix`'s
+      # `fragments.refresh`), so the suite pins the text `capsule-provision` and
+      # `capsule-refresh` both run rather than a second render of it.
+      invoke = hostPrograms.refreshInvoke;
     };
 
     # The ninth, and the first over a program that talks to a guest: what it can
@@ -1326,6 +1330,14 @@
         # The rendered run-time half of `target.nix`, so a human can read what a
         # program will resolve (host/profile.nix). `nix build .#capsule-profiles`.
         capsule-profiles = hostProfile.dir;
+        # The validator as a program, and it was reachable by nobody: built only
+        # as an argument to `profileCases`, in no `packages` set, in no devshell
+        # and in no `systemPackages` — while `docs/contract-target.md` names it
+        # as *what to run before dropping a document in*. That caller is the
+        # reason it is a program at all (host/profile.nix), and item 52's whole
+        # point is a producer that is not nix, so a checker only nix can reach
+        # is the same gap `ISS-004` was: shipped in the abstract (`IMP-004`).
+        capsule-profile-check = hostProfile.check;
         inherit capsule-cli capsule-provision capsule-collect capsule-inject;
         inherit probe-netns probe-netns-restart probe-netns-boot probe-netns-egress;
         inherit probe-freshness probe-two-capsules;
@@ -1363,6 +1375,10 @@
         capsule-refresh
         capsule-adopt
         capsule-brief
+        # Takes a file and nothing else — no state, no transport, no name to
+        # resolve — so the devshell copy and the module's are the same store path
+        # and neither needs the wrapper.
+        hostProfile.check
       ];
       shellHook = ''
         echo "capsule — firecracker. host side:  capsule-net up  &&  capsule-host"

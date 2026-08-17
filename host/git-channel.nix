@@ -352,7 +352,9 @@
         echo "capsule-provision: profile '$profile_name' derives nothing from"
         echo "  its checkout, so there is nothing to regenerate."
       else
-        echo "capsule-provision: regenerating derived state"
+        # No line of its own here: `refreshInvoke` announces the command it is
+        # about to run, in the function that knows there is one (`IMP-004`), and
+        # "regenerating derived state" said the same thing with less in it.
         if ! refreshInvoke; then
           echo "capsule-provision: the code landed and the refresh did not." >&2
           echo "  The checkout is at $commit; what it derives is stale or absent." >&2

@@ -26,6 +26,12 @@
   # no target would run passes one rather than building a second copy of this
   # program — and this is `host/refresh.nix`'s script as it ships.
   script,
+  # The host half of the same program, as its two callers get it: the fragment
+  # defining `refreshInvoke`. A second subject in this file because it is the
+  # same program one side of the door over, and because the branch it pins —
+  # what is said before anything runs — is not reachable through the program's
+  # own text (see the last section).
+  invoke,
 }: let
   # A command that reads stdin and writes a tracked file — doctrine's refresh
   # in miniature, and the only shape that discriminates. `cat` is not a
@@ -148,6 +154,45 @@ in
     rc=0; bash -s <${script} >out 2>err || rc=$?
     ck "a refresh with no arguments refuses" 2 "$rc"
     ckt "  and says what it wanted" grep -q 'usage: <work> <command>' err
+
+    # -------------------------------------- what the host side says before it runs
+    #
+    # A second subject in this file and the same program: `invoke` is the host
+    # half, and the only two things it does before ssh are the absent-path
+    # refusal and the line announcing the command. Their **order** is the finding
+    # (`IMP-004`, found on a live host with a second target's document): the
+    # announcement used to sit in `capsule-refresh`'s own text above the call, so
+    # a profile declaring no refresh printed `capsule-refresh:  in <slot>` — an
+    # empty command line, in a capsule, as a statement of what was about to
+    # happen — and refused underneath it. `ISS-006`'s class.
+    #
+    # The program's own text cannot pin this and that is why the line moved: run
+    # `capsule-refresh` against a slot with no door and the transport refuses
+    # first, so the branch is unreachable from outside. Two stubs, both named:
+    # `profileQuote` is the profile fragment's and `ssh_cmd` is the transport's,
+    # and neither is what this pins.
+    {
+      echo 'set -euo pipefail'
+      echo 'profileQuote() { cat; }'
+      echo 'ssh_cmd=(true)'
+      printf '%s\n' ${lib.escapeShellArg invoke}
+      echo 'refreshInvoke'
+    } >host.sh
+
+    hostRun() {
+      capsule=slot profile_name="$1" profile_refresh="$2" profile_guest_path=/work/x \
+        bash host.sh >out 2>err
+    }
+
+    rc=0; hostRun nothing "" || rc=$?
+    ck "a profile that declares no refresh refuses" 1 "$rc"
+    ckt "  naming the profile" grep -q "profile 'nothing' declares no refresh" err
+    ckt "  and announces nothing, because nothing is about to run" test ! -s out
+
+    rc=0; hostRun something 'just boot' || rc=$?
+    ck "and one that declares one runs it" 0 "$rc"
+    ckt "  saying which command, in which capsule" \
+      grep -q 'capsule-refresh: just boot in slot' out
 
     [ "$fail" = 0 ] || exit 1
     cp "$log" $out
